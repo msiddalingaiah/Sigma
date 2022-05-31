@@ -1,0 +1,41 @@
+
+<project name="Sigma" default="jar" basedir=".">
+	<description>
+        SDS/XDS Sigma simulator build file
+    </description>
+	<property name="src" location="src"/>
+	<property name="bin" location="bin"/>
+	<property name="jarfile" location="sigma.jar"/>
+
+	<target name="init">
+		<tstamp/>
+		<mkdir dir="${bin}"/>
+	</target>
+
+	<target name="compile" depends="init"
+        description="compile the source" >
+		<javac srcdir="${src}" destdir="${bin}"/>
+	</target>
+
+	<target name="jar" depends="compile"
+        description="generate executable jar file" >
+		<jar jarfile="${jarfile}" basedir="${bin}">
+			<manifest>
+				<attribute name="Main-Class" value="com.madhu.sigma.gui.PCPFrame"/>
+			</manifest>
+		</jar>
+	</target>
+
+	<target name="run" depends="jar"
+		description="run the simulator within ant">
+		<java jar="${jarfile}" fork="true">
+			<arg value="sigma6.props"/>
+		</java>
+	</target>
+
+	<target name="clean"
+        description="clean up" >
+		<delete dir="${bin}"/>
+		<delete dir="${jarfile}"/>
+	</target>
+</project>

@@ -1,0 +1,494 @@
+
+3 Nov 2002 10:23pm
+
+STATUS
+
+Basic memory implementation (word organization), testing
+Basic CPU reset, execute
+Disassembler in memory and file
+
+TO DO
+
+Implement boot code instructions
+
+==================
+
+4 Nov 2002 11:16pm
+
+STATUS
+
+LW,0 24 runs at about 22 MIPs
+Boot code runs
+HCPIOP implementation reads first 5 cards from sighcp
+Implemented several instructions, include SIO and TIO
+Stops at LPSD
+
+TO DO
+
+AI does not support fixed point overflow CC values
+Simplify SIO and TIO, IOPs should set CCs themselves
+
+==================
+
+5 Nov 2002 8:07pm
+
+STATUS
+
+Simplified exec loop to switch statement
+Simplified SIO, TIO instructions
+Stops at BAL (card 43)
+
+==================
+
+5 Nov 2002 11:37pm
+
+STATUS
+
+Finished several more instructions
+Overflow for AI, AW, MTB, MTW works, but not sure if it's correct
+Stops at XPSD (card 72)
+
+==================
+
+8 Nov 2002 1:00pm
+
+STATUS
+
+SIGHCP runs to completion
+Cards 79-107 skipped (not running Sig 5/7/9 or BIG 6)
+
+==================
+
+10 Nov 2002 1:00am
+
+STATUS
+
+Added TapeDrive and TTY IOPs
+Built first order debugger GUI interface
+Tested AUDIAG.MT, fails to run appropriate command
+
+==================
+
+10 Nov 2002 5:30pm
+
+STATUS
+
+Debugger working well, added breakpoints etc.
+Added properties file support
+
+==================
+
+11 Nov 2002 11:15pm
+
+STATUS
+
+Added memory edit/quick assembly into debugger
+
+==================
+
+12 Nov 2002 1:00pm
+
+STATUS
+
+All PCP textfields accept dot notation for HEX
+Memory edit accepts numbers (dec & hex)
+
+==================
+
+13 Nov 2002 7:00pm
+
+STATUS
+
+Many fixes to debugger UI
+Fixed overflow, carry in AW
+Masked off high address bits in memory class to avoid out of bounds
+Added DW, S instructions
+First run of 9AUTO, fails with lots of gibberish
+Created FlatFile IOP for simple loads
+Added IOPManager
+
+==================
+
+14 Nov 2002
+
+STATUS
+
+Fixed CC bug in MTB, MTW, 9auto prints correctly now
+Gibberish is due to bug in print routine, patch
+.BCF6 WAIT,0 0 to avoid
+Added more order codes to TapeDrive, AUDIAG now runs better
+Added sense switches to GUI
+Threaded CPU, start/stop works
+
+==================
+
+15 Nov 2002
+
+STATUS
+
+Fixed breakpoint bugs in threaded CPU
+Built some async IOPS, needs work
+
+==================
+
+16 Nov 2002
+
+STATUS
+
+Added trap40, fixed bugs
+7Auto fails at (bogus inst)
+
+==================
+
+16 Nov 2002
+
+STATUS
+
+Nopped out WD and AIO for 7AUTO testing purposes
+Added many instructions, e.g. LH, LCW, LAD, XW, INT etc.
+Fixed many bugs, but some failure occurr:
+1. EXU fails when executing bogus inst. int reg 12
+2. LPSD, XPSD fail with wrong CC in 3 cases
+Stopped before implementing ANLZ
+
+==================
+
+18 Nov 2002
+
+STATUS
+
+Fixed bogus instruction trap (EXU .12)
+Fixed LPSD, XPSD bugs
+Improved trap40 code
+
+49 instructions not implemented
+
+CAL1  CAL2  CAL3  CAL4  PLW   PSW   PLM   PSM
+AD    CD    MSP   SD    CLM   FSL   FAL   FDL
+FML   MI    SF    CVS   CVA   MW    CLR   FSS
+FAS   FDS   FMS   TTBS  TBS   ANLZ  CS    OR
+AH    CH    DH    MH    SH    CBS   EBS   PACK
+UNPK  DS    DA    DD    DM    DSA   DC    DL
+DST
+
+Not including floating and decimal instructions:
+
+CAL1  CAL2  CAL3  CAL4  PLW   PSW   PLM   PSM
+AD    CD    MSP   SD    CLM   MI    SF    CVS
+CVA   MW    CLR   TTBS  TBS   ANLZ  CS    OR
+AH    CH    DH    MH    SH    CBS   EBS
+
+31 instructions remaining
+
+==================
+
+23 Nov 2002
+
+STATUS
+
+Added many instructions, completed SF, CAL
+Stopped at MW
+integrated some of Keiths stack instructions
+
+Not including floating and decimal instructions:
+
+PLW   PSW   PLM   PSM   MI    CVS   CVA   MW
+TTBS  TBS   DH    MH    CBS   EBS
+
+14 instructions remaining
+
+==================
+
+24 Nov 2002 3:30 pm
+
+STATUS
+
+Added many instructions, completed MW, DH etc.
+7auto Stopped at EBS
+integrated all of Keiths stack instructions
+Fixed instruction breakpoint
+Break count for instruction works also
+
+7auto fails on NAO;
+
+32401E30  00000001  000002E3  26C004A0  50000001  00000173  10000175  10000006
+32401E30  00000002  000002E3  26C004A0  6000000C  00000000  80000000  80000000
+
+Added Keiths CVA
+
+7suffix fails at CVA:
+
+00000B22  00000001  00000003  29400452  50000001  200001C9  A00001C9  80000000
+
+Remaining instructions:
+
+CVS   TTBS  TBS   CBS   EBS
+
+==================
+
+24 Nov 2002 8:40 pm
+
+STATUS
+
+CVA fixed
+Added MMC, MainMemory code, trap exceptions, not tested!
+
+==================
+
+25 Nov 2002 6:10 pm
+
+STATUS
+
+Trapped out EBS, 7AUTO runs to completion
+Added WD code to handle alarm, does nothing with alarm reset, toggle PCF f/f
+Finished MMC, MainMemory code
+Traps, XPSD adjusted to handle memory map issues, not sure if it's right
+Peculiarity about XPSD not in trap with mapping, not sure if it's right
+7SUFFIX runs through MMC, stops at CBS
+SigmaCPU.java is about 3700 lines
+
+==================
+
+26 Nov 2002
+
+DATA
+
+timeInstruction(='LW,0 .24')
+	- Calling executeOne yields 10.03 MIPS
+	- Switch with all cases yields 11.64 MIPS
+	- Subclassed inner class with two method calls yields 17.3 MIPS
+	- Subclassed inner class with one method call yields 20.38 MIPS
+	- Switch with one case 0x32 yields 21.37 MIPS
+	- fetch + doLW() yields 22.37 MIPS
+
+==================
+
+27 Nov 2002 4:20 pm
+
+STATUS
+
+Reworked exec loop to use inner classes
+timeInstruction(='LW,0 .24') yields 16.5 MIPS
+Added interrupt armed, group masks
+Finished RD & WD interrupt codes
+Finished HIO, TIO, TDV
+Built AssemblyReader IOP
+
+==================
+
+28 Nov 2002 6:30 pm
+
+STATUS
+
+Adjusted TTY IOP to return automatic mode in status
+Added IATracer class to monitor branch trace
+Corrected CALx bug to disable memory map in trap
+7mapabs runs to completion and yields output:
+
+ SIGMA CPU DIAGNOSTIC-MAP  PROGRAM 704048-D02  MANUAL 900920D
+20 PASSES
+
+ EITHER REVISION U OF FRAME 3 NOT IMPLEMENTED OR
+
+ ASSOCIATED INDIRECT ADDRESSING LOGIC ERROR OCCURRED
+ COUNTER 4 INTRP.(X 55 ) HAS NO MAP OPTION
+ COUNTER 4 INTRP.HAS NO INDIRECT ADDRS MAPPING
+   REAL TIME CLOCKS ARE IN USE. TO DISABLE  CP INTERRUPT AND CLEAR R5
+20 PASSES
+20 PASSES
+20 PASSES
+20 PASSES
+20 PASSES
+20 PASSES...
+
+Map is disabled for counter 4 interrupt as per Sig6 ref, page 18, pp 2b.
+7map appears not to test writelocks??
+
+7suffix errors:
+
+                               SUFFIX ERROR DISPLAY
+    LIST     ERRORS    PASSES     INST   IDENTIFIER    IS    SHOULD BE    DIFF
+
+  000008E8  00000001  0000004B  0A8E03C2  50000001  000001C9  100001C9  10000000
+
+==================
+
+02 Dec 2002 10:50 am
+
+STATUS
+
+Fixed count bug in Memory::loadWriteLocks
+XPSD: no memory protection errors can occurr in trap XPSD
+Fixed PSM, PLM
+Added LAS
+
+7protabs output:
+
+CNT PULSE INTERRUPTS ARMED ON NEXT PASS. -- INTERRUPT AND CLEAR R5 TO DISARM.
+
+                                PROTECT ERROR DISPLAY
+      TEST  ERRORS  PASSES  ADDRESS   LOCK  KEY     PSW1   EXPECTED PSW1  WROTE
+       03   00001   00024    1CFFF     00    01  *10000066   00000169      *NO
+
+==================
+
+04 Dec 2002 12:40 am
+
+STATUS
+
+Disabled WLs in single instruction interrupt
+7protabs shows no errors. Not sure if this is correct...
+Added LMS as priv. LAS with no CC
+7AUTO shows no errors
+Replaced Timer with Observer/Observable/invokeLater
+
+==================
+
+06 Dec 2002
+
+STATUS
+
+Maybe fixed 7MAP rev. U bug
+
+==================
+
+07 Dec 2002
+
+STATUS
+
+Integrated TTBS, TBS, CBS, fixed MBS mask bug provided by Keith
+Added CL, AD flag operations to LPSD
+Adjusted trap handling for XPSD to mirror logic equations
+Refactored interrupt handled for XPSD, MTB, MTH, MTW
+
+==================
+
+07 Dec 2002
+
+STATUS
+
+Fixed major flaws in MAP/AC logic
+Added DL, DST provided by Keith
+Regression tests with SIGHCP, 7AUTO, 7SUFFIX, 7MAP, 7PROT succeed
+7DECIMAL fails on unimplemented DA
+
+==================
+
+15 Dec 2002
+
+STATUS
+
+Changed counters to use 500Hz on average (removed counter thread)
+PSDPanel allows viewing of mapped/unmapped memory with one click
+Fixed counter 4 map problems, fixed XPSD map also (I think)
+
+==================
+
+16 Dec 2002
+
+STATUS
+
+Removed InterruptSystem.java (contained clock thread)
+Added menus to PCPFrame, IATrace frame needs work
+
+==================
+
+29 Dec 2002
+
+STATUS
+
+Corrected bug in LPSD when no interrupts are pending
+Fixed IATrace to update on step/stop
+
+==================
+
+31 Dec 2002
+
+STATUS
+
+Corrected bug in RD register update as discovered by Keith
+Fixed logic in interrupt handling, 7INTRAP does not complete
+
+==================
+
+1 Jan 2003
+
+STATUS
+
+Corrected bugs in interrupt logic
+7INTRAP appears to run to completion
+
+==================
+
+3 Jul 2013
+
+STATUS
+
+Add comments and build.xml
+
+**==============**
+
+TO DO
+
+*** HIGH PRIORITY ***
+
+RTC data-chained output to TY (column 1 but no YES/NO/ERROR) also must be faking a NL
+7INTRAP command-chained output + TIC to TY (RESPOND, but no M6)
+7INTRAP Reset should restart (not clear memory)
+IO instructions and IOPs must communicate through .20/.21
+7PFS no way to activate PON/POFF interrupts (or save memory to disk :)
+SEX IOP address recognition on address 0, .100, .200
+SEX IO instructions changing locations .20/.21 on TIO (status returned there before R/Ru1)
+SEX needs to output fairly valid "attached" devices and associated model numbers.
+PORT wait at 69 doesn't wait allowing the triggered interrupts.
+CPCU.MT no data transfer (but no error reported either)
+AUDIAG has an extraneous prompt ">"
+TY input not forced to upper case
+TDIAG order 03 unsupported---SIO accepts, TIO returns CC1, loopus.
+MTLU00 same as above.
+
+Fix step to show interrupts as they ocurr
+Check XPSD logic equations to be certain map is disabled only in traps
+Add a window to view/edit memory map, access prot, and write locks
+Add a window to view IATrace
+Add power fail interrupt to GUI, dump memory to file
+Add write locks to PSDPanel
+Add BIG support to MMC
+Reset should reload properties file
+Check LMS, it's coded as priveleged LAS
+Refactor trap handling, XPSD should do all the work based in inTrap
+	- This should mirror the hardware operation flow
+Implement LinePrinter, CardPunch
+Need to check multiple simultaneous IOP interrupt requests
+checkWaitingInterrupts() probably needs to poll IOPs also
+All IOPs should correctly return mode in getStatus()
+General diagnostics logged to a file:
+	Branch stack
+	Traps & interrupts
+	IOP verbose output
+	Data kept in memory and written to disk as needed
+unit 2 output to file (line printer), add ASCII/EBCDIC flag
+
+***
+
+Improve interrupt checking, loop through interrupts only if enabled (ci, ii, ei)
+Improve add/subtract instructions
+	- Use longs for math, bit 31 is carry for 32 bit add
+Add configuration dialog to allow runtime modification of IOP config
+Add an "interrupt" button to control panel GUI
+Add a "hold" checkbox for IA
+Add complete order functions for CR, MT, TTY (see order-codes.txt)
+PCPFrame should have three resets
+Add other output windows instead of DOS window
+Add drop down to show other register blocks
+Highlight regs that change
+Improve memory edit to accept text (ASCII & EBCDIC)
+Do EXU work in main loop: while (code == EXU) { iWord = fetch(...) }
+
+***
+
+NOTES
+
+WD of .44 found in a Sigma 5 Ref. manual resets an IIOP
+WD .47 on 9/T85/560's turns on MA, 46 turns it off
+Not known if implemented on a Big 6
