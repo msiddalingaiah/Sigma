@@ -17,3 +17,7 @@
 hs_err_pid*
 
 bin/
+
+# VCD files
+*.vcd
+*.gtkw
