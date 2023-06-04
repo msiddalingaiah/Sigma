@@ -1,6 +1,7 @@
 
 `include "Sequencer.v"
 `include "CodeROM.v"
+`include "MapROM.v"
 
 /*
 Memory is word addressed, 17 bits
@@ -19,8 +20,14 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // Microcode pipeline register
     // 0       8       16      24      32
     // |-------|-------|-------|-------|
-    //       op             | uc_din  |
+    //    op                | uc_din  |
+    //  mx - 0 = pipeline, 1 = instruction case, 2, 3 = unused
     reg [0:31] pipeline;
+
+    // Instruction map ROM
+    wire [0:6] op_rom_address = o;
+    wire [0:11] op_rom_data;
+    MapROM op_rom(op_rom_address, op_rom_data);
 
     // Standard register configuration
     reg [0:31] a, b, d;
@@ -59,8 +66,14 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // Guideline #3: When modeling combinational logic with an "always" 
     //              block, use blocking assignments.
     always @(*) begin
-        uc_din = pipeline[20:31];
-        uc_op = pipeline[6:7];
+        // Sequencer d_in mux
+        case (pipeline[0:1])
+            0: uc_din = pipeline[20:31]; // jump or call
+            1: uc_din = op_rom_data; // instruction map ROM
+            2: uc_din = 0; // not used
+            3: uc_din = 0; // not used
+        endcase
+        uc_op = pipeline[2:3];
     end
 
     // Guideline #1: When modeling sequential logic, use nonblocking 
@@ -72,13 +85,14 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             c <= 0;
             d <= 0;
             o <= 0;
-            p <= 1;
+            p <= 0;
             q <= 0;
             r <= 0;
             e <= 0;
             pipeline <= 0;
         end else begin
             pipeline <= uc_rom_data;
+            //o <= 1;
         end
     end
 endmodule
