@@ -21,7 +21,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
 
     reg [15:31] lb;
     // opcode register
-    reg [1:7] o_opcode;
+    reg [1:7] o;
     // p is a counting register, acts as the program counter in conjunction with q
     reg [15:33] p;
     // Phase register, one-hot encoded
@@ -40,11 +40,16 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // Signals
     reg lmxc, lmxq;
     reg ende;
-    wire preim = (o_opcode == LCFI) | (o_opcode == AI) | (o_opcode == LI) | (o_opcode == CBS) |
-        (o_opcode == EBS) | (o_opcode == MBS);
+    wire clear = ende; // or S/INTRAPF or RESET 
+    wire preim = (o == LCFI) | (o == AI) | (o == LI) | (o == CBS) |
+        (o == EBS) | (o == MBS);
 
-    parameter PRE1 = 1, PRE2 = 2, PRE3 = 3, PRE4 = 4;
-    parameter PH1 = 11, PH2 = 12, PH3 = 13, PH4 = 14;
+    wire fas10 = ou3 & olb | ou5 & olb;
+    wire fas21 = fas10 | fas23;
+    wire fas23 = ou5 & ~o[5] & o[6] & ~o[7] | o[1] & o[3] & ol2 | ~o[1] & o[2] & ol2 | ou3 & ~o[5] & o[6] & ~o[7];
+
+    parameter PRE1 = 11, PRE2 = 12, PRE3 = 13, PRE4 = 14;
+    parameter PH1 = 1, PH2 = 2, PH3 = 3, PH4 = 4, PH5 = 5;
 
     // Guideline #3: When modeling combinational logic with an "always" 
     //              block, use blocking assignments.
@@ -61,7 +66,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             lb[15:30] = c[15:30];
         end
 
-        ende = phase == PH2;
+        ende = fas21 & (phase == PH5) || (phase == PH2);
     end
 
     // Guideline #1: When modeling sequential logic, use nonblocking 
@@ -72,9 +77,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             b <= 0;
             c <= 0;
             d <= 0;
-            o_opcode <= 0;
-            p <= 0;
+            o <= 0;
+            p <= 1;
             q <= 0;
+            r <= 0;
             e <= 0;
             lmxc <= 0;
             phase <= PH2;
@@ -106,16 +112,29 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 end
                 PH1: begin
                     phase <= PH2;
+                    if (fas23 == 1) begin
+                        phase <= PH5;
+                    end
                 end
                 PH2: begin
-                    phase <= PRE3;
+                    phase <= PRE1;
+                end
+                PH3: begin
+                    phase <= PRE1;
+                end
+                PH4: begin
+                    phase <= PRE1;
+                end
+                PH5: begin
+                    // TODO: complete LI instruction pp 3-215
+                    phase <= PRE1;
                 end
                 default: begin
                     phase <= PRE1;
                 end
             endcase
             if (ende == 1) begin
-                o_opcode[1:7] <= c_in[1:7];
+                o[1:7] <= c_in[1:7];
                 r[28:31] <= c_in[8:11];
                 d[0:31] <= c_in[0:31];
                 p <= p + 1;
@@ -124,6 +143,32 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             end
         end
     end
+
+    wire ou0 = ~o[1] & ~o[2] & ~o[3];
+    wire ou1 = ~o[1] & ~o[2] & o[3];
+    wire ou2 = ~o[1] & o[2] & ~o[3];
+    wire ou3 = ~o[1] & o[2] & o[3];
+    wire ou4 = o[1] & ~o[2] & ~o[3];
+    wire ou5 = o[1] & ~o[2] & o[3];
+    wire ou6 = o[1] & o[2] & ~o[3];
+    wire ou7 = o[1] & o[2] & o[3];
+
+    wire ol0 = ~o[4] & ~o[5] & ~o[6] & ~o[7];
+    wire ol1 = ~o[4] & ~o[5] & ~o[6] & o[7];
+    wire ol2 = ~o[4] & ~o[5] & o[6] & ~o[7];
+    wire ol3 = ~o[4] & ~o[5] & o[6] & o[7];
+    wire ol4 = ~o[4] & o[5] & ~o[6] & ~o[7];
+    wire ol5 = ~o[4] & o[5] & ~o[6] & o[7];
+    wire ol6 = ~o[4] & o[5] & o[6] & ~o[7];
+    wire ol7 = ~o[4] & o[5] & o[6] & o[7];
+    wire ol8 = o[4] & ~o[5] & ~o[6] & ~o[7];
+    wire ol9 = o[4] & ~o[5] & ~o[6] & o[7];
+    wire ola = o[4] & ~o[5] & o[6] & ~o[7];
+    wire olb = o[4] & ~o[5] & o[6] & o[7];
+    wire olc = o[4] & o[5] & ~o[6] & ~o[7];
+    wire old = o[4] & o[5] & ~o[6] & o[7];
+    wire ole = o[4] & o[5] & o[6] & ~o[7];
+    wire olf = o[4] & o[5] & o[6] & o[7];
 
     parameter LCFI = 'h02;
     parameter CAL1 = 'h04;
