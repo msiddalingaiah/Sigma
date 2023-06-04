@@ -22,13 +22,21 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // |-------|-------|-------|-------|-------|
     //    op                        | uc_din  |
     //  mx - 0 = pipeline, 1 = instruction map ROM, 2, 3 = unused
-    // 4:27 - 24 bits
+    // 4:27 - control 24 bits
     //     register write enables (10)
     //     p inc (1)
     //     memory address mux (2)
     //     memory write enable (1)
     //     ALU op (4)
     reg [0:39] pipeline;
+    // See datapath pp 3-7
+    wire [0:23] control = pipeline[4:27];
+    wire [0:3] alu_op = control[0:3];
+    wire [0:1] lb_select = control[4:5];
+    wire [0:2] p_count = control[6:8];
+    wire load_c = control[9];
+    wire load_op_reg = control[10];
+    wire load_q = control[11];
 
     // Instruction map ROM
     wire [0:6] op_rom_address = o;
