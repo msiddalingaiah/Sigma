@@ -15,14 +15,20 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     Sequencer seq(reset, clock, uc_op, uc_din, uc_rom_address);
     // Microcode ROM(s)
     wire [0:11] uc_rom_address;
-    wire [0:31] uc_rom_data;
+    wire [0:39] uc_rom_data;
     CodeROM uc_rom(uc_rom_address, uc_rom_data);
     // Microcode pipeline register
-    // 0       8       16      24      32
-    // |-------|-------|-------|-------|
-    //    op                | uc_din  |
-    //  mx - 0 = pipeline, 1 = instruction case, 2, 3 = unused
-    reg [0:31] pipeline;
+    // 0       8       16      24      32      40
+    // |-------|-------|-------|-------|-------|
+    //    op                        | uc_din  |
+    //  mx - 0 = pipeline, 1 = instruction map ROM, 2, 3 = unused
+    // 4:27 - 24 bits
+    //     register write enables (10)
+    //     p inc (1)
+    //     memory address mux (2)
+    //     memory write enable (1)
+    //     ALU op (4)
+    reg [0:39] pipeline;
 
     // Instruction map ROM
     wire [0:6] op_rom_address = o;
@@ -68,7 +74,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     always @(*) begin
         // Sequencer d_in mux
         case (pipeline[0:1])
-            0: uc_din = pipeline[20:31]; // jump or call
+            0: uc_din = pipeline[28:39]; // jump or call
             1: uc_din = op_rom_data; // instruction map ROM
             2: uc_din = 0; // not used
             3: uc_din = 0; // not used
