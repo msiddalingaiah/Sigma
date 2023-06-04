@@ -59,10 +59,12 @@ public class TapeDrive extends IOProcessor {
 	protected String fileName;
 	protected int recordLength;
 	protected byte[] header;
+    protected byte[] prevheader;
 	protected boolean verbose;
 
 	public TapeDrive() {
 		header = new byte[4];
+        prevheader = new byte[4];
 	}
 
 	protected void init(String[] params) throws Exception {
@@ -87,10 +89,18 @@ public class TapeDrive extends IOProcessor {
 		}
 	}
 
+    int little2big(int i) {
+        return (i&0xff)<<24 | (i&0xff00)<<8 | (i&0xff0000)>>8 | (i>>24)&0xff;
+    }
 	public void run() {
+        
+        System.out.println("running ");
+        
 		try {
 			while (true) {
 				int order = getOrder();
+                int prevsz;
+                int sz;
 				switch (order) {
 					case ORDER_READ:
 					int ba = getByteAddress();
@@ -101,10 +111,24 @@ public class TapeDrive extends IOProcessor {
 							" bytes into WA(." + Integer.toHexString(ba >> 2) +
 							") record " + recordNumber);
 					}
-					raFile.skipBytes(4);	// skip previous record info
-					raFile.read(header);
-					if (header[2] == -1 && header[3] == -1) {
+					//raFile.skipBytes(4);	// skip previous record info
+                    //raFile.read(prevheader);
+					//raFile.read(header);
+                        prevsz = little2big(raFile.readInt());
+                        recordLength = little2big(raFile.readInt());
+                        System.out.printf("prev size %x %x %n",prevsz, recordLength);
+                        
+                      //System.out.println("header 1 = " +
+                      //  Integer.toHexString(prevheader[0]) + " " +
+                     //   Integer.toHexString(prevheader[1]) + " " +
+                     //   Integer.toHexString(prevheader[2]) + " " +
+                     //   Integer.toHexString(prevheader[3]));
+                                          
+                                          
+                                          
+					//if (header[2] == -1 && header[3] == -1) {
 						// EOF??? Note sure...
+                    if (recordLength <= 0) {
 						System.out.print(getName() + " EOF? header = " +
 							Integer.toHexString(header[0]) + " " +
 							Integer.toHexString(header[1]) + " " +
@@ -112,8 +136,10 @@ public class TapeDrive extends IOProcessor {
 							Integer.toHexString(header[3]));
 						break;
 					}
-					recordLength = header[0];	// I think this is right...
-					recordLength &= 0xff;
+					//recordLength = header[0];	// I think this is right...
+					//recordLength &= 0xff;
+                        
+                    recordLength = recordLength & 0xffffff;
 					for (int i=0; i<recordLength; i+=1) {
 						int b = raFile.read();
 						if (b == -1) {

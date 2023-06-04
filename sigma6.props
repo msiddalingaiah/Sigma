@@ -5,20 +5,22 @@
 # iop.#=class,unitNumber,name[,initParam1,initParam2...]
 
 iop.1=com.madhu.sigma.iop.TTY,1,TY1
-iop.2=com.madhu.sigma.iop.CardReader,3,CR3,SigmaFiles/sighcp,false
-iop.3=com.madhu.sigma.iop.FlatFile,4,FF4,SigmaFiles/7autoldi
-iop.4=com.madhu.sigma.iop.FlatFile,5,FF5,SigmaFiles/7suffix
-iop.5=com.madhu.sigma.iop.FlatFile,6,FF6,SigmaFiles/7mapabs
-iop.6=com.madhu.sigma.iop.FlatFile,7,FF7,SigmaFiles/protect.abs
-iop.7=com.madhu.sigma.iop.FlatFile,8,FF8,SigmaFiles/speed.abs
-iop.8=com.madhu.sigma.iop.FlatFile,9,FF9,SigmaFiles/7decimal.abs
-iop.9=com.madhu.sigma.iop.FlatFile,10,FF10,SigmaFiles/7intrap.abs
-iop.10=com.madhu.sigma.iop.FlatFile,11,FF11,SigmaFiles/rtc.abs
-iop.11=com.madhu.sigma.iop.FlatFile,12,FF12,SigmaFiles/medic.abs
-iop.12=com.madhu.sigma.iop.FlatFile,13,FF13,SigmaFiles/sex.abs
+#iop.2=com.madhu.sigma.iop.CardReader,3,CR3,SigmaFiles/sighcp,false
+#iop.3=com.madhu.sigma.iop.FlatFile,4,FF4,SigmaFiles/7autoldi
+#iop.4=com.madhu.sigma.iop.FlatFile,5,FF5,SigmaFiles/7suffix
+#iop.5=com.madhu.sigma.iop.FlatFile,6,FF6,SigmaFiles/7mapabs
+#iop.6=com.madhu.sigma.iop.FlatFile,7,FF7,SigmaFiles/protect.abs
+#iop.6=com.madhu.sigma.iop.TapeDrive,.80,MT80,MTLU00.MT,false
+iop.2=com.madhu.sigma.iop.TapeDrive,.80,MT80,cpcp.mt,true
+#iop.7=com.madhu.sigma.iop.FlatFile,8,FF8,SigmaFiles/speed.abs
+#iop.8=com.madhu.sigma.iop.FlatFile,9,FF9,SigmaFiles/7decimal.abs
+#iop.9=com.madhu.sigma.iop.FlatFile,10,FF10,SigmaFiles/7intrap.abs
+#iop.10=com.madhu.sigma.iop.FlatFile,11,FF11,SigmaFiles/rtc.abs
+#iop.11=com.madhu.sigma.iop.FlatFile,12,FF12,SigmaFiles/medic.abs
+#iop.12=com.madhu.sigma.iop.FlatFile,13,FF13,SigmaFiles/sex.abs
 
 # Default boot unit number
-bootUnit=6
+bootUnit=.0080
 
 # These are here so I don't forget...
 # iop.1=com.madhu.sigma.iop.SwingTTY,1,TY1

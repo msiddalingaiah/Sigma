@@ -1,0 +1,84 @@
+
+`include "Sequencer.v"
+`include "CodeROM.v"
+
+/*
+Memory is word addressed, 17 bits
+*/
+module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in, output wire [15:31] memory_address);
+    assign memory_address = lb;
+
+    // Microcode sequencer
+    reg [0:1] uc_op;
+    reg [0:11] uc_din;
+    Sequencer seq(reset, clock, uc_op, uc_din, uc_rom_address);
+    // Microcode ROM(s)
+    wire [0:11] uc_rom_address;
+    wire [0:31] uc_rom_data;
+    CodeROM uc_rom(uc_rom_address, uc_rom_data);
+    // Microcode pipeline register
+    // 0       8       16      24      32
+    // |-------|-------|-------|-------|
+    //       op             | uc_din  |
+    reg [0:31] pipeline;
+
+    // Standard register configuration
+    reg [0:31] a, b, d;
+    // c is a transparent latch, see pp 3-38, receives data from memory
+    reg [0:31] c;
+    wire [0:31] c_in = memory_data_in;
+    // e is a counting register
+    reg [0:7] e;
+    // Condition code register
+    reg [1:4] cc;
+    // Carry save register
+    reg [0:33] cs;
+    // Indirect addressing flip flop
+    reg ia;
+
+    reg [15:31] lb;
+    // opcode register
+    reg [1:7] o;
+    // p is a counting register, acts as the program counter in conjunction with q
+    reg [15:33] p;
+    // Phase register, one-hot encoded
+    reg [0:7] phase;
+    // q holds the next instruction address
+    reg [15:31] q;
+    // private memory address (register number), pctr counts up, mctr counts down
+    reg [28:31] r;
+    // private memory registers
+    reg [0:31] rr[0:31];
+    // register pointer
+    reg [23:27] rp;
+    // sum bus
+    reg [0:31] s;
+
+    // Signals
+
+    // Guideline #3: When modeling combinational logic with an "always" 
+    //              block, use blocking assignments.
+    always @(*) begin
+        uc_din = pipeline[20:31];
+        uc_op = pipeline[6:7];
+    end
+
+    // Guideline #1: When modeling sequential logic, use nonblocking 
+    //              assignments.
+    always @(posedge clock, posedge reset) begin
+        if (reset == 1) begin
+            a <= 0;
+            b <= 0;
+            c <= 0;
+            d <= 0;
+            o <= 0;
+            p <= 1;
+            q <= 0;
+            r <= 0;
+            e <= 0;
+            pipeline <= 0;
+        end else begin
+            pipeline <= uc_rom_data;
+        end
+    end
+endmodule
