@@ -1,0 +1,15 @@
+
+const endian = big;
+
+field seq.mux = 0:1;
+field seq.op = 2:3;
+field seq.address = 28:39;
+field alu_op = 4:7;
+
+def main {
+    loop {
+        alu_op = 0;
+        alu_op = 1;
+        alu_op = 3;
+    }
+}
