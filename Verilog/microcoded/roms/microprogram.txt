@@ -1,15 +1,23 @@
 
-const endian = big;
+const seq.endian = big;
+const seq.width = 40;
 
 field seq.mux = 0:1;
 field seq.op = 2:3;
 field seq.address = 28:39;
-field alu_op = 4:7;
+
+const control = 4;
+field alu_op = control+0:control+3;
+field lb_select = control+4:control+5;
+field p_count = control+6:control+8;
+field load_c = control+9:control+9;
+field load_op_reg = control+10:control+10;
+field load_q = control+11:control+11;
 
 def main {
     loop {
-        alu_op = 0;
-        alu_op = 1;
+        lb_select=1, load_c=1, load_op_reg=1, p_count=1;
+        load_q = 1;
         alu_op = 3;
     }
 }

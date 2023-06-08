@@ -192,61 +192,46 @@ class Parser(object):
         return tree
 
     def parseStatement(self):
+        tree = Tree(Terminal('stat', 'stat'))
+        if self.sc.matches('loop'):
+            tree.add(self.sc.terminal)
+            tree.add(self.parseStatList())
+            return tree
+        while self.sc.matches('ID'):
+            lhs = self.sc.terminal
+            t2 = Tree(self.sc.expect('='))
+            t2.add(lhs)
+            t2.add(self.parseExp())
+            tree.add(t2)
+            if self.sc.matches(';'):
+                return tree
+            self.sc.expect(',')
         if self.sc.matches('if'):
-            tree = Tree(self.sc.terminal)
-            self.sc.expect('(')
-            tree.add(self.parseAssign())
-            self.sc.expect(')')
+            tree.add(self.sc.terminal)
             tree.add(self.parseStatList())
             if self.sc.matches('else'):
                 tree.add(self.parseStatList())
             return tree
         if self.sc.matches('while'):
-            tree = Tree(self.sc.terminal)
-            self.sc.expect('(')
-            tree.add(self.parseAssign())
-            self.sc.expect(')')
-            tree.add(self.parseStatList())
-            return tree
-        if self.sc.matches('loop'):
-            tree = Tree(self.sc.terminal)
+            tree.add(self.sc.terminal)
             tree.add(self.parseStatList())
             return tree
         if self.sc.matches('do'):
-            tree = Tree(self.sc.terminal)
+            tree.add(self.sc.terminal)
             tree.add(self.parseStatList())
             self.sc.expect('while')
-            self.sc.expect('(')
-            tree.add(self.parseAssign())
-            self.sc.expect(')')
             self.sc.expect(';')
             return tree
         if self.sc.matches('call'):
-            tree = Tree(self.sc.terminal)
+            tree.add(self.sc.terminal)
             tree.add(self.sc.expect('ID'))
             self.sc.expect(';')
             return tree
         if self.sc.matches('return'):
-            tree = Tree(self.sc.terminal)
+            tree.add(self.sc.terminal)
             self.sc.expect(';')
             return tree
-        tree = self.parseAssignList()
-        self.sc.expect(';')
-        return tree
-
-    def parseAssignList(self):
-        tree = Tree(Terminal('assign', 'assign'))
-        tree.add(self.parseAssign())
-        while self.sc.matches(','):
-            tree.add(self.parseAssign())
-        return tree
-
-    def parseAssign(self):
-        lhs = self.sc.expect('ID')
-        tree = Tree(self.sc.expect('='))
-        tree.add(lhs)
-        tree.add(self.parseExp())
-        return tree
+        self.sc.expect('if', 'while', 'loop', 'call', 'return')
 
     def parseExp(self, index=0):
         result = self.parseTail(index)
@@ -299,22 +284,13 @@ class Parser(object):
             for c in string:
                 result.add(ord(c))
             return result
-        id = self.sc.expect('ID')
-        if self.sc.matches('('):
-            tree = Tree(Terminal('call', id.value))
-            if self.sc.matches(')'):
-                return tree
-            tree.add(self.parseExp())
-            while self.sc.matches(','):
-                tree.add(self.parseExp())
-            self.sc.expect(')')
-            return tree
-        return Tree(id)
+        return Tree(self.sc.expect('ID'))
 
 if __name__ == '__main__':
     cp = Parser()
     with open('microprogram.txt') as f:
         tree = cp.parse(f.read())
+    #print(tree)
     g = gen.Generator(tree)
     g.write('foo.txt')
 
