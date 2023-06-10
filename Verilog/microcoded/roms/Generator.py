@@ -2,16 +2,30 @@
 BIG_ENDIAN = -1
 LITTLE_ENDIAN = 1
 
+SEQ_OP_NEXT = 0
+SEQ_OP_JUMP = 1
+SEQ_OP_CALL = 2
+SEQ_OP_RETURN = 3
+
 class Generator(object):
     def __init__(self, tree):
         self.output = []
         self.constants = { 'big':BIG_ENDIAN, 'little':LITTLE_ENDIAN }
         self.fields = {}
         self.procedures = {}
+        self.patch = {}
+        self.proc_address = {}
         self.pass1(tree)
         self.seq_width = self.constants['seq.width']
         self.big_endian = self.constants['seq.endian'] == BIG_ENDIAN
-        self.output = self.gen_stat_list(self.procedures['main'])
+        self.output = []
+        self.gen_stat_list(self.procedures['main'])
+        for name, stat_list in self.procedures.items():
+            if name != 'main':
+                self.proc_address[name] = self.gen_bit_field('seq.address', len(self.output))
+                self.gen_stat_list(stat_list)
+        for address, name in self.patch.items():
+            self.output[address] |= self.proc_address[name]
 
     def write(self, file_name):
         format = f'{{0:0{self.seq_width >> 2}x}}\n'
@@ -61,18 +75,14 @@ class Generator(object):
                 self.procedures[name] = t[1]
 
     def gen_stat_list(self, stat_list):
-        word_list = []
         for stat in stat_list:
             if stat[0].value.name == 'loop':
-                wl = self.gen_stat_list(stat[1])
-                endw = self.gen_bit_field('seq.op', 1)
-                # TODO relative address, needs fixup
-                endw |= self.gen_bit_field('seq.address', 0)
-                wl[-1] |= endw
-                word_list = word_list + wl
+                top = len(self.output)
+                self.gen_stat_list(stat[1])
+                jump = self.gen_bit_field('seq.op', SEQ_OP_JUMP) | self.gen_bit_field('seq.address', top)
+                self.output[-1] |= jump
             else:
-                word_list.append(self.gen_stat(stat))
-        return word_list
+                self.gen_stat(stat)
 
     def gen_bit_field(self, field_name, value):
         i1, i2 = self.fields[field_name]
@@ -89,10 +99,21 @@ class Generator(object):
     def gen_stat(self, stat):
         # print('----')
         word = 0
-        for op in stat:
+        op_index = 0
+        while op_index < len(stat):
+            op = stat[op_index]
+            op_index += 1
             if op.value.name == '=':
                 field_name = op[0].value.value
                 if field_name not in self.fields:
                     raise Exception(f'No such field: {field_name}')
                 word |= self.gen_bit_field(field_name, self.eval(op[1]))
-        return word
+            if op.value.name == 'return':
+                word |= self.gen_bit_field('seq.op', SEQ_OP_RETURN)
+            if op.value.name == 'call':
+                word |= self.gen_bit_field('seq.op', SEQ_OP_CALL)
+                op = stat[op_index]
+                op_index += 1
+                proc = op.value.value
+                self.patch[len(self.output)] = proc
+        self.output.append(word)

@@ -15,9 +15,14 @@ field load_op_reg = control+10:control+10;
 field load_q = control+11:control+11;
 
 def main {
+    load_c = 0;
     loop {
         lb_select=1, load_c=1, load_op_reg=1, p_count=1;
-        load_q = 1;
+        load_q = 1, call LI;
         alu_op = 3;
     }
+}
+
+def LI {
+    load_c = 1, return;
 }
