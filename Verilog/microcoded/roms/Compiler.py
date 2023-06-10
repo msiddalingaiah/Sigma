@@ -292,5 +292,5 @@ if __name__ == '__main__':
         tree = cp.parse(f.read())
     #print(tree)
     g = gen.Generator(tree)
-    g.write('foo.txt')
+    g.write('microcode.txt')
 

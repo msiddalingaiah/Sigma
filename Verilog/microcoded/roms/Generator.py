@@ -1,23 +1,26 @@
 
+BIG_ENDIAN = -1
+LITTLE_ENDIAN = 1
+
 class Generator(object):
     def __init__(self, tree):
         self.output = []
-        self.constants = { 'big':1, 'little':-1 }
+        self.constants = { 'big':BIG_ENDIAN, 'little':LITTLE_ENDIAN }
         self.fields = {}
         self.procedures = {}
-        self.generate(tree)
-        #print(self.constants)
-        #print(self.fields)
+        self.pass1(tree)
+        self.seq_width = self.constants['seq.width']
+        self.big_endian = self.constants['seq.endian'] == BIG_ENDIAN
+        self.output = self.gen_stat_list(self.procedures['main'])
 
     def write(self, file_name):
-        seq_width = self.constants['seq.width'] >> 2
-        format = f'{{0:0{seq_width}x}}\n'
-        #print(format.format(1))
+        format = f'{{0:0{self.seq_width >> 2}x}}\n'
         a1, a2 = self.fields['seq.address']
         w = abs(a1-a2)+1
         word_count = 1 << w
+        output = self.output + ([0]*(word_count-len(self.output)))
         with open(file_name, 'wt') as f:
-            for value in self.output:
+            for value in output:
                 f.write(format.format(value))
 
     def eval(self, tree):
@@ -43,7 +46,7 @@ class Generator(object):
             return a / b
         raise Exception(f"Unknown operator '{op}'")
 
-    def generate(self, tree):
+    def pass1(self, tree):
         for t in tree.children:
             if t.value == 'const':
                 name = t[0].value.value
@@ -55,13 +58,41 @@ class Generator(object):
                 self.fields[name] = [i1, i2]
             if t.value == 'def':
                 name = t[0].value.value
-                self.procedures[name] = self.gen_proc(t[1])
+                self.procedures[name] = t[1]
 
-    def gen_proc(self, tree):
-        for stat in tree.children:
-            if stat.value.name == 'stat':
-                self.gen_stat(stat)
+    def gen_stat_list(self, stat_list):
+        word_list = []
+        for stat in stat_list:
+            if stat[0].value.name == 'loop':
+                wl = self.gen_stat_list(stat[1])
+                endw = self.gen_bit_field('seq.op', 1)
+                # TODO relative address, needs fixup
+                endw |= self.gen_bit_field('seq.address', 0)
+                wl[-1] |= endw
+                word_list = word_list + wl
+            else:
+                word_list.append(self.gen_stat(stat))
+        return word_list
+
+    def gen_bit_field(self, field_name, value):
+        i1, i2 = self.fields[field_name]
+        width = abs(i1-i2)+1
+        mask = ~(-1 << width)
+        value = value & mask
+        if self.big_endian:
+            shift = self.seq_width - (i1+width)
+        else:
+            shift = i2
+        #print(f'{i1}:{i2} = {value}, seq_width: {self.seq_width}, width: {width}, shift: {shift}')
+        return value << shift
 
     def gen_stat(self, stat):
-        print(stat)
-        # TODO stopped here
+        # print('----')
+        word = 0
+        for op in stat:
+            if op.value.name == '=':
+                field_name = op[0].value.value
+                if field_name not in self.fields:
+                    raise Exception(f'No such field: {field_name}')
+                word |= self.gen_bit_field(field_name, self.eval(op[1]))
+        return word
