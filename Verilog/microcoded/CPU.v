@@ -29,14 +29,16 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     //     memory write enable (1)
     //     ALU op (4)
     reg [0:39] pipeline;
+    wire [0:2] branch_select = pipeline[4:6];
+    reg branch;
     // See datapath pp 3-7
-    wire [0:23] control = pipeline[4:27];
-    wire [0:3] alu_op = control[0:3];
+    wire [0:20] control = pipeline[7:27];
+    wire [0:3] sxop = control[0:3];
     wire [0:1] lb_select = control[4:5];
     wire [0:2] p_count = control[6:8];
-    wire load_c = control[9];
-    wire load_op_reg = control[10];
-    wire load_q = control[11];
+    wire cxm = control[9];
+    wire orxm = control[10];
+    wire qxp = control[11];
 
     // Instruction map ROM
     wire [0:6] op_rom_address = o;
@@ -87,7 +89,23 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             2: uc_din = 0; // not used
             3: uc_din = 0; // not used
         endcase
+        case (branch_select)
+            0: branch = 1; // branch unconditionally
+            1: branch = e == 1;
+            2: branch = 1;
+            3: branch = 1;
+            4: branch = 1;
+            5: branch = 1;
+            6: branch = 1;
+            7: branch = 1;
+        endcase
         uc_op = pipeline[2:3];
+        case (pipeline[2:3])
+            0: uc_op = { 1'h0, ~branch }; // next, invert selected branch condition
+            1: uc_op = { 1'h0, branch }; // jump
+            2: ; // call
+            3: ; // return
+        endcase
     end
 
     // Guideline #1: When modeling sequential logic, use nonblocking 

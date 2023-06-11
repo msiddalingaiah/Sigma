@@ -13,9 +13,10 @@ class Pattern(object):
         return self.pattern.match(input, index)
     
 class Terminal(object):
-    def __init__(self, name, value):
+    def __init__(self, name, value, lineNumber=0):
         self.name = name
         self.value = value
+        self.lineNumber = lineNumber
 
     def __eq__(self, other):
         return other == self.name
@@ -72,6 +73,8 @@ class Scanner(object):
 
     def next(self):
         while self.index < len(self.input) and self.input[self.index].isspace():
+            if self.input[self.index] == '\n':
+                self.lineNumber += 1
             self.index += 1
         if self.index >= len(self.input):
             return None
@@ -79,7 +82,7 @@ class Scanner(object):
             match = p.match(self.input, self.index)
             if match:
                 self.index = match.end()
-                return Terminal(p.name, match.group())
+                return Terminal(p.name, match.group(), self.lineNumber)
         raise Exception('Unrecognized input: %s' % (self.input[self.index]))
         
     def matches(self, *types):

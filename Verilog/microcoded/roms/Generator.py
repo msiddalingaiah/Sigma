@@ -10,7 +10,7 @@ SEQ_OP_RETURN = 3
 class Generator(object):
     def __init__(self, tree):
         self.output = []
-        self.constants = { 'big':BIG_ENDIAN, 'little':LITTLE_ENDIAN }
+        self.constants = { 'BIG':BIG_ENDIAN, 'LITTLE':LITTLE_ENDIAN }
         self.fields = {}
         self.procedures = {}
         self.patch = {}
@@ -43,7 +43,7 @@ class Generator(object):
         if tree.value.name == 'ID':
             name = tree.value.value
             if name not in self.constants:
-                raise Exception(f"No such constant '{name}'")
+                raise Exception(f"line {tree.value.lineNumber}, No such constant '{name}'")
             return self.constants[name]
         op = tree.value.name
         a = self.eval(tree.children[0])
@@ -58,7 +58,7 @@ class Generator(object):
             return a * b
         if op == '/':
             return a / b
-        raise Exception(f"Unknown operator '{op}'")
+        raise Exception(f"line {tree.value.lineNumber}, Unknown operator '{op}'")
 
     def pass1(self, tree):
         for t in tree.children:
@@ -106,7 +106,7 @@ class Generator(object):
             if op.value.name == '=':
                 field_name = op[0].value.value
                 if field_name not in self.fields:
-                    raise Exception(f'No such field: {field_name}')
+                    raise Exception(f'line {op[0].value.lineNumber}, No such field: {field_name}')
                 word |= self.gen_bit_field(field_name, self.eval(op[1]))
             if op.value.name == 'return':
                 word |= self.gen_bit_field('seq.op', SEQ_OP_RETURN)
@@ -116,4 +116,5 @@ class Generator(object):
                 op_index += 1
                 proc = op.value.value
                 self.patch[len(self.output)] = proc
+            # TODO implement do, while, if
         self.output.append(word)

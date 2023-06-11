@@ -1,28 +1,38 @@
 
-const seq.endian = big;
+const seq.endian = BIG;
 const seq.width = 40;
 
 field seq.mux = 0:1;
 field seq.op = 2:3;
 field seq.address = 28:39;
+field branch_select = 4:6;
 
-const control = 4;
-field alu_op = control+0:control+3;
+const control = 7;
+field sxop = control+0:control+3;
 field lb_select = control+4:control+5;
 field p_count = control+6:control+8;
-field load_c = control+9:control+9;
-field load_op_reg = control+10:control+10;
-field load_q = control+11:control+11;
+
+field cxm = control+9:control+9;
+field orxm = control+10:control+10;
+field qxp = control+11:control+11;
 
 def main {
-    load_c = 0;
+    cxm = 0;
     loop {
-        lb_select=1, load_c=1, load_op_reg=1, p_count=1;
-        load_q = 1, call LI;
-        alu_op = 3;
+        lb_select=1, cxm=1, orxm=1, p_count=1;
+        sxop = 1, call LI;
+        qxp = 1;
     }
 }
 
 def LI {
-    load_c = 1, return;
+    cxm = 1, sxop = 2;
+    sxop = 3;
+    cxm = 0, return;
+}
+
+def HALT {
+    loop {
+        sxop = 3, cxm = 0;
+    }
 }
