@@ -29,7 +29,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     //     memory write enable (1)
     //     ALU op (4)
     reg [0:39] pipeline;
-    wire [0:2] branch_select = pipeline[4:6];
+    wire [0:2] condition = pipeline[4:6];
     reg branch;
     // See datapath pp 3-7
     wire [0:20] control = pipeline[7:27];
@@ -39,6 +39,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire cxm = control[9];
     wire orxm = control[10];
     wire qxp = control[11];
+    wire exconst8 = control[12];
+    wire [0:1] e_count = control[13:14];
+
+    wire [0:7] const8 = pipeline[32:39];
 
     // Instruction map ROM
     wire [0:6] op_rom_address = o;
@@ -89,10 +93,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             2: uc_din = 0; // not used
             3: uc_din = 0; // not used
         endcase
-        case (branch_select)
+        case (condition)
             0: branch = 1; // branch unconditionally
-            1: branch = e == 1;
-            2: branch = 1;
+            1: branch = e == 0;
+            2: branch = e != 0;
             3: branch = 1;
             4: branch = 1;
             5: branch = 1;
@@ -124,7 +128,13 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             pipeline <= 0;
         end else begin
             pipeline <= uc_rom_data;
-            //o <= 1;
+            if (exconst8 == 1) e <= const8;
+            case (e_count)
+                0: ;
+                1: e <= e + 1;
+                2: e <= e - 1;
+                3: ;
+            endcase
         end
     end
 endmodule

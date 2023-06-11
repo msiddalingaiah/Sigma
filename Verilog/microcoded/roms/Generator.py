@@ -81,6 +81,11 @@ class Generator(object):
                 self.gen_stat_list(stat[1])
                 jump = self.gen_bit_field('seq.op', SEQ_OP_JUMP) | self.gen_bit_field('seq.address', top)
                 self.output[-1] |= jump
+            elif stat[0].value.name == 'do':
+                top = len(self.output)
+                self.gen_stat_list(stat[1])
+                jump = self.gen_bit_field('seq.op', SEQ_OP_JUMP) | self.gen_bit_field('seq.address', top)
+                self.output[-1] |= jump
             else:
                 self.gen_stat(stat)
 
@@ -116,5 +121,4 @@ class Generator(object):
                 op_index += 1
                 proc = op.value.value
                 self.patch[len(self.output)] = proc
-            # TODO implement do, while, if
         self.output.append(word)

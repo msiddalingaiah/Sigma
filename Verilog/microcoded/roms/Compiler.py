@@ -118,7 +118,7 @@ class Parser(object):
         patterns.append(Pattern('field', r'field'))
         patterns.append(Pattern('call', r'call'))
         patterns.append(Pattern('return', r'return'))
-        patterns.append(Pattern('ID', r'[a-zA-Z][a-zA-Z0-9_\.]*'))
+        patterns.append(Pattern('ID', r'[a-zA-Z_][a-zA-Z0-9_\.]*'))
         patterns.append(Pattern('INT', r'(0x)?[0-9a-fA-F]+'))
         patterns.append(Pattern(';', r'\;'))
         patterns.append(Pattern(',', r'\,'))
@@ -147,6 +147,7 @@ class Parser(object):
         patterns.append(Pattern('>', r'\>'))
         patterns.append(Pattern('%', r'\%'))
         patterns.append(Pattern(',', r'\,'))
+        patterns.append(Pattern('!', r'\!'))
         patterns.append(Pattern("'", r"'(?:[^'\\]|\\.)'"))
         patterns.append(Pattern('"', r'"(?:[^"\\]|\\.)*"'))
         self.sc = Scanner(patterns)
@@ -200,6 +201,12 @@ class Parser(object):
             tree.add(self.sc.terminal)
             tree.add(self.parseStatList())
             return tree
+        if self.sc.matches('do'):
+            tree.add(self.sc.terminal)
+            tree.add(self.parseStatList())
+            self.sc.expect('while')
+            self.sc.expect(';')
+            return tree
         while self.sc.matches('ID'):
             lhs = self.sc.terminal
             t2 = Tree(self.sc.expect('='))
@@ -218,12 +225,6 @@ class Parser(object):
         if self.sc.matches('while'):
             tree.add(self.sc.terminal)
             tree.add(self.parseStatList())
-            return tree
-        if self.sc.matches('do'):
-            tree.add(self.sc.terminal)
-            tree.add(self.parseStatList())
-            self.sc.expect('while')
-            self.sc.expect(';')
             return tree
         if self.sc.matches('call'):
             tree.add(self.sc.terminal)
@@ -267,6 +268,8 @@ class Parser(object):
             return tree
         if self.sc.matches('-'):
             return Tree(Terminal('NEG', '-'), self.parsePrim())
+        if self.sc.matches('!'):
+            return Tree(self.sc.terminal, self.parsePrim())
         if self.sc.matches('INT'):
             t = self.sc.terminal
             if t.value.startswith('0x'):

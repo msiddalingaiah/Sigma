@@ -5,7 +5,10 @@ const seq.width = 40;
 field seq.mux = 0:1;
 field seq.op = 2:3;
 field seq.address = 28:39;
-field branch_select = 4:6;
+
+const COND_E_ZERO = 1;
+const COND_E_NOT_ZERO = 2;
+field condition = 4:6;
 
 const control = 7;
 field sxop = control+0:control+3;
@@ -15,13 +18,22 @@ field p_count = control+6:control+8;
 field cxm = control+9:control+9;
 field orxm = control+10:control+10;
 field qxp = control+11:control+11;
+field exconst8 = control+12:control+12;
+field e_count = control+13:control+14;
+const E_COUNT_P1 = 1;
+const E_COUNT_M1 = 2;
+
+field _const8 = 32:39;
 
 def main {
-    cxm = 0;
+    cxm = 0, sxop = 15;
     loop {
-        lb_select=1, cxm=1, orxm=1, p_count=1;
-        sxop = 1, call LI;
-        qxp = 1;
+        lb_select=1, cxm=1, orxm=1, p_count=1, sxop = 1;
+        _const8 = 3, exconst8 = 1, sxop = 2;
+        do {
+            sxop = 3, e_count = E_COUNT_M1, condition = COND_E_NOT_ZERO;
+        } while;
+        sxop = 4, qxp = 1;
     }
 }
 
