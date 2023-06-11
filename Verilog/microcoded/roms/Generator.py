@@ -101,6 +101,8 @@ class Generator(object):
         #print(f'{i1}:{i2} = {value}, seq_width: {self.seq_width}, width: {width}, shift: {shift}')
         return value << shift
 
+    # TODO leading and trailing jump operations can't overlap
+    # This should raise an error to avoid unexpected behavior
     def gen_stat(self, stat):
         # print('----')
         word = 0
@@ -121,4 +123,16 @@ class Generator(object):
                 op_index += 1
                 proc = op.value.value
                 self.patch[len(self.output)] = proc
+            if op.value.name == 'while':
+                top = len(self.output)
+                self.output.append(word)
+                stat_list = stat[op_index]
+                op_index += 1
+                self.gen_stat_list(stat_list)
+                jump = self.gen_bit_field('seq.op', SEQ_OP_JUMP) | self.gen_bit_field('seq.address', top)
+                self.output[-1] |= jump
+                next = len(self.output)
+                jump = self.gen_bit_field('seq.address', next)
+                self.output[top] |= jump
+                return
         self.output.append(word)

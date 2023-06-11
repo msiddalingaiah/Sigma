@@ -33,7 +33,11 @@ def main {
         do {
             sxop = 3, e_count = E_COUNT_M1, condition = COND_E_NOT_ZERO;
         } while;
-        sxop = 4, qxp = 1;
+        _const8 = 2, exconst8 = 1, sxop = 4;
+        sxop = 5, condition = COND_E_NOT_ZERO, while {
+            sxop = 6, e_count = E_COUNT_M1;
+        }
+        sxop = 7;
     }
 }
 
