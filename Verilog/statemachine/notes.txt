@@ -1,0 +1,62 @@
+
+A - Register side of instruction operands
+B - Upper half of double word instructions
+C - Input from memory, upper 32 bits of double word instructions (transparent latch)
+D - Memory operand side of instructions
+E - Counter and temp storage
+O - Opcode
+P - Program Counter
+Q - instruction address
+R - Register pointer/counter
+S = A op D
+
+3-140 - power on reset
+
+ENDE:
+    C <= Mem
+    R <= Mem
+    D <= Mem
+    Address <= C15:C31
+    P <= P + 1
+
+PRE1: (No indirect, no indexing)
+    Q <= P
+    A <= 0 (or RR index register)
+    B <= 0
+    E <= 0
+    C <= Mem
+
+PRE2:
+    S = A + D
+    P <= S
+
+PRE3: (Indirect addressing)
+    C <= Mem
+    D <= Mem
+
+LM:
+    P - address counter
+    E - word count
+    PH1: E <= word count
+    PH5: RR <= Mem, R <= R+1, P <= P+1, E <= E-1
+
+XW:
+    PH1: D <= Mem, A <= RR
+    PH2: Mem <= A
+    PH3: RR <= D
+
+STW:
+    A - register value
+    PH1: Mem <= A
+
+STD:
+    PH1: Mem <= A (low word), A <= RR (high word)
+    PH4: Mem <= A
+
+AW:
+    PH1: D <= Mem, A <= RR
+    PH5: A <= A + D, RR <= A
+
+S: (SHIFT, 3-397)
+    P - shift count
+    A:B - value to shift
