@@ -5,6 +5,7 @@
  - Similar internal registers
  */
 module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in, output wire [15:31] memory_address);
+    assign memory_address = lb;
     // Extended register configuration
     reg [0:31] a, b, d;
     // c is a transparent latch, see pp 3-38, receives data from memory
@@ -16,6 +17,9 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
     // Indirect addressing flip flop
     reg ia;
 
+    // Memory address lines
+    reg [15:31] lb;
+    // o holds the current opcode
     reg [1:7] o;
     // p is a counting register, acts as the program counter in conjunction with q
     reg [15:33] p;
@@ -35,9 +39,6 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
     // Memory address select
     reg [0:1] mem_select;
 
-    // X register pointer
-    wire [0:2] x;
-
     parameter MEM_SEL_C = 0;
     parameter MEM_SEL_P = 1;
     parameter MEM_SEL_Q = 2;
@@ -55,9 +56,9 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
     // Signals
     reg ende;
 
-    parameter PRE1 = 11, PRE2 = 12, PRE3 = 13, PRE4 = 14;
-    parameter PH1 = 1, PH2 = 2, PH3 = 3, PH4 = 4, PH5 = 5;
-    parameter PCP1 = 21, PCP2 = 22, PCP3 = 23, PCP4 = 24, PCP5 = 25;
+    parameter PRE1 = 8'h11, PRE2 = 8'h12, PRE3 = 8'h13, PRE4 = 8'h14;
+    parameter PH1 = 8'h01, PH2 = 8'h02, PH3 = 8'h03, PH4 = 8'h04, PH5 = 8'h05, HALT = 8'h0f;
+    parameter PCP1 = 8'h21, PCP2 = 8'h22, PCP3 = 8'h23, PCP4 = 8'h24, PCP5 = 8'h25;
 
     // Guideline #3: When modeling combinational logic with an "always" 
     //              block, use blocking assignments.
@@ -75,10 +76,10 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
         endcase
 
         case (mem_select)
-            MEM_SEL_C: memory_address = c[15:31];
-            MEM_SEL_P: memory_address = p[15:31];
-            MEM_SEL_Q: memory_address = q[15:31];
-            MEM_SEL_S: memory_address = s[15:31];
+            MEM_SEL_C: lb = c[15:31];
+            MEM_SEL_P: lb = p[15:31];
+            MEM_SEL_Q: lb = q[15:31];
+            MEM_SEL_S: lb = s[15:31];
         endcase
     end
 
@@ -98,36 +99,65 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
             e <= 0;
             ende <= 0;
             phase <= PCP1;
+            mem_select = MEM_SEL_Q;
         end else begin
-            c <= c_in;
             case (phase)
                 PRE1: begin
+                    q <= p;
+                    p <= c[15:31]; // TODO: Not exactly right, needs one more phase
                     if (o == LI || o == AI) begin
                         d <= { {12{c[12]}}, c[13:31] };
                         phase <= PH1;
                     end else begin
                         ia <= c[0];
+                        if (d[12:14] != 0) begin
+                            a <= rr[d[12:14]];
+                        end else begin
+                            a <= 0;
+                        end
                         mem_select <= MEM_SEL_C;
+                        c <= memory_data_in[0:31];
+                        d <= memory_data_in[0:31];
                         phase <= PRE2;
+                    end
+                    if (o == 0) begin
+                        phase <= HALT;
                     end
                 end
                 PRE2: begin
-                    c <= memory_data_in[0:31];
+                    sf <= SF_ADD;
                     if (ia == 1) begin
+                        c <= memory_data_in[0:31];
+                        d <= memory_data_in[0:31];
+                        ia <= 0;
                         phase <= PRE2;
                     end else begin
                         phase <= PRE3;
                     end
-                    ia <= 0;
                 end
                 PRE3: begin
+                    mem_select <= MEM_SEL_S;
+                    c <= memory_data_in[0:31];
+                    d <= memory_data_in[0:31];
+                    phase <= PH1;
                 end
                 PRE4: begin
                 end
 
                 PH1: begin
+                    if (o == BAL) begin
+                        q <= p;
+                        phase <= PH2;
+                    end else begin
+                        p <= q;
+                        mem_select <= MEM_SEL_Q;
+                        ende <= 1;
+                    end
                 end
                 PH2: begin
+                    p <= q;
+                    mem_select <= MEM_SEL_Q;
+                    ende <= 1;
                 end
                 PH3: begin
                 end
@@ -140,16 +170,20 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
                     ende <= 1;
                 end
 
+                HALT: begin
+                end
+
                 default: begin
-                    phase <= PRE1;
                 end
             endcase
             if (ende == 1) begin
+                a <= 0;
                 c <= memory_data_in[0:31];
                 o[1:7] <= memory_data_in[1:7];
-                r[28:31] <= memory_data_in[8:11];
+                r[0:3] <= memory_data_in[8:11];
                 d[0:31] <= memory_data_in[0:31];
                 p <= p + 1;
+                ende <= 0;
                 phase <= PRE1;
             end
         end

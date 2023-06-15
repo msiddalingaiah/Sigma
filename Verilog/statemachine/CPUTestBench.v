@@ -1,6 +1,6 @@
 
 `timescale 1 ns/10 ps  // time-unit = 1 ns, precision = 10 ps
-`include "CPU.v"
+`include "CPUX.v"
 `include "Clock.v"
 
 /**
@@ -9,7 +9,7 @@
 module Memory(input wire clock, input wire [15:31] address, input wire write_en, input wire [0:31] data_in,
     output reg [0:31] data_out);
 
-    parameter ADDRESS_MASK = 17'h1ff;
+    parameter ADDRESS_MASK = 17'h7f;
 
     reg [0:31] ram_cells[0:127];
 
@@ -40,7 +40,7 @@ module CPUTestBench;
 
         $write("fetch: ");
         $readmemh("programs/init.txt", ram.ram_cells);
-        sim_end = 0; #0 reset = 0; #50 reset = 1; #200 reset = 0;
+        sim_end = 0; #0 reset = 0; #25 reset = 1; #50 reset = 0;
         // wait(sim_end == 1);
         #10000 $finish;
 
@@ -55,7 +55,7 @@ module CPUTestBench;
     Clock cg0(clock);
     Memory ram(clock, addressBus, writeEnBus, data_c2r, data_r2c);
     reg reset;
-    CPU cpu(reset, clock, data_r2c, addressBus);
+    CPUX cpu(reset, clock, data_r2c, addressBus);
     reg sim_end;
 
     always @(posedge clock) begin
