@@ -16,6 +16,10 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
     reg [0:3] cc;
     // Indirect addressing flip flop
     reg ia;
+    // Indexed addressing flip flop
+    reg ix;
+    // Index register pointer
+    reg [0:2] indx;
 
     // Memory address lines
     reg [15:31] lb;
@@ -92,6 +96,7 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
             c <= 0;
             d <= 0;
             ia <= 0;
+            ix <= 0;
             o <= 0;
             p <= 0;
             q <= 0;
@@ -104,20 +109,15 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
             case (phase)
                 PRE1: begin
                     q <= p;
-                    p <= c[15:31]; // TODO: Not exactly right, needs one more phase
+                    sf <= SF_ADD;
+                    mem_select <= MEM_SEL_S;
                     if (o == LI || o == AI) begin
                         d <= { {12{c[12]}}, c[13:31] };
                         phase <= PH1;
                     end else begin
                         ia <= c[0];
-                        if (d[12:14] != 0) begin
-                            a <= rr[d[12:14]];
-                        end else begin
-                            a <= 0;
-                        end
-                        mem_select <= MEM_SEL_C;
-                        c <= memory_data_in[0:31];
-                        d <= memory_data_in[0:31];
+                        indx <= d[12:14];
+                        ix <= d[12:14] != 0;
                         phase <= PRE2;
                     end
                     if (o == 0) begin
@@ -125,21 +125,28 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
                     end
                 end
                 PRE2: begin
-                    sf <= SF_ADD;
                     if (ia == 1) begin
-                        c <= memory_data_in[0:31];
-                        d <= memory_data_in[0:31];
+                        phase <= PRE3;
+                    end else begin
+                        if (ix == 1) begin
+                            a <= rr[indx];
+                            ix <= 0;
+                        end else begin
+                            a <= 0;
+                        end
+                    end
+                    phase <= PRE3;
+                end
+                PRE3: begin
+                    p <= s[15:31];
+                    c <= memory_data_in[0:31];
+                    d <= memory_data_in[0:31];
+                    if (ia == 1) begin
                         ia <= 0;
                         phase <= PRE2;
                     end else begin
-                        phase <= PRE3;
+                        phase <= PH1;
                     end
-                end
-                PRE3: begin
-                    mem_select <= MEM_SEL_S;
-                    c <= memory_data_in[0:31];
-                    d <= memory_data_in[0:31];
-                    phase <= PH1;
                 end
                 PRE4: begin
                 end
