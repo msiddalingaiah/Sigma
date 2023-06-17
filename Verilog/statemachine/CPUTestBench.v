@@ -38,11 +38,11 @@ module CPUTestBench;
         $dumpfile("vcd/CPUTestBench.vcd");
         $dumpvars(0, CPUTestBench);
 
-        $write("fetch: ");
+        $write("Begin:\n");
         $readmemh("programs/init.txt", ram.ram_cells);
         sim_end = 0; #0 reset = 0; #25 reset = 1; #50 reset = 0;
         // wait(sim_end == 1);
-        #10000 $finish;
+        #3000 $finish;
 
         $display("All done!");
         $finish;

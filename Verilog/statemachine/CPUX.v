@@ -16,8 +16,6 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
     reg [0:3] cc;
     // Indirect addressing flip flop
     reg ia;
-    // Indexed addressing flip flop
-    reg ix;
     // Index register pointer
     reg [0:2] indx;
 
@@ -89,6 +87,7 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
 
     // Guideline #1: When modeling sequential logic, use nonblocking 
     //              assignments.
+    integer i;
     always @(posedge clock, posedge reset) begin
         if (reset == 1) begin
             a <= 0;
@@ -96,20 +95,21 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
             c <= 0;
             d <= 0;
             ia <= 0;
-            ix <= 0;
             o <= 0;
             p <= 0;
             q <= 0;
             r <= 0;
             e <= 0;
             ende <= 0;
+            begin
+                for (i=0; i<16; i=i+1) rr[i] = 32'h00000000;
+            end
             phase <= PCP1;
             mem_select = MEM_SEL_Q;
         end else begin
             case (phase)
                 PRE1: begin
-                    q <= p;
-                    sf <= SF_ADD;
+                    q[15:31] <= p[15:31];
                     mem_select <= MEM_SEL_S;
                     if (o == LI || o == AI) begin
                         d <= { {12{c[12]}}, c[13:31] };
@@ -117,7 +117,7 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
                     end else begin
                         ia <= c[0];
                         indx <= d[12:14];
-                        ix <= d[12:14] != 0;
+                        mem_select <= MEM_SEL_C;
                         phase <= PRE2;
                     end
                     if (o == 0) begin
@@ -126,45 +126,72 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
                 end
                 PRE2: begin
                     if (ia == 1) begin
+                        c <= memory_data_in[0:31];
+                        d <= memory_data_in[0:31];
                         phase <= PRE3;
-                    end else begin
-                        if (ix == 1) begin
-                            a <= rr[indx];
-                            ix <= 0;
-                        end else begin
-                            a <= 0;
-                        end
                     end
+                    if (indx != 0) begin
+                        a <= rr[indx];
+                    end else begin
+                        a <= 0;
+                    end
+                    sf <= SF_ADD;
                     phase <= PRE3;
                 end
                 PRE3: begin
-                    p <= s[15:31];
-                    c <= memory_data_in[0:31];
-                    d <= memory_data_in[0:31];
-                    if (ia == 1) begin
-                        ia <= 0;
-                        phase <= PRE2;
-                    end else begin
-                        phase <= PH1;
-                    end
+                    mem_select = MEM_SEL_P;
+                    p[15:31] <= s[15:31];
+                    phase <= PH1;
                 end
                 PRE4: begin
                 end
 
                 PH1: begin
-                    if (o == BAL) begin
-                        q <= p;
-                        phase <= PH2;
-                    end else begin
-                        p <= q;
-                        mem_select <= MEM_SEL_Q;
-                        ende <= 1;
-                    end
+                    // d = signed extended immediate value
+                    // p = effective address
+                    // r = register
+                    // indx = index register
+                    ende <= 1;
+                    phase <= PH2;
+                    mem_select <= MEM_SEL_Q;
+                    case (o)
+                        AI:
+                            begin
+                                a <= rr[r];
+                                sf <= SF_ADD;
+                                p[15:31] <= q[15:31];
+                            end
+                        LI:
+                            begin
+                                rr[r] <= d;
+                                p[15:31] <= q[15:31];
+                            end
+                        LW:
+                            begin
+                                rr[r] <= memory_data_in;
+                                p[15:31] <= q[15:31];
+                            end
+                        BAL:
+                            begin
+                                rr[r] <= q;
+                                q[15:31] <= p[15:31];
+                            end
+                        default:
+                            begin
+                                p[15:31] <= q[15:31];
+                            end
+                    endcase
                 end
                 PH2: begin
-                    p <= q;
-                    mem_select <= MEM_SEL_Q;
-                    ende <= 1;
+                    case (o)
+                        AI:
+                            begin
+                                rr[r] <= s;
+                            end 
+                        default:
+                            begin
+                            end
+                    endcase
                 end
                 PH3: begin
                 end
@@ -184,12 +211,15 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
                 end
             endcase
             if (ende == 1) begin
+                $display("* Q %x: %x", q, memory_data_in);
+                $display("  R0 %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
+                $display("  R8 %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
                 a <= 0;
                 c <= memory_data_in[0:31];
                 o[1:7] <= memory_data_in[1:7];
                 r[0:3] <= memory_data_in[8:11];
                 d[0:31] <= memory_data_in[0:31];
-                p <= p + 1;
+                p <= p + 4;
                 ende <= 0;
                 phase <= PRE1;
             end
