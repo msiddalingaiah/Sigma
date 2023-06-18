@@ -6,14 +6,20 @@
  */
 module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in, output wire [15:31] memory_address);
     assign memory_address = lb;
-    // Extended register configuration
-    reg [0:31] a, b, d;
+    // a is one input to the adder, hold private memory register operand
+    reg [0:31] a;
+    // b is the least significant word in doubleword operations
+    reg [0:31] b;
     // c is a transparent latch, see pp 3-38, receives data from memory
     reg [0:31] c;
+    // d is the other input to the adder, holds memory operand
+    reg [0:31] d;
     // e is a counting register
     reg [0:7] e;
     // Condition code register
     reg [0:3] cc;
+    // carry inputs to the adder
+    reg [0:31] cs;
     // Indirect addressing flip flop
     reg ia;
     // Index register pointer
@@ -55,19 +61,18 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
     parameter SF_ASR = 6;
     parameter SF_LSL = 7;
 
-    // Signals
+    // Flip flops
     reg ende;
 
     parameter PRE1 = 8'h11, PRE2 = 8'h12, PRE3 = 8'h13, PRE4 = 8'h14;
-    parameter PH1 = 8'h01, PH2 = 8'h02, PH3 = 8'h03, PH4 = 8'h04, PH5 = 8'h05, HALT = 8'h0f;
+    parameter PH1 = 8'h01, PH2 = 8'h02, PH3 = 8'h03, PH4 = 8'h04, PH5 = 8'h05, PH6 = 8'h06, HALT = 8'h0f;
     parameter PCP1 = 8'h21, PCP2 = 8'h22, PCP3 = 8'h23, PCP4 = 8'h24, PCP5 = 8'h25;
 
     // Guideline #3: When modeling combinational logic with an "always" 
     //              block, use blocking assignments.
     always @(*) begin
         case (sf)
-            SF_ADD: s = a + d;
-            SF_SUB: s = a - d;
+            SF_ADD: s = a + d + cs;
             SF_AND: s = a & d;
             SF_OR: s = a | d;
             SF_XOR: s = a ^ d;
@@ -93,6 +98,7 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
             a <= 0;
             b <= 0;
             c <= 0;
+            cs <= 0;
             d <= 0;
             ia <= 0;
             o <= 0;
@@ -176,6 +182,16 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
                                 rr[r] <= q;
                                 q[15:31] <= p[15:31];
                             end
+                        DW: // TODO: DW doesn't completely work, both quotient and remainder need fixup
+                            begin
+                                a <= 0;
+                                b <= rr[r]; // a:b is the numerator
+                                c <= memory_data_in; // c is the denominator
+                                p[15:31] <= q[15:31];
+                                sf <= SF_ADD;
+                                ende <= 0;
+                                phase <= PH2;
+                            end
                         default:
                             begin
                                 p[15:31] <= q[15:31];
@@ -188,16 +204,82 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
                             begin
                                 rr[r] <= s;
                             end 
+                        DW:
+                            begin
+                                a[0:31] <= { a[1:31], b[0] };
+                                b[0:31] <= { b[1:31], 1'h0 };
+                                if (a[1] == 0) begin
+                                    d <= ~c;
+                                    cs[31] <= 1;
+                                end else begin
+                                    d <= c;
+                                    cs[31] <= 0;
+                                end
+                                e <= 32;
+                                sf <= SF_ADD;
+                                phase <= PH3;
+                            end
                         default:
                             begin
                             end
                     endcase
                 end
                 PH3: begin
+                    case (o)
+                        DW:
+                            begin
+                                if (e == 0) begin
+                                    d <= c;
+                                    cs[31] <= 0;
+                                    phase <= PH4;
+                                end else begin
+                                    a[0:31] <= { s[1:31], b[0] };
+                                    b[0:31] <= { b[1:31], ~a[0] };
+                                    if (s[1] == 0) begin
+                                        d <= ~c;
+                                        cs[31] <= 1;
+                                    end else begin
+                                        d <= c;
+                                        cs[31] <= 0;
+                                    end
+                                    $display("  A: %d B: %d, E: %d", a, b, e);
+                                    e <= e - 1;
+                                end
+                            end
+                        default:
+                            begin
+                            end
+                    endcase
                 end
                 PH4: begin
+                    case (o)
+                        DW:
+                            begin
+                                if (a[0] == 1) begin
+                                    a <= s;
+                                end
+                                phase <= PH5;
+                            end
+                        default:
+                            begin
+                            end
+                    endcase
                 end
                 PH5: begin
+                    case (o)
+                        DW:
+                            begin
+                                rr[r] <= b;
+                                rr[r | 1] <= a;
+                                ende <= 1;
+                                phase <= PH6;
+                            end
+                        default:
+                            begin
+                            end
+                    endcase
+                end
+                PH6: begin
                 end
 
                 PCP1: begin
