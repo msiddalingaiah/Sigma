@@ -1,2 +1,2 @@
-iverilog -o Divide2 Divide2.v
-vvp Divide2
+iverilog -o Divide3 Divide3.v
+vvp Divide3

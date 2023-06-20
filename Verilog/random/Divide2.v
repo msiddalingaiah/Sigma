@@ -71,8 +71,8 @@ module Divide2(
                     count <= 8;
                     M_shift <= { denominator, 8'h00 };
                     a <= numerator;
-                    d <= { ~denominator, 8'h00 };
-                    cs <= 16'h0100;
+                    d <= 0;
+                    cs <= 0;
                     lsb <= 0;
                     count <= 8;
                     done <= 0;
@@ -129,9 +129,6 @@ module Divide2(
 endmodule
 
 `timescale 1ns / 1ns
-// fpga4student.com FPGA projects, Verilog projects, VHDL projects
-// Verilog project: Verilog code for 8-bit divider
-// Testbench Verilog code for divider using behavioral modelling
 module tb_divider;
     // Inputs
     reg clock;
