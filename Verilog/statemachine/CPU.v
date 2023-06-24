@@ -4,7 +4,8 @@
  - Not cycle accurate
  - Similar internal registers
  */
-module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in, output wire [15:31] memory_address);
+module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in, output wire [15:31] memory_address,
+    output reg [0:31] memory_data_out, output reg [0:3] wr_enables);
     assign memory_address = lb;
     // a is one input to the adder, hold private memory register operand
     reg [0:31] a;
@@ -111,12 +112,14 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             e <= 0;
             dw_lsb <= 0;
             ende <= 0;
+            wr_enables <= 0;
             begin
                 for (i=0; i<16; i=i+1) rr[i] = 32'h00000000;
             end
             phase <= PCP1;
             mem_select = MEM_SEL_Q;
         end else begin
+            wr_enables <= 0;
             case (phase)
                 PRE1: begin
                     q[15:31] <= p[15:31];
@@ -292,6 +295,26 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 rr[r] <= memory_data_in;
                 p[15:31] <= q[15:31];
                 mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH2;
+            end
+
+            if (o == STW) begin
+                case (phase)
+                    PH1: begin
+                        `ifdef TRACE_I
+                            $display("STW,%d %x (%x)", r, p[15:31], rr[r]);
+                        `endif
+                        mem_select <= MEM_SEL_P;
+                        memory_data_out <= rr[r];
+                        wr_enables <= 4'b1111;
+                        phase <= PH2;
+                    end
+
+                    PH2: begin
+                        wr_enables <= 0;
+                        p[15:31] <= q[15:31];
+                        mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH3;
+                    end
+                endcase
             end
 
             if ((o == WAIT) & (phase == PH1)) begin
