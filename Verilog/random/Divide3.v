@@ -108,7 +108,7 @@ module Divide3 (
                     phase <= 1;
                 end
                 1: begin // division iteration loop
-                    $display("count: %d, a:b %x:%x, d: %x, cs: %x", count, a, b, d, cs);
+                    //$display("count: %d, a:b %x:%x, d: %x, cs: %x", count, a, b, d, cs);
                     a <= { s[1:`WIDTH-1], b[0] };
                     b <= { b[1:`WIDTH-1], lsb };
                     if (s[0] == 0) begin
@@ -124,7 +124,7 @@ module Divide3 (
                     if (count == 0) phase <= 2;
                 end
                 2: begin // last iteration
-                    $display("count:  -1, a:b %x:%x, d: %x, cs: %x", a, b, d, cs);
+                    //$display("count:  -1, a:b %x:%x, d: %x, cs: %x", a, b, d, cs);
                     a <= { s[0:`WIDTH-1] };
                     b <= { b[2:`WIDTH-1], lsb, ~s[0] };
                     d <= 0;
@@ -179,13 +179,8 @@ module tb_divider;
         $dumpvars(0, uut);
 
         start = 0;
-        #25 reset=1; #100; reset=0;
+        #0 reset=0; #25 reset=1; #100; reset=0;
 
-
-        // [[3550, 113], [3550, 112], [3550, 114], [100, 15], [100, 16], [100, 17]]
-        numerator = 7; denominator = 2; start = 1; #200 start = 0; #4000;
-        $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
-        /*
         numerator = 3550; denominator = 113; start = 1; #200 start = 0; #4000;
         $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
         numerator = 3550; denominator = 112; start = 1; #200 start = 0; #4000;
@@ -206,7 +201,7 @@ module tb_divider;
         $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
         numerator = 100; denominator = 15; start = 1; #200 start = 0; #4000;
         $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
-        */
+
         $finish;
     end
 endmodule

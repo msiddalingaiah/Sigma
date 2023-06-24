@@ -2,7 +2,7 @@
 `define TRACE_I // trace instructions
 
 `timescale 1 ns/10 ps  // time-unit = 1 ns, precision = 10 ps
-`include "CPUX.v"
+`include "CPU.v"
 `include "Clock.v"
 
 /**
@@ -57,7 +57,7 @@ module CPUTestBench;
     Clock cg0(clock);
     Memory ram(clock, addressBus, writeEnBus, data_c2r, data_r2c);
     reg reset;
-    CPUX cpu(reset, clock, data_r2c, addressBus);
+    CPU cpu(reset, clock, data_r2c, addressBus);
     reg sim_end;
 
     always @(posedge clock) begin
