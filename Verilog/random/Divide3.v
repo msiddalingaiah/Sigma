@@ -3,47 +3,43 @@
 
 /*
 
-def single_cycle_divide(numerator, denominator, num_bits=4):
-  C = denominator # denominator / divisor
-  n = num_bits # number of bits
+def non_restoring_divide3(numerator, denominator, num_bits=8):
+  C = denominator
+  n = num_bits
 
-  C_sign_shift = n-1
-  S_carry_shift = n + n
-  low_mask = ~(-1 << n)
-  high_mask = low_mask << n
-  high_low_mask = high_mask | low_mask
-  #print(f'{high_mask:x}, {low_mask:x}, {high_low_mask:x}')
+  lo_word_mask = ~(-1 << n)
 
-  A = (numerator << 1) & high_low_mask
+  A = numerator << 1
   C_shift = C << n
-  C_comp = ((~C_shift) & 0xf0)
-  K00 = 1 - (A >> (S_carry_shift-1) & 1) # A already shifted, so use S_carry_shift
-  MWN = (C >> C_sign_shift) & 1
-  D = 0
-  CS31 = 0
+  C_comp = (~C & lo_word_mask) << n
 
-  for i in range(0, n):
-    if MWN ^ K00 != 0:
-      D = C_comp
-      CS31 = 1 << n
-    else:
-      D = C_shift
-      CS31 = 0
-    S = A + D + CS31
-    K00 = (S >> S_carry_shift) & 1
-    #print(f'{i+1}: A {A:02x}, D {(D):02x}, CS31 {CS31:02x}, S {(S)&0x1ff:03x}, K00 {K00}')
-    # 3-329: last iteration, AXSL1 = False, e.g. don't shift sum, shift B (low word)
-    if (i+1 == n):
-      A = (S & high_mask) | ((S << 1) & low_mask)
-    else:
-      A = ((S << 1) | K00) & high_low_mask
+  # Precompute for pipelining
+  k00 = (A >> (n+n)) & 1
+  n_k00 = ~k00 & 1
+  D = C_shift if k00 else C_comp
+  c_in = n_k00 << n
+  B = 0
 
-  #print(f'end: S {S:03x}, A {A:02x}')
+  for i in range(n):
+    s = A + D + c_in
+    # last cycle, no shift avoids extra shift after loop
+    A = s if i == n-1 else s << 1
+    B = (B<<1) | n_k00
+    k00 = (A >> (n+n)) & 1
+    n_k00 = ~k00 & 1
+    D = C_shift if k00 else C_comp
+    c_in = n_k00 << n
 
-  # TODO: 3-336: quotient/remainder adjustment
-  rem = (A >> n) & low_mask
-  quotient = (A & low_mask) + 1
+  # Simplification of B = B - (~B) and remainder restoration
+  B = B << 1
+  k01 = (A >> (n+n-1)) & 1
+  n_k01 = ~k01 & 1
 
+  A = A + C_shift if k01 else A
+  B = B + 1 if n_k01 else B
+
+  rem = (A >> n) & lo_word_mask
+  quotient = B & lo_word_mask
   return quotient, rem
 
  */
@@ -67,6 +63,7 @@ module Divide3 (
     wire [0:`WIDTH-1] s = carry_sum[1:`WIDTH];
     reg [0:`WIDTH] carry_sum;
     reg rn, mwn, sw3;
+    reg lsb;
 
     wire k00 = carry_sum[0];
     wire a0031Z = a == 0;
@@ -89,74 +86,56 @@ module Divide3 (
         end else begin
             case (phase)
                 0: if (start == 1) begin
-                    a <= numerator[0:`WIDTH-1];
-                    b <= numerator[`WIDTH:`WIDTH*2-1];
+                    a <= numerator[1:`WIDTH-0];
+                    b <= { numerator[`WIDTH+1:`WIDTH*2-1], 1'b0 };
                     c <= denominator;
-                    d <= 0;
-                    cs <= 0;
                     rn <= numerator[0];
                     mwn <= denominator[0];
                     sw3 <= 0;
+                    // Start with carry == 0
+                    d <= ~denominator;
+                    cs <= `WIDTH'h1;
+                    lsb <= 1;
+                    count <= `WIDTH-2;
                     done <= 0;
                     phase <= 1;
                 end
-                1: begin // setup prior to division iteration loop
-                    //$display("  %d: a = %x", count, { a[14:0] | { 13'h0, lsb }, 1'b0 });
-                    a <= { a[1:`WIDTH-1], b[0] };
-                    b <= { b[1:`WIDTH-1], 1'b0 };
-                    if (rn ^ mwn) begin
-                        d <= c;
-                        cs <= 0;
-                    end else begin
-                        d <= ~c;
-                        cs <= `WIDTH'h1;
-                    end
-                    count <= `WIDTH-2;
-                    phase <= 2;
-                end
-                2: begin // division iteration loop
-                    // $display("count: %d, a:b %x:%x, k00: %d, d: %x, cs: %x", count, a, b, k00, d, cs);
+                1: begin // division iteration loop
+                    //$display("count: %d, a:b %x:%x, d: %x, cs: %x", count, a, b, d, cs);
                     a <= { s[1:`WIDTH-1], b[0] };
-                    b <= { b[1:`WIDTH-1], k00 };
-                    if (mwn ^ k00) begin
+                    b <= { b[1:`WIDTH-1], lsb };
+                    if (s[0] == 0) begin
                         d <= ~c;
                         cs <= `WIDTH'h1;
+                        lsb <= 1;
                     end else begin
                         d <= c;
                         cs <= 0;
+                        lsb <= 0;
                     end
-                    if (a0031Z && rn) sw3 <= 1;
                     count <= count - 1;
-                    if (count == 0) phase <= 3;
+                    if (count == 0) phase <= 2;
                 end
-                3: begin // post loop a/b update
-                    // $display("exit, a:b %x:%x, k00: %d, d: %x, cs: %x", a, b, k00, d, cs);
-                    a <= s;
-                    b <= { b[1:`WIDTH-1], k00 };
-                    if (a0031Z && rn) sw3 <= 1;
+                2: begin // last iteration
+                    //$display("count:  -1, a:b %x:%x, d: %x, cs: %x", a, b, d, cs);
+                    a <= { s[0:`WIDTH-1] };
+                    b <= { b[1:`WIDTH-1], lsb };
+                    phase <= 3;
+                end
+                3: begin // quotient restoration, simplification of B = B - (~B)
+                    //$display("end: a:b %x:%x", a, b);
+                    b <= { b[1:`WIDTH-1], ~a[0] };
+                    d <= 0;
+                    cs <= 0;
+                    if (a[0] == 1) begin
+                        d <= c;
+                    end
                     phase <= 4;
                 end
-                4: begin // remainder restoration, see 3-333
-                    // $display("end: a:b %x:%x", a, b);
-                    // case 1, quotient and residue have same sign, reside is true remainder
-                    if (((rn ^ d[0]) & ~sw3)) begin
-                        remainder <= a;
-                    end
-                    // case 2: quotient and residue have like signs, zero residue was achieved, S = 0
-                    // case 3: quotient and residue have unlike signs, residue = 0, S = 0
-                    // case 4: quotient and residue have unlike signs, residue != 0
-                    if (~(rn ^ d[0]) & ~a0031Z) begin
-                        remainder <= s; // doesn't seem to work properly
-                    end
-                    remainder <= a; // temporary fix...
-                    phase <= 5;
-                end
-                5: begin // quotient adjustment
-                    if ((~rn & mwn) | (rn & ~mwn & ~a0031Z) | (rn & mwn & a0031Z)) begin
-                        quotient <= b + 1;
-                    end else begin
-                        quotient <= b;
-                    end
+                4: begin // result
+                    //$display("result, a:b %x:%x, d: %x, cs: %x", a, b, d, cs);
+                    remainder <= s;
+                    quotient <= b;
                     done <= 1;
                     phase <= 0;
                 end
@@ -205,27 +184,29 @@ module tb_divider;
         #1000;
         reset=0;
 
+
         // [[3550, 113], [3550, 112], [3550, 114], [100, 15], [100, 16], [100, 17]]
         numerator = 3550; denominator = 113; start = 1; #200 start = 0; #4000;
-        $display("%d/%d, => %d, r%d, %d==0, %d, %d, %d, %d", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder), uut.rn, uut.mwn, uut.sw3, uut.a0031Z);
+        $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
         numerator = 3550; denominator = 112; start = 1; #200 start = 0; #4000;
-        $display("%d/%d, => %d, r%d, %d==0, %d, %d, %d, %d", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder), uut.rn, uut.mwn, uut.sw3, uut.a0031Z);
+        $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
         numerator = 3550; denominator = 114; start = 1; #200 start = 0; #4000;
-        $display("%d/%d, => %d, r%d, %d==0, %d, %d, %d, %d", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder), uut.rn, uut.mwn, uut.sw3, uut.a0031Z);
+        $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
 
-        numerator = 35500; denominator = 113; start = 1; #200 start = 0; #4000;
-        $display("%d/%d, => %d, r%d, %d==0, %d, %d, %d, %d", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder), uut.rn, uut.mwn, uut.sw3, uut.a0031Z);
-        numerator = 35500; denominator = 112; start = 1; #200 start = 0; #4000;
-        $display("%d/%d, => %d, r%d, %d==0, %d, %d, %d, %d", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder), uut.rn, uut.mwn, uut.sw3, uut.a0031Z);
-        numerator = 35500; denominator = 114; start = 1; #200 start = 0; #4000;
-        $display("%d/%d, => %d, r%d, %d==0, %d, %d, %d, %d", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder), uut.rn, uut.mwn, uut.sw3, uut.a0031Z);
+        numerator = 35500000; denominator = 113; start = 1; #200 start = 0; #4000;
+        $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
+        numerator = 35500000; denominator = 112; start = 1; #200 start = 0; #4000;
+        $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
+        numerator = 35500000; denominator = 114; start = 1; #200 start = 0; #4000;
+        $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
 
         numerator = 100; denominator = 17; start = 1; #200 start = 0; #4000;
-        $display("%d/%d, => %d, r%d, %d==0, %d, %d, %d, %d", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder), uut.rn, uut.mwn, uut.sw3, uut.a0031Z);
+        $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
         numerator = 100; denominator = 16; start = 1; #200 start = 0; #4000;
-        $display("%d/%d, => %d, r%d, %d==0, %d, %d, %d, %d", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder), uut.rn, uut.mwn, uut.sw3, uut.a0031Z);
+        $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
         numerator = 100; denominator = 15; start = 1; #200 start = 0; #4000;
-        $display("%d/%d, => %d, r%d, %d==0, %d, %d, %d, %d", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder), uut.rn, uut.mwn, uut.sw3, uut.a0031Z);
+        $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
+
         $finish;
     end
 endmodule
