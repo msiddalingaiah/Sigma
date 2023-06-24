@@ -1,5 +1,5 @@
 
-// Work in progress...
+// Two cycle non-restoring divide
 
 /*
   This is known to work in Colab/Sigma

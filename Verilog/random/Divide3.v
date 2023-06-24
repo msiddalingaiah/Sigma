@@ -1,5 +1,5 @@
 
-// Work in progress...
+// Single cycle non-restoring divide
 
 /*
 
@@ -62,11 +62,7 @@ module Divide3 (
     reg [0:`WIDTH-1] cs;
     wire [0:`WIDTH-1] s = carry_sum[1:`WIDTH];
     reg [0:`WIDTH] carry_sum;
-    reg rn, mwn, sw3;
     reg lsb;
-
-    wire k00 = carry_sum[0];
-    wire a0031Z = a == 0;
 
     always @(*) begin
         carry_sum = { 1'b0, a } + { 1'b0, d } + { 1'b0, cs };
@@ -81,18 +77,14 @@ module Divide3 (
             c <= 0;
             d <= 0;
             cs <= 0;
-            sw3 <= 0;
             done <= 1;
         end else begin
             case (phase)
                 0: if (start == 1) begin
-                    a <= numerator[1:`WIDTH-0];
+                    a <= numerator[1:`WIDTH];
                     b <= { numerator[`WIDTH+1:`WIDTH*2-1], 1'b0 };
                     c <= denominator;
-                    rn <= numerator[0];
-                    mwn <= denominator[0];
-                    sw3 <= 0;
-                    // Start with carry == 0
+                    // Start with sign == 0
                     d <= ~denominator;
                     cs <= `WIDTH'h1;
                     lsb <= 1;
@@ -119,20 +111,15 @@ module Divide3 (
                 2: begin // last iteration
                     //$display("count:  -1, a:b %x:%x, d: %x, cs: %x", a, b, d, cs);
                     a <= { s[0:`WIDTH-1] };
-                    b <= { b[1:`WIDTH-1], lsb };
-                    phase <= 3;
-                end
-                3: begin // quotient restoration, simplification of B = B - (~B)
-                    //$display("end: a:b %x:%x", a, b);
-                    b <= { b[1:`WIDTH-1], ~a[0] };
+                    b <= { b[2:`WIDTH-1], lsb, ~s[0] };
                     d <= 0;
                     cs <= 0;
-                    if (a[0] == 1) begin
+                    if (s[0] == 1) begin
                         d <= c;
                     end
-                    phase <= 4;
+                    phase <= 3;
                 end
-                4: begin // result
+                3: begin // result
                     //$display("result, a:b %x:%x, d: %x, cs: %x", a, b, d, cs);
                     remainder <= s;
                     quotient <= b;
@@ -158,7 +145,6 @@ module tb_divider;
     wire [0:`WIDTH-1] remainder;
     wire done;
 
-    // Instantiate the Unit Under Test (UUT)
     Divide3 uut (
         .clock(clock),
         .start(start),
@@ -177,12 +163,8 @@ module tb_divider;
         $dumpfile("vcd/Divide3.vcd");
         $dumpvars(0, uut);
 
-        // Initialize Inputs
         start = 0;
-        reset=1;
-        // Wait 100 ns for global reset to finish
-        #1000;
-        reset=0;
+        #25 reset=1; #100; reset=0;
 
 
         // [[3550, 113], [3550, 112], [3550, 114], [100, 15], [100, 16], [100, 17]]
@@ -193,7 +175,7 @@ module tb_divider;
         numerator = 3550; denominator = 114; start = 1; #200 start = 0; #4000;
         $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
 
-        numerator = 35500000; denominator = 113; start = 1; #200 start = 0; #4000;
+        numerator = 3550000000; denominator = 113; start = 1; #200 start = 0; #4000;
         $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
         numerator = 35500000; denominator = 112; start = 1; #200 start = 0; #4000;
         $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
