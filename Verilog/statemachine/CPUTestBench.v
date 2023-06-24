@@ -1,4 +1,6 @@
 
+`define TRACE_I // trace instructions
+
 `timescale 1 ns/10 ps  // time-unit = 1 ns, precision = 10 ps
 `include "CPUX.v"
 `include "Clock.v"
@@ -41,8 +43,8 @@ module CPUTestBench;
         $write("Begin:\n");
         $readmemh("programs/init.txt", ram.ram_cells);
         sim_end = 0; #0 reset = 0; #25 reset = 1; #50 reset = 0;
-        // wait(sim_end == 1);
-        #6000 $finish;
+        wait(sim_end == 1);
+        //#10000 $finish;
 
         $display("All done!");
         $finish;
@@ -59,11 +61,10 @@ module CPUTestBench;
     reg sim_end;
 
     always @(posedge clock) begin
+        if (cpu.phase == cpu.PCP2) begin
+            sim_end <= 1;
+        end
         if (writeEnBus == 1) begin
-            // A hack to stop simulation
-            if (addressBus == 17'h00100 && data_c2r == 32'h00010001) begin
-                sim_end <= 1;
-            end
         end
     end
 endmodule

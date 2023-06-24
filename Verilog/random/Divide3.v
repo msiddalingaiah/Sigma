@@ -1,42 +1,57 @@
 
-// Single cycle non-restoring divide
+// Single cycle, unsigned non-restoring integer divide
 
 /*
 
-def non_restoring_divide3(numerator, denominator, num_bits=8):
+It compiles and simulates in Icarus Verilog:
+
+$ iverilog -o Divide3 Divide3.v
+$ vvp Divide3
+
+This is the equivalent algorithm in Python:
+
+def non_restoring_divide2(numerator, denominator, num_bits=8):
   C = denominator
   n = num_bits
 
   lo_word_mask = ~(-1 << n)
 
   A = numerator << 1
+  B = 0
   C_shift = C << n
   C_comp = (~C & lo_word_mask) << n
 
-  # Precompute for pipelining
-  k00 = (A >> (n+n)) & 1
-  n_k00 = ~k00 & 1
-  D = C_shift if k00 else C_comp
-  c_in = n_k00 << n
-  B = 0
+  sign = (A >> (n+n)) & 1
+  if sign == 1:
+    D = C_shift
+    c_in = 0
+  else:
+    D = C_comp
+    c_in = 1 << n
 
   for i in range(n):
     s = A + D + c_in
     # last cycle, no shift avoids extra shift after loop
-    A = s if i == n-1 else s << 1
-    B = (B<<1) | n_k00
-    k00 = (A >> (n+n)) & 1
-    n_k00 = ~k00 & 1
-    D = C_shift if k00 else C_comp
-    c_in = n_k00 << n
+    if i == n-1:
+      A = s
+    else:
+      A = s << 1
+    B = (B<<1) | ~sign & 1
+    sign = (s >> (n+n-1)) & 1
+    if sign == 1:
+      D = C_shift
+      c_in = 0
+    else:
+      D = C_comp
+      c_in = 1 << n
 
-  # Simplification of B = B - (~B) and remainder restoration
+  # Simplification of B = B - (~B) quotient and remainder restoration
   B = B << 1
-  k01 = (A >> (n+n-1)) & 1
-  n_k01 = ~k01 & 1
-
-  A = A + C_shift if k01 else A
-  B = B + 1 if n_k01 else B
+  sign = (A >> (n+n-1)) & 1
+  if sign:
+    A = A + C_shift
+  else:
+    B = B + 1
 
   rem = (A >> n) & lo_word_mask
   quotient = B & lo_word_mask
@@ -93,7 +108,7 @@ module Divide3 (
                     phase <= 1;
                 end
                 1: begin // division iteration loop
-                    //$display("count: %d, a:b %x:%x, d: %x, cs: %x", count, a, b, d, cs);
+                    $display("count: %d, a:b %x:%x, d: %x, cs: %x", count, a, b, d, cs);
                     a <= { s[1:`WIDTH-1], b[0] };
                     b <= { b[1:`WIDTH-1], lsb };
                     if (s[0] == 0) begin
@@ -109,7 +124,7 @@ module Divide3 (
                     if (count == 0) phase <= 2;
                 end
                 2: begin // last iteration
-                    //$display("count:  -1, a:b %x:%x, d: %x, cs: %x", a, b, d, cs);
+                    $display("count:  -1, a:b %x:%x, d: %x, cs: %x", a, b, d, cs);
                     a <= { s[0:`WIDTH-1] };
                     b <= { b[2:`WIDTH-1], lsb, ~s[0] };
                     d <= 0;
@@ -168,6 +183,9 @@ module tb_divider;
 
 
         // [[3550, 113], [3550, 112], [3550, 114], [100, 15], [100, 16], [100, 17]]
+        numerator = 7; denominator = 2; start = 1; #200 start = 0; #4000;
+        $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
+        /*
         numerator = 3550; denominator = 113; start = 1; #200 start = 0; #4000;
         $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
         numerator = 3550; denominator = 112; start = 1; #200 start = 0; #4000;
@@ -188,7 +206,7 @@ module tb_divider;
         $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
         numerator = 100; denominator = 15; start = 1; #200 start = 0; #4000;
         $display("%d/%d, => %d, r%d, %d==0", numerator, denominator, quotient, remainder, numerator-(denominator*quotient+remainder));
-
+        */
         $finish;
     end
 endmodule

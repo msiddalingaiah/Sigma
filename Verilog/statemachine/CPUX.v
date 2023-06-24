@@ -47,6 +47,9 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
     // Memory address select
     reg [0:1] mem_select;
 
+    // Divide LSB
+    reg dw_lsb;
+
     parameter MEM_SEL_C = 0;
     parameter MEM_SEL_P = 1;
     parameter MEM_SEL_Q = 2;
@@ -65,7 +68,7 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
     reg ende;
 
     parameter PRE1 = 8'h11, PRE2 = 8'h12, PRE3 = 8'h13, PRE4 = 8'h14;
-    parameter PH1 = 8'h01, PH2 = 8'h02, PH3 = 8'h03, PH4 = 8'h04, PH5 = 8'h05, PH6 = 8'h06, HALT = 8'h0f;
+    parameter PH1 = 8'h01, PH2 = 8'h02, PH3 = 8'h03, PH4 = 8'h04, PH5 = 8'h05, PH6 = 8'h06;
     parameter PCP1 = 8'h21, PCP2 = 8'h22, PCP3 = 8'h23, PCP4 = 8'h24, PCP5 = 8'h25;
 
     // Guideline #3: When modeling combinational logic with an "always" 
@@ -106,6 +109,7 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
             q <= 0;
             r <= 0;
             e <= 0;
+            dw_lsb <= 0;
             ende <= 0;
             begin
                 for (i=0; i<16; i=i+1) rr[i] = 32'h00000000;
@@ -118,16 +122,13 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
                     q[15:31] <= p[15:31];
                     mem_select <= MEM_SEL_S;
                     if (o == LI || o == AI) begin
-                        d <= { {12{c[12]}}, c[13:31] };
+                        d <= { {13{c[12]}}, c[13:31] };
                         phase <= PH1;
                     end else begin
                         ia <= c[0];
                         indx <= d[12:14];
                         mem_select <= MEM_SEL_C;
                         phase <= PRE2;
-                    end
-                    if (o == 0) begin
-                        phase <= HALT;
                     end
                 end
                 PRE2: begin
@@ -152,150 +153,26 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
                 PRE4: begin
                 end
 
-                PH1: begin
-                    // d = signed extended immediate value
-                    // p = effective address
-                    // r = register
-                    // indx = index register
-                    ende <= 1;
-                    phase <= PH2;
-                    mem_select <= MEM_SEL_Q;
-                    case (o)
-                        AI:
-                            begin
-                                a <= rr[r];
-                                sf <= SF_ADD;
-                                p[15:31] <= q[15:31];
-                            end
-                        LI:
-                            begin
-                                rr[r] <= d;
-                                p[15:31] <= q[15:31];
-                            end
-                        LW:
-                            begin
-                                rr[r] <= memory_data_in;
-                                p[15:31] <= q[15:31];
-                            end
-                        BAL:
-                            begin
-                                rr[r] <= q;
-                                q[15:31] <= p[15:31];
-                            end
-                        DW: // TODO: DW doesn't completely work, both quotient and remainder need fixup
-                            begin
-                                a <= 0;
-                                b <= rr[r]; // a:b is the numerator
-                                c <= memory_data_in; // c is the denominator
-                                p[15:31] <= q[15:31];
-                                sf <= SF_ADD;
-                                ende <= 0;
-                                phase <= PH2;
-                            end
-                        default:
-                            begin
-                                p[15:31] <= q[15:31];
-                            end
-                    endcase
-                end
-                PH2: begin
-                    case (o)
-                        AI:
-                            begin
-                                rr[r] <= s;
-                            end 
-                        DW:
-                            begin
-                                a[0:31] <= { a[1:31], b[0] };
-                                b[0:31] <= { b[1:31], 1'h0 };
-                                if (a[1] == 0) begin
-                                    d <= ~c;
-                                    cs[31] <= 1;
-                                end else begin
-                                    d <= c;
-                                    cs[31] <= 0;
-                                end
-                                e <= 32;
-                                sf <= SF_ADD;
-                                phase <= PH3;
-                            end
-                        default:
-                            begin
-                            end
-                    endcase
-                end
-                PH3: begin
-                    case (o)
-                        DW:
-                            begin
-                                if (e == 0) begin
-                                    d <= c;
-                                    cs[31] <= 0;
-                                    phase <= PH4;
-                                end else begin
-                                    a[0:31] <= { s[1:31], b[0] };
-                                    b[0:31] <= { b[1:31], ~a[0] };
-                                    if (s[1] == 0) begin
-                                        d <= ~c;
-                                        cs[31] <= 1;
-                                    end else begin
-                                        d <= c;
-                                        cs[31] <= 0;
-                                    end
-                                    $display("  A: %d B: %d, E: %d", a, b, e);
-                                    e <= e - 1;
-                                end
-                            end
-                        default:
-                            begin
-                            end
-                    endcase
-                end
-                PH4: begin
-                    case (o)
-                        DW:
-                            begin
-                                if (a[0] == 1) begin
-                                    a <= s;
-                                end
-                                phase <= PH5;
-                            end
-                        default:
-                            begin
-                            end
-                    endcase
-                end
-                PH5: begin
-                    case (o)
-                        DW:
-                            begin
-                                rr[r] <= b;
-                                rr[r | 1] <= a;
-                                ende <= 1;
-                                phase <= PH6;
-                            end
-                        default:
-                            begin
-                            end
-                    endcase
-                end
-                PH6: begin
-                end
-
                 PCP1: begin
+                    $display("Compute: RUN");
                     ende <= 1;
                 end
 
-                HALT: begin
+                PCP2: begin
+                    // Compute to IDLE, not exactly, see 3-651
+                    $display("Compute: IDLE");
                 end
 
                 default: begin
                 end
             endcase
+
             if (ende == 1) begin
-                $display("* Q %x: %x", q, memory_data_in);
-                $display("  R0 %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
-                $display("  R8 %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
+                `ifdef TRACE_I
+                    $display("* Q %x: %x", q, memory_data_in);
+                    $display("  R0 %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
+                    $display("  R8 %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
+                `endif
                 a <= 0;
                 c <= memory_data_in[0:31];
                 o[1:7] <= memory_data_in[1:7];
@@ -304,6 +181,124 @@ module CPUX(input wire reset, input wire clock, input wire [0:31] memory_data_in
                 p <= p + 4;
                 ende <= 0;
                 phase <= PRE1;
+            end
+
+            // d = signed extended immediate value
+            // p = effective address
+            // r = register
+            // indx = index register
+
+            if (o == AI) begin
+                case (phase)
+                    PH1: begin
+                        `ifdef TRACE_I
+                            $display("AI,%d %x", r, d);
+                        `endif
+                        a <= rr[r];
+                        cs <= 0;
+                        sf <= SF_ADD;
+                        phase <= PH2;
+                    end
+                    PH2: begin
+                        rr[r] <= s;
+                        p[15:31] <= q[15:31];
+                        mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH3;
+                    end
+                    default: begin
+                    end
+                endcase
+            end
+
+            if ((o == BAL) & (phase == PH1)) begin
+                `ifdef TRACE_I
+                    $display("BAL,%d %x", r, p[15:31]);
+                `endif
+                rr[r] <= q;
+                q[15:31] <= p[15:31];
+                mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH2;
+            end
+
+            if (o == DW) begin
+                case (phase)
+                    PH1: begin
+                        `ifdef TRACE_I
+                            $display("DW,%d %x (%x)", r, p[15:31], memory_data_in);
+                        `endif
+                        a <= { rr[r][1:31], 1'b0 };
+                        b <= { rr[r|1][1:31], 1'b0 };
+                        c <= memory_data_in;
+                        //$display("%d:%d/%d", rr[r], rr[r|1], memory_data_in);
+                        // Start with sign == 0
+                        d <= ~memory_data_in;
+                        cs <= 32'h1;
+                        sf <= SF_ADD;
+                        dw_lsb <= 1;
+                        e <= 32-2;
+                        phase <= PH2;
+                    end
+
+                    PH2: begin
+                        //$display("count: %d, a:b %x:%x, d: %x, cs: %x", e, a, b, d, cs);
+                        a <= { s[1:31], b[0] };
+                        b <= { b[1:31], dw_lsb };
+                        if (s[0] == 0) begin
+                            d <= ~c;
+                            cs <= 32'h1;
+                            dw_lsb <= 1;
+                        end else begin
+                            d <= c;
+                            cs <= 0;
+                            dw_lsb <= 0;
+                        end
+                        e <= e - 1;
+                        if (e == 0) phase <= PH3;
+                    end
+
+                    PH3: begin
+                        //$display("count: %d, a:b %x:%x, d: %x, cs: %x", e, a, b, d, cs);
+                        a <= { s[0:31] };
+                        b <= { b[2:31], dw_lsb, ~s[0] };
+                        d <= 0;
+                        cs <= 0;
+                        if (s[0] == 1) begin
+                            d <= c;
+                        end
+                        phase <= PH4;
+                    end
+
+                    PH4: begin
+                        rr[r] <= s; // remainder
+                        rr[r|1] <= b; // quotient
+                        //$display("quotient: %d, rem: %d", b, s);
+                        p[15:31] <= q[15:31];
+                        mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH5;
+                    end
+                endcase
+            end
+
+            if ((o == LI) & (phase == PH1)) begin
+                `ifdef TRACE_I
+                    $display("LI,%d %x", r, d);
+                `endif
+                rr[r] <= d;
+                p[15:31] <= q[15:31];
+                mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH2;
+            end
+
+            if ((o == LW) & (phase == PH1)) begin
+                `ifdef TRACE_I
+                    $display("LW,%d %x (%x)", r, p[15:31], memory_data_in);
+                `endif
+                rr[r] <= memory_data_in;
+                p[15:31] <= q[15:31];
+                mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH2;
+            end
+
+            if ((o == WAIT) & (phase == PH1)) begin
+                `ifdef TRACE_I
+                    $display("WAIT %x (%x)", p[15:31], memory_data_in);
+                `endif
+                phase <= PCP2;
             end
         end
     end
