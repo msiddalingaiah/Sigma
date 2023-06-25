@@ -142,6 +142,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                     end
                     if (indx != 0) begin
                         a <= rr[indx];
+                        if (o == LB || o == STB) begin
+                            a <= { 2'b00, rr[indx][0:29] };
+                            p[32:33] <= rr[indx][30:31];
+                        end
                     end else begin
                         a <= 0;
                     end
@@ -279,6 +283,20 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 endcase
             end
 
+            if ((o == LB) & (phase == PH1)) begin
+                `ifdef TRACE_I
+                    $display("LB,%d %x + %x", r, p[15:31], p[32:33]);
+                `endif
+                case (p[32:33])
+                    0: rr[r] <= { 24'd0, memory_data_in[0:7] };
+                    1: rr[r] <= { 24'd0, memory_data_in[8:15] };
+                    2: rr[r] <= { 24'd0, memory_data_in[16:23] };
+                    3: rr[r] <= { 24'd0, memory_data_in[24:31] };
+                endcase
+                p[15:31] <= q[15:31];
+                mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH2;
+            end
+
             if ((o == LI) & (phase == PH1)) begin
                 `ifdef TRACE_I
                     $display("LI,%d %x", r, d);
@@ -295,6 +313,30 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 rr[r] <= memory_data_in;
                 p[15:31] <= q[15:31];
                 mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH2;
+            end
+
+            if (o == STB) begin
+                case (phase)
+                    PH1: begin
+                        `ifdef TRACE_I
+                            $display("STB,%d %x+%x (%x)", r, p[15:31], p[32:33], rr[r][24:31]);
+                        `endif
+                        case (p[32:33])
+                            0: begin memory_data_out <= { rr[r][24:31], 24'd0 }; wr_enables <= 4'b1000; end
+                            1: begin memory_data_out <= { 8'd0, rr[r][24:31], 16'd0 }; wr_enables <= 4'b0100; end
+                            2: begin memory_data_out <= { 16'd0, rr[r][24:31], 8'd0 }; wr_enables <= 4'b0010; end
+                            3: begin memory_data_out <= { 24'd0, rr[r][24:31] }; wr_enables <= 4'b0001; end
+                        endcase
+                        mem_select <= MEM_SEL_P;
+                        phase <= PH2;
+                    end
+
+                    PH2: begin
+                        wr_enables <= 0;
+                        p[15:31] <= q[15:31];
+                        mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH3;
+                    end
+                endcase
             end
 
             if (o == STW) begin

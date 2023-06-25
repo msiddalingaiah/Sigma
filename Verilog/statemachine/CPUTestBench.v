@@ -1,5 +1,6 @@
 
 `define TRACE_I // trace instructions
+// `define TRACE_WR // trace memory write
 
 `timescale 1 ns/10 ps  // time-unit = 1 ns, precision = 10 ps
 `include "CPU.v"
@@ -39,16 +40,27 @@ module Memory(input wire clock, input wire [15:31] address, input wire [0:3] wri
 
     always @(posedge clock) begin
         if (write_en[0]) begin
+            `ifdef TRACE_WR
+                $display("WR0: %x", data_in[0:7]);
+            `endif
             cells0[addr] <= data_in[0:7];
         end
         if (write_en[1]) begin
+            `ifdef TRACE_WR
+                $display("WR1: %x", data_in[8:15]);
+            `endif
             cells1[addr] <= data_in[8:15];
         end
         if (write_en[2]) begin
+            `ifdef TRACE_WR
+                $display("WR2: %x", data_in[16:23]);
+            `endif
             cells2[addr] <= data_in[16:23];
         end
         if (write_en[3]) begin
-            //$display("WR3: %x", data_in[24:31]);
+            `ifdef TRACE_WR
+                $display("WR3: %x", data_in[24:31]);
+            `endif
             cells3[addr] <= data_in[24:31];
         end
     end
