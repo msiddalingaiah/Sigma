@@ -1,2 +1,12 @@
-iverilog -o vcd/Divide3 Divide3.v
-vvp vcd/Divide3
+@echo off
+
+iverilog -o vcd/OneHot OneHot.v
+
+if %ERRORLEVEL% == 0 goto :next
+goto :endofscript
+
+:next
+vvp vcd/OneHot
+echo Success
+
+:endofscript

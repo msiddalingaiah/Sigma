@@ -94,6 +94,575 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
         endcase
     end
 
+    task automatic exec_AD; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_AH; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_AI; begin
+        case (phase)
+            PH1: begin
+                `ifdef TRACE_I
+                    $display("AI,%d %x", r, d);
+                `endif
+                a <= rr[r];
+                cs <= 0;
+                sf <= SF_ADD;
+                phase <= PH2;
+            end
+            PH2: begin
+                rr[r] <= s;
+                p[15:31] <= q[15:31];
+                mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH3;
+            end
+            default: begin
+            end
+        endcase
+    end endtask;
+
+    task automatic exec_AIO; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_AND; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_ANLZ; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_AW; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_AWM; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_BAL; begin
+        if (phase == PH1) begin
+            `ifdef TRACE_I
+                $display("BAL,%d %x", r, p[15:31]);
+            `endif
+            rr[r] <= q;
+            q[15:31] <= p[15:31];
+            mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH2;
+        end
+    end endtask;
+
+    task automatic exec_BCR; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_BCS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_BDR; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_BIR; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CAL1; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CAL2; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CAL3; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CAL4; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CB; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CBS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CD; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CH; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CI; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CLM; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CLR; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CVA; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CVS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_CW; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_DA; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_DC; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_DD; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_DH; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_DL; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_DM; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_DS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_DSA; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_DST; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_DW; begin
+        case (phase)
+            PH1: begin
+                `ifdef TRACE_I
+                    $display("DW,%d %x (%x)", r, p[15:31], memory_data_in);
+                `endif
+                a <= { rr[r][1:31], 1'b0 };
+                b <= { rr[r|1][1:31], 1'b0 };
+                c <= memory_data_in;
+                //$display("%d:%d/%d", rr[r], rr[r|1], memory_data_in);
+                // Start with sign == 0
+                d <= ~memory_data_in;
+                cs <= 32'h1;
+                sf <= SF_ADD;
+                dw_lsb <= 1;
+                e <= 32-2;
+                phase <= PH2;
+            end
+
+            PH2: begin
+                //$display("count: %d, a:b %x:%x, d: %x, cs: %x", e, a, b, d, cs);
+                a <= { s[1:31], b[0] };
+                b <= { b[1:31], dw_lsb };
+                if (s[0] == 0) begin
+                    d <= ~c;
+                    cs <= 32'h1;
+                    dw_lsb <= 1;
+                end else begin
+                    d <= c;
+                    cs <= 0;
+                    dw_lsb <= 0;
+                end
+                e <= e - 1;
+                if (e == 0) phase <= PH3;
+            end
+
+            PH3: begin
+                //$display("count: %d, a:b %x:%x, d: %x, cs: %x", e, a, b, d, cs);
+                a <= { s[0:31] };
+                b <= { b[2:31], dw_lsb, ~s[0] };
+                d <= 0;
+                cs <= 0;
+                if (s[0] == 1) begin
+                    d <= c;
+                end
+                phase <= PH4;
+            end
+
+            PH4: begin
+                rr[r] <= s; // remainder
+                rr[r|1] <= b; // quotient
+                //$display("quotient: %d, rem: %d", b, s);
+                p[15:31] <= q[15:31];
+                mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH5;
+            end
+        endcase
+    end endtask;
+
+    task automatic exec_EBS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_EOR; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_EXU; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_FAL; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_FAS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_FDL; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_FDS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_FML; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_FMS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_FSL; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_FSS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_HIO; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_INT; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LAD; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LAH; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LAW; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LB; begin
+        if (phase == PH1) begin
+            `ifdef TRACE_I
+                $display("LB,%d %x + %x", r, p[15:31], p[32:33]);
+            `endif
+            case (p[32:33])
+                0: rr[r] <= { 24'd0, memory_data_in[0:7] };
+                1: rr[r] <= { 24'd0, memory_data_in[8:15] };
+                2: rr[r] <= { 24'd0, memory_data_in[16:23] };
+                3: rr[r] <= { 24'd0, memory_data_in[24:31] };
+            endcase
+            p[15:31] <= q[15:31];
+            mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH2;
+        end
+    end endtask;
+
+    task automatic exec_LCD; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LCF; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LCFI; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LCH; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LCW; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LD; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LH; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LI; begin
+        if (phase == PH1) begin
+            `ifdef TRACE_I
+                $display("LI,%d %x", r, d);
+            `endif
+            rr[r] <= d;
+            p[15:31] <= q[15:31];
+            mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH2;
+        end
+    end endtask;
+
+    task automatic exec_LM; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LPSD; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LRP; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_LW; begin
+        if (phase == PH1) begin
+            `ifdef TRACE_I
+                $display("LW,%d %x (%x)", r, p[15:31], memory_data_in);
+            `endif
+            rr[r] <= memory_data_in;
+            p[15:31] <= q[15:31];
+            mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH2;
+        end
+    end endtask;
+
+    task automatic exec_MBS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_MH; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_MI; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_MMC; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_MSP; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_MTB; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_MTH; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_MTW; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_MW; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_OR; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_PACK; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_PLM; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_PLW; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_PSM; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_PSW; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_RD; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_S; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_SD; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_SF; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_SH; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_SIO; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_STB; begin
+        case (phase)
+            PH1: begin
+                `ifdef TRACE_I
+                    $display("STB,%d %x+%x (%x)", r, p[15:31], p[32:33], rr[r][24:31]);
+                `endif
+                case (p[32:33])
+                    0: begin memory_data_out <= { rr[r][24:31], 24'd0 }; wr_enables <= 4'b1000; end
+                    1: begin memory_data_out <= { 8'd0, rr[r][24:31], 16'd0 }; wr_enables <= 4'b0100; end
+                    2: begin memory_data_out <= { 16'd0, rr[r][24:31], 8'd0 }; wr_enables <= 4'b0010; end
+                    3: begin memory_data_out <= { 24'd0, rr[r][24:31] }; wr_enables <= 4'b0001; end
+                endcase
+                mem_select <= MEM_SEL_P;
+                phase <= PH2;
+            end
+
+            PH2: begin
+                wr_enables <= 0;
+                p[15:31] <= q[15:31];
+                mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH3;
+            end
+        endcase
+    end endtask;
+
+    task automatic exec_STD; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_STFC; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_STH; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_STM; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_STS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_STW; begin
+        case (phase)
+            PH1: begin
+                `ifdef TRACE_I
+                    $display("STW,%d %x (%x)", r, p[15:31], rr[r]);
+                `endif
+                mem_select <= MEM_SEL_P;
+                memory_data_out <= rr[r];
+                wr_enables <= 4'b1111;
+                phase <= PH2;
+            end
+
+            PH2: begin
+                wr_enables <= 0;
+                p[15:31] <= q[15:31];
+                mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH3;
+            end
+        endcase
+    end endtask;
+
+    task automatic exec_SW; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_TBS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_TDV; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_TIO; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_TTBS; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_UNPK; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_WAIT; begin
+        if (phase == PH1) begin
+            `ifdef TRACE_I
+                $display("WAIT %x (%x)", p[15:31], memory_data_in);
+            `endif
+            phase <= PCP2;
+        end
+    end endtask;
+
+    task automatic exec_WD; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_XPSD; begin
+        phase <= PCP2;
+    end endtask;
+
+    task automatic exec_XW; begin
+        phase <= PCP2;
+    end endtask;
+
     // Guideline #1: When modeling sequential logic, use nonblocking 
     //              assignments.
     integer i;
@@ -195,176 +764,115 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             // r = register
             // indx = index register
 
-            if (o == AI) begin
-                case (phase)
-                    PH1: begin
-                        `ifdef TRACE_I
-                            $display("AI,%d %x", r, d);
-                        `endif
-                        a <= rr[r];
-                        cs <= 0;
-                        sf <= SF_ADD;
-                        phase <= PH2;
-                    end
-                    PH2: begin
-                        rr[r] <= s;
-                        p[15:31] <= q[15:31];
-                        mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH3;
-                    end
-                    default: begin
-                    end
-                endcase
-            end
-
-            if ((o == BAL) & (phase == PH1)) begin
-                `ifdef TRACE_I
-                    $display("BAL,%d %x", r, p[15:31]);
-                `endif
-                rr[r] <= q;
-                q[15:31] <= p[15:31];
-                mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH2;
-            end
-
-            if (o == DW) begin
-                case (phase)
-                    PH1: begin
-                        `ifdef TRACE_I
-                            $display("DW,%d %x (%x)", r, p[15:31], memory_data_in);
-                        `endif
-                        a <= { rr[r][1:31], 1'b0 };
-                        b <= { rr[r|1][1:31], 1'b0 };
-                        c <= memory_data_in;
-                        //$display("%d:%d/%d", rr[r], rr[r|1], memory_data_in);
-                        // Start with sign == 0
-                        d <= ~memory_data_in;
-                        cs <= 32'h1;
-                        sf <= SF_ADD;
-                        dw_lsb <= 1;
-                        e <= 32-2;
-                        phase <= PH2;
-                    end
-
-                    PH2: begin
-                        //$display("count: %d, a:b %x:%x, d: %x, cs: %x", e, a, b, d, cs);
-                        a <= { s[1:31], b[0] };
-                        b <= { b[1:31], dw_lsb };
-                        if (s[0] == 0) begin
-                            d <= ~c;
-                            cs <= 32'h1;
-                            dw_lsb <= 1;
-                        end else begin
-                            d <= c;
-                            cs <= 0;
-                            dw_lsb <= 0;
-                        end
-                        e <= e - 1;
-                        if (e == 0) phase <= PH3;
-                    end
-
-                    PH3: begin
-                        //$display("count: %d, a:b %x:%x, d: %x, cs: %x", e, a, b, d, cs);
-                        a <= { s[0:31] };
-                        b <= { b[2:31], dw_lsb, ~s[0] };
-                        d <= 0;
-                        cs <= 0;
-                        if (s[0] == 1) begin
-                            d <= c;
-                        end
-                        phase <= PH4;
-                    end
-
-                    PH4: begin
-                        rr[r] <= s; // remainder
-                        rr[r|1] <= b; // quotient
-                        //$display("quotient: %d, rem: %d", b, s);
-                        p[15:31] <= q[15:31];
-                        mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH5;
-                    end
-                endcase
-            end
-
-            if ((o == LB) & (phase == PH1)) begin
-                `ifdef TRACE_I
-                    $display("LB,%d %x + %x", r, p[15:31], p[32:33]);
-                `endif
-                case (p[32:33])
-                    0: rr[r] <= { 24'd0, memory_data_in[0:7] };
-                    1: rr[r] <= { 24'd0, memory_data_in[8:15] };
-                    2: rr[r] <= { 24'd0, memory_data_in[16:23] };
-                    3: rr[r] <= { 24'd0, memory_data_in[24:31] };
-                endcase
-                p[15:31] <= q[15:31];
-                mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH2;
-            end
-
-            if ((o == LI) & (phase == PH1)) begin
-                `ifdef TRACE_I
-                    $display("LI,%d %x", r, d);
-                `endif
-                rr[r] <= d;
-                p[15:31] <= q[15:31];
-                mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH2;
-            end
-
-            if ((o == LW) & (phase == PH1)) begin
-                `ifdef TRACE_I
-                    $display("LW,%d %x (%x)", r, p[15:31], memory_data_in);
-                `endif
-                rr[r] <= memory_data_in;
-                p[15:31] <= q[15:31];
-                mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH2;
-            end
-
-            if (o == STB) begin
-                case (phase)
-                    PH1: begin
-                        `ifdef TRACE_I
-                            $display("STB,%d %x+%x (%x)", r, p[15:31], p[32:33], rr[r][24:31]);
-                        `endif
-                        case (p[32:33])
-                            0: begin memory_data_out <= { rr[r][24:31], 24'd0 }; wr_enables <= 4'b1000; end
-                            1: begin memory_data_out <= { 8'd0, rr[r][24:31], 16'd0 }; wr_enables <= 4'b0100; end
-                            2: begin memory_data_out <= { 16'd0, rr[r][24:31], 8'd0 }; wr_enables <= 4'b0010; end
-                            3: begin memory_data_out <= { 24'd0, rr[r][24:31] }; wr_enables <= 4'b0001; end
-                        endcase
-                        mem_select <= MEM_SEL_P;
-                        phase <= PH2;
-                    end
-
-                    PH2: begin
-                        wr_enables <= 0;
-                        p[15:31] <= q[15:31];
-                        mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH3;
-                    end
-                endcase
-            end
-
-            if (o == STW) begin
-                case (phase)
-                    PH1: begin
-                        `ifdef TRACE_I
-                            $display("STW,%d %x (%x)", r, p[15:31], rr[r]);
-                        `endif
-                        mem_select <= MEM_SEL_P;
-                        memory_data_out <= rr[r];
-                        wr_enables <= 4'b1111;
-                        phase <= PH2;
-                    end
-
-                    PH2: begin
-                        wr_enables <= 0;
-                        p[15:31] <= q[15:31];
-                        mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH3;
-                    end
-                endcase
-            end
-
-            if ((o == WAIT) & (phase == PH1)) begin
-                `ifdef TRACE_I
-                    $display("WAIT %x (%x)", p[15:31], memory_data_in);
-                `endif
-                phase <= PCP2;
-            end
+            case (o)
+                AD: exec_AD;
+                AH: exec_AH;
+                AI: exec_AI;
+                AIO: exec_AIO;
+                AND: exec_AND;
+                ANLZ: exec_ANLZ;
+                AW: exec_AW;
+                AWM: exec_AWM;
+                BAL: exec_BAL;
+                BCR: exec_BCR;
+                BCS: exec_BCS;
+                BDR: exec_BDR;
+                BIR: exec_BIR;
+                CAL1: exec_CAL1;
+                CAL2: exec_CAL2;
+                CAL3: exec_CAL3;
+                CAL4: exec_CAL4;
+                CB: exec_CB;
+                CBS: exec_CBS;
+                CD: exec_CD;
+                CH: exec_CH;
+                CI: exec_CI;
+                CLM: exec_CLM;
+                CLR: exec_CLR;
+                CS: exec_CS;
+                CVA: exec_CVA;
+                CVS: exec_CVS;
+                CW: exec_CW;
+                DA: exec_DA;
+                DC: exec_DC;
+                DD: exec_DD;
+                DH: exec_DH;
+                DL: exec_DL;
+                DM: exec_DM;
+                DS: exec_DS;
+                DSA: exec_DSA;
+                DST: exec_DST;
+                DW: exec_DW;
+                EBS: exec_EBS;
+                EOR: exec_EOR;
+                EXU: exec_EXU;
+                FAL: exec_FAL;
+                FAS: exec_FAS;
+                FDL: exec_FDL;
+                FDS: exec_FDS;
+                FML: exec_FML;
+                FMS: exec_FMS;
+                FSL: exec_FSL;
+                FSS: exec_FSS;
+                HIO: exec_HIO;
+                INT: exec_INT;
+                LAD: exec_LAD;
+                LAH: exec_LAH;
+                LAW: exec_LAW;
+                LB: exec_LB;
+                LCD: exec_LCD;
+                LCF: exec_LCF;
+                LCFI: exec_LCFI;
+                LCH: exec_LCH;
+                LCW: exec_LCW;
+                LD: exec_LD;
+                LH: exec_LH;
+                LI: exec_LI;
+                LM: exec_LM;
+                LPSD: exec_LPSD;
+                LRP: exec_LRP;
+                LS: exec_LS;
+                LW: exec_LW;
+                MBS: exec_MBS;
+                MH: exec_MH;
+                MI: exec_MI;
+                MMC: exec_MMC;
+                MSP: exec_MSP;
+                MTB: exec_MTB;
+                MTH: exec_MTH;
+                MTW: exec_MTW;
+                MW: exec_MW;
+                OR: exec_OR;
+                PACK: exec_PACK;
+                PLM: exec_PLM;
+                PLW: exec_PLW;
+                PSM: exec_PSM;
+                PSW: exec_PSW;
+                RD: exec_RD;
+                S: exec_S;
+                SD: exec_SD;
+                SF: exec_SF;
+                SH: exec_SH;
+                SIO: exec_SIO;
+                STB: exec_STB;
+                STD: exec_STD;
+                STFC: exec_STFC;
+                STH: exec_STH;
+                STM: exec_STM;
+                STS: exec_STS;
+                STW: exec_STW;
+                SW: exec_SW;
+                TBS: exec_TBS;
+                TDV: exec_TDV;
+                TIO: exec_TIO;
+                TTBS: exec_TTBS;
+                UNPK: exec_UNPK;
+                WAIT: exec_WAIT;
+                WD: exec_WD;
+                XPSD: exec_XPSD;
+                XW: exec_XW;
+                default: if (phase == PH1) phase <= PCP2;
+            endcase
         end
     end
 

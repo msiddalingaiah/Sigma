@@ -5,8 +5,8 @@
 
 It compiles and simulates in Icarus Verilog:
 
-$ iverilog -o Divide3 Divide3.v
-$ vvp Divide3
+$ iverilog -o OneHot OneHot.v
+$ vvp OneHot
 
  */
 
@@ -23,24 +23,33 @@ module OneHot (
     assign ph6 = phase[5];
     assign ph7 = phase[6];
     assign ph8 = phase[7];
-    parameter PH1 = 1<<7, PH2 = 1<<6, PH3 = 1<<5, PH4 = 1<<4, PH5 = 1<<3, PH6 = 1<<2, PH7 = 1<<1, PH8 = 1;
+    parameter PH1 = 1<<7, PH2 = 1<<6, PH3 = 1<<5, PH4 = 1<<4, PH5 = 1<<3, PH6 = 1<<2, PH7 = 1<<1, PH8 = 1<<0;
 
     always @(*) begin
     end
 
+    task automatic do_reset;
+        phase <= PH1;
+    endtask;
+
+    task automatic do_posedge; begin
+        $display("%x", phase);
+        case (phase)
+            PH1: phase <= PH2;
+            PH2: phase <= PH3;
+            PH3: phase <= PH4;
+            PH4: phase <= PH5;
+            PH5: phase <= PH2;
+            default: phase <= PH1;
+        endcase
+    end endtask;
+
     always @(posedge clock, posedge reset) begin
         if (reset) begin
-            phase <= PH1;
+            do_reset;
         end else begin
-            $display("%x", phase);
-            case (phase)
-                PH1: phase <= PH2;
-                PH2: phase <= PH3;
-                PH3: phase <= PH4;
-                PH4: phase <= PH5;
-                PH5: phase <= PH2;
-                default: phase <= PH1;
-            endcase
+            //$display("%x", phase);
+            do_posedge;
         end
     end
 endmodule
