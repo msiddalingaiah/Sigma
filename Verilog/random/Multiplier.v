@@ -32,7 +32,7 @@ def bit_pair_multiply(x, y, num_bits=8):
 
  */
 
-`define WIDTH 4
+`define WIDTH 32
 
 module Multiplier (
     input clock,
@@ -53,7 +53,7 @@ module Multiplier (
 
     always @(*) begin
         s = a + d + cs;
-        bpair = { 1'b0, s[`WIDTH-4:`WIDTH-3] } + { 2'b00, bc31 };
+        bpair = { 1'b0, b[`WIDTH-4:`WIDTH-3] } + { 2'b00, bc31 };
     end
 
     always @(posedge clock, posedge reset) begin
@@ -86,7 +86,7 @@ module Multiplier (
                     phase <= 1;
                 end
                 1: begin // multiplications iteration loop
-                    $display("count: %d, a:b %x:%x, d: %x, cs: %x, s: %x", count, a, b, d, cs, s);
+                    //$display("count: %d, a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", count, a, b, d, cs, s, bpair, bc31);
                     a <= { {2{s[0]}}, s[0:`WIDTH-3] };
                     b <= { s[`WIDTH-2:`WIDTH-1], b[0:`WIDTH-3] };
                     bc31 <= bpair[0];
@@ -100,7 +100,7 @@ module Multiplier (
                     if (count == 0) phase <= 2;
                 end
                 2: begin // result
-                    //$display("result, a:b %x:%x, d: %x, cs: %x", a, b, d, cs);
+                    //$display("a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", count, a, b, d, cs, s, bpair, bc31);
                     result <= { a, b };
                     done <= 1;
                     phase <= 0;
@@ -143,7 +143,18 @@ module tb_multiplier;
         start = 0;
         #0 reset=0; #25 reset=1; #100; reset=0;
 
+        multiplier = 1; multiplicand = 1; start = 1; #200 start = 0; #4000;
+        $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
+        multiplier = 1; multiplicand = 2; start = 1; #200 start = 0; #4000;
+        $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
         multiplier = 1; multiplicand = 3; start = 1; #200 start = 0; #4000;
+        $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
+
+        multiplier = 35; multiplicand = 17; start = 1; #200 start = 0; #4000;
+        $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
+        multiplier = 17; multiplicand = 35; start = 1; #200 start = 0; #4000;
+        $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
+        multiplier = 35; multiplicand = 63; start = 1; #200 start = 0; #4000;
         $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
 
         $finish;
