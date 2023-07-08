@@ -31,11 +31,7 @@ module Memory(input wire clock, input wire [15:31] address, input wire [0:3] wri
     end
 
     always @(*) begin
-        data_out = 0;
-        case (addr)
-            default:
-                data_out = { cells0[addr], cells1[addr], cells2[addr], cells3[addr] };
-        endcase
+        data_out = { cells0[addr], cells1[addr], cells2[addr], cells3[addr] };
     end
 
     always @(posedge clock) begin

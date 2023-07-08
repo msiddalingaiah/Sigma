@@ -1,12 +1,12 @@
 @echo off
 
-iverilog -o vcd/OneHot OneHot.v
+iverilog -o vcd/Multiplier Multiplier.v
 
 if %ERRORLEVEL% == 0 goto :next
 goto :endofscript
 
 :next
-vvp vcd/OneHot
+vvp vcd/Multiplier
 echo Success
 
 :endofscript
