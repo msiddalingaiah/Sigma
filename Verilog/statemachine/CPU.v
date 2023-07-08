@@ -51,6 +51,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // Divide LSB
     reg dw_lsb;
 
+    // Multiply logic
+    reg bc31;
+    reg [0:2] bpair;
+
     parameter MEM_SEL_C = 0;
     parameter MEM_SEL_P = 1;
     parameter MEM_SEL_Q = 2;
@@ -92,6 +96,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             MEM_SEL_Q: lb = q[15:31];
             MEM_SEL_S: lb = s[15:31];
         endcase
+
+        bpair = { 1'b0, b[32-4:32-3] } + { 2'b00, bc31 };
     end
 
     task automatic exec_AD; begin
@@ -479,7 +485,42 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     end endtask;
 
     task automatic exec_MI; begin
-        phase <= PCP2;
+        case (phase)
+            PH1: begin
+                a <= 0;
+                b <= rr[r];
+                c <= d;
+                case (rr[r] & 3)
+                    0: begin d <= 0; cs <= 0; bc31 <= 0; end
+                    1: begin d <= d; cs <= 0; bc31 <= 0; end
+                    2: begin d <= { d[1:32-1], 1'b0 }; cs <= 0; bc31 <= 0; end
+                    3: begin d <= ~d;  cs <= 1; bc31 <= 1; end
+                endcase
+                e <= (32 >> 1) - 1;
+                phase <= PH2;
+            end
+            PH2: begin // multiplication iteration loop
+                //$display("count: %d, a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", count, a, b, d, cs, s, bpair, bc31);
+                a <= { {2{s[0]}}, s[0:32-3] };
+                b <= { s[32-2:32-1], b[0:32-3] };
+                bc31 <= bpair[0];
+                case (bpair & 3)
+                    0: begin d <= 0; cs <= 0; end
+                    1: begin d <= c; cs <= 0; end
+                    2: begin d <= { c[1:32-1], 1'b0 }; cs <= 0; end
+                    3: begin d <= ~c;  cs <= 1; end
+                endcase
+                e <= e - 1;
+                if (e == 0) phase <= PH3;
+            end
+            PH3: begin // result
+                //$display("a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", count, a, b, d, cs, s, bpair, bc31);
+                rr[r] <= a;
+                rr[r | 1] <= b;
+                p[15:31] <= q[15:31];
+                mem_select <= MEM_SEL_Q; ende <= 1; phase <= PH4;
+            end
+        endcase
     end endtask;
 
     task automatic exec_MMC; begin
@@ -680,6 +721,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             r <= 0;
             e <= 0;
             dw_lsb <= 0;
+            bc31 <= 0;
             ende <= 0;
             wr_enables <= 0;
             begin
@@ -693,7 +735,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 PRE1: begin
                     q[15:31] <= p[15:31];
                     mem_select <= MEM_SEL_S;
-                    if (o == LI || o == AI) begin
+                    if (o == LI || o == AI || o == MI) begin
                         d <= { {13{c[12]}}, c[13:31] };
                         phase <= PH1;
                     end else begin
