@@ -516,7 +516,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 e <= e - 1;
                 if (e == 0) phase <= PH3;
             end
-            PH3: begin // result
+            PH3: begin // save result
                 //$display("a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", count, a, b, d, cs, s, bpair, bc31);
                 rr[r] <= a;
                 rr[r | 1] <= b;
