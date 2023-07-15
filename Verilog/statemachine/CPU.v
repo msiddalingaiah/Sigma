@@ -487,6 +487,9 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     task automatic exec_MI; begin
         case (phase)
             PH1: begin
+                `ifdef TRACE_I
+                    $display("MI,%d %x", r, d);
+                `endif
                 a <= 0;
                 b <= rr[r];
                 c <= d;
