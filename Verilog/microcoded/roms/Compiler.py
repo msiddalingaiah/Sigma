@@ -118,6 +118,7 @@ class Parser(object):
         patterns.append(Pattern('field', r'field'))
         patterns.append(Pattern('call', r'call'))
         patterns.append(Pattern('return', r'return'))
+        patterns.append(Pattern('not', r'not'))
         patterns.append(Pattern('ID', r'[a-zA-Z_][a-zA-Z0-9_\.]*'))
         patterns.append(Pattern('INT', r'(0x)?[0-9a-fA-F]+'))
         patterns.append(Pattern(';', r'\;'))
@@ -205,6 +206,8 @@ class Parser(object):
             tree.add(self.sc.terminal)
             tree.add(self.parseStatList())
             self.sc.expect('while')
+            if self.sc.matches('not'):
+                tree.add(self.sc.terminal)
             self.sc.expect(';')
             return tree
         while self.sc.matches('ID'):
@@ -218,12 +221,16 @@ class Parser(object):
             self.sc.expect(',')
         if self.sc.matches('if'):
             tree.add(self.sc.terminal)
+            if self.sc.matches('not'):
+                tree.add(self.sc.terminal)
             tree.add(self.parseStatList())
             if self.sc.matches('else'):
                 tree.add(self.parseStatList())
             return tree
         if self.sc.matches('while'):
             tree.add(self.sc.terminal)
+            if self.sc.matches('not'):
+                tree.add(self.sc.terminal)
             tree.add(self.parseStatList())
             return tree
         if self.sc.matches('call'):

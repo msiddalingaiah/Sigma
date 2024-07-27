@@ -7,6 +7,8 @@ SEQ_OP_JUMP = 1
 SEQ_OP_CALL = 2
 SEQ_OP_RETURN = 3
 
+from collections import defaultdict
+
 class MicroWord(object):
     def __init__(self, fields, big_endian, seq_width):
         self.fields = fields
@@ -14,10 +16,12 @@ class MicroWord(object):
         self.seq_width = seq_width
         self.word = 0
         self.used_bits = 0
+        self.field_values = defaultdict(int)
 
     def update(self, field_name, value, lineNumber):
         if field_name not in self.fields:
             raise Exception(f'line {lineNumber}, No such field: {field_name}')
+        self.field_values[field_name] = value
         i1, i2 = self.fields[field_name]
         width = abs(i1-i2)+1
         mask = ~(-1 << width)
@@ -34,6 +38,25 @@ class MicroWord(object):
         value <<= shift
         self.word |= value
         return value
+    
+    def genComment(self):
+        fields = [f'{name}={value}' for name, value in self.field_values.items()]
+        assigns = ', '.join(fields)
+        branch = ''
+        op = self.field_values['seq.op']
+        condition = self.field_values['seq.condition']
+        address = self.field_values['seq.address']
+        if op == SEQ_OP_JUMP and condition == 0:
+            branch = f'; jump {address}'
+        if op == SEQ_OP_JUMP and condition != 0:
+            branch = f'; if not condition[{condition}] jump {address}'
+        if op == 0 and condition != 0:
+            branch = f'; if condition[{condition}] jump {address}'
+        if op == SEQ_OP_CALL:
+            branch = f'; call {address}'
+        if op == SEQ_OP_RETURN:
+            branch = f'; return'
+        return f'{assigns}{branch}'
 
 class Generator(object):
     def __init__(self, tree):
@@ -56,15 +79,17 @@ class Generator(object):
             self.output[address] |= self.proc_address[name]
 
     def write(self, file_name):
-        format = f'{{0:0{self.seq_width >> 2}x}}\n'
+        format = f'{{0:0{self.seq_width >> 2}x}}'
         a1, a2 = self.fields['seq.address']
         w = abs(a1-a2)+1
         word_count = 1 << w
-        words = [x.word for x in self.outputWords]
-        output = words + ([0]*(word_count-len(words)))
         with open(file_name, 'wt') as f:
-            for value in output:
-                f.write(format.format(value))
+            for i, mc in enumerate(self.outputWords):
+                code = format.format(mc.word)
+                comment = mc.genComment()
+                f.write(f'{code} // {i:4d}: {comment}\n')
+            for i in range(word_count-len(self.outputWords)):
+                f.write(format.format(0) + '\n')
 
     def eval(self, tree):
         if tree.value.name == 'INT':
@@ -114,8 +139,10 @@ class Generator(object):
             elif stat[0].value.name == 'do':
                 top = len(self.outputWords)
                 self.gen_stat_list(stat[1])
-                self.outputWords[-1].update('seq.op', SEQ_OP_JUMP, lineNumber)
                 self.outputWords[-1].update('seq.address', top, lineNumber)
+                # invert branch
+                if len(stat) == 3 and stat[2].value.name == 'not':
+                    self.outputWords[-1].update('seq.op', SEQ_OP_JUMP, lineNumber)
             else:
                 self.gen_stat(stat)
 
@@ -139,6 +166,10 @@ class Generator(object):
                 proc = op.value.value
                 self.patch[len(self.output)] = proc
             if op.value.name == 'while':
+                is_not = False
+                if stat[op_index].value.name == 'not':
+                    is_not = True
+                    op_index += 1
                 top = len(self.outputWords)
                 self.outputWords.append(word)
                 stat_list = stat[op_index]
@@ -148,5 +179,7 @@ class Generator(object):
                 self.outputWords[-1].update('seq.address', top, lineNumber)
                 next = len(self.outputWords)
                 self.outputWords[top].update('seq.address', next, lineNumber)
+                if not is_not:
+                    self.outputWords[top].update('seq.op', SEQ_OP_JUMP, lineNumber)
                 return
         self.outputWords.append(word)

@@ -4,12 +4,11 @@ const seq.width = 40;
 
 field seq.mux = 0:1;
 field seq.op = 2:3;
+field seq.condition = 4:6;
 field seq.relative = 27:27;
 field seq.address = 28:39;
 
 const COND_E_ZERO = 1;
-const COND_E_NOT_ZERO = 2;
-field condition = 4:6;
 
 const control = 7;
 field sxop = control+0:control+3;
@@ -33,11 +32,11 @@ def main {
         lb_select=1, cxm=1, orxm=1, p_count=1, sxop = 1;
         _const8 = 3, exconst8 = 1, sxop = 2;
         do {
-            sxop = 3, e_count = E_COUNT_M1, condition = COND_E_NOT_ZERO;
-        } while;
+            sxop = 3, e_count = E_COUNT_M1, seq.condition = COND_E_ZERO;
+        } while not;
         _const8 = 2, exconst8 = 1, sxop = 4;
-        sxop = 5, condition = COND_E_NOT_ZERO, while {
-            sxop = 6, e_count = E_COUNT_M1;
+        sxop = 5, seq.condition = COND_E_ZERO, while not {
+            sxop = 5, e_count = E_COUNT_M1;
         }
         sxop = 7;
     }

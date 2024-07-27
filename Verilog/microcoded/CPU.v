@@ -99,19 +99,19 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             3: uc_din = 0; // not used
         endcase
         case (condition)
-            0: branch = 1; // branch unconditionally
+            0: branch = 0; // branch unconditionally
             1: branch = e == 0;
-            2: branch = e != 0;
-            3: branch = 1;
-            4: branch = 1;
-            5: branch = 1;
-            6: branch = 1;
-            7: branch = 1;
+            2: branch = 0;
+            3: branch = 0;
+            4: branch = 0;
+            5: branch = 0;
+            6: branch = 0;
+            7: branch = 0;
         endcase
         uc_op = pipeline_op;
         case (pipeline_op)
-            0: uc_op = { 1'h0, ~branch }; // next, invert selected branch condition
-            1: uc_op = { 1'h0, branch }; // jump
+            0: uc_op = { 1'h0, branch }; // next, invert selected branch condition
+            1: uc_op = { 1'h0, ~branch }; // jump
             2: ; // call
             3: ; // return
         endcase
