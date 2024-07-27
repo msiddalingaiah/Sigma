@@ -12,7 +12,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // Microcode sequencer
     reg [0:1] uc_op;
     reg [0:11] uc_din;
-    Sequencer seq(reset, clock, uc_op, uc_din, uc_rom_address);
+    reg relative;
+    Sequencer seq(reset, clock, uc_op, relative, uc_din, uc_rom_address);
     // Microcode ROM(s)
     wire [0:11] uc_rom_address;
     wire [0:39] uc_rom_data;
@@ -21,7 +22,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // 0       8       16      24      32      40
     // |-------|-------|-------|-------|-------|
     //    op                        | uc_din  |
-    //  mx - 0 = pipeline, 1 = instruction map ROM, 2, 3 = unused
+    //                             | <- relative branch (27)
+    //  mx - sequencer d_in mux: 0 = pipeline, 1 = instruction, 2, 3 = unused
     // 4:27 - control 24 bits
     //     register write enables (10)
     //     p inc (1)
@@ -29,10 +31,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     //     memory write enable (1)
     //     ALU op (4)
     reg [0:39] pipeline;
+    wire [0:1] pipeline_op = pipeline[2:3];
     wire [0:2] condition = pipeline[4:6];
-    reg branch;
     // See datapath pp 3-7
-    wire [0:20] control = pipeline[7:27];
+    wire [0:19] control = pipeline[7:26];
     wire [0:3] sxop = control[0:3];
     wire [0:1] lb_select = control[4:5];
     wire [0:2] p_count = control[6:8];
@@ -43,6 +45,9 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire [0:1] e_count = control[13:14];
 
     wire [0:7] const8 = pipeline[32:39];
+    wire [0:11] jump_address = pipeline[28:39];
+
+    reg branch;
 
     // Instruction map ROM
     wire [0:6] op_rom_address = o;
@@ -88,7 +93,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     always @(*) begin
         // Sequencer d_in mux
         case (pipeline[0:1])
-            0: uc_din = pipeline[28:39]; // jump or call
+            0: uc_din = jump_address; // jump or call
             1: uc_din = op_rom_data; // instruction map ROM
             2: uc_din = 0; // not used
             3: uc_din = 0; // not used
@@ -103,13 +108,14 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             6: branch = 1;
             7: branch = 1;
         endcase
-        uc_op = pipeline[2:3];
-        case (pipeline[2:3])
+        uc_op = pipeline_op;
+        case (pipeline_op)
             0: uc_op = { 1'h0, ~branch }; // next, invert selected branch condition
             1: uc_op = { 1'h0, branch }; // jump
             2: ; // call
             3: ; // return
         endcase
+        relative = pipeline[27];
     end
 
     // Guideline #1: When modeling sequential logic, use nonblocking 

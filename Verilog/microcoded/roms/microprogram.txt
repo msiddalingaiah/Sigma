@@ -4,6 +4,7 @@ const seq.width = 40;
 
 field seq.mux = 0:1;
 field seq.op = 2:3;
+field seq.relative = 27:27;
 field seq.address = 28:39;
 
 const COND_E_ZERO = 1;
@@ -27,6 +28,7 @@ field _const8 = 32:39;
 
 def main {
     cxm = 0, sxop = 15;
+    cxm = 0, sxop = 14;
     loop {
         lb_select=1, cxm=1, orxm=1, p_count=1, sxop = 1;
         _const8 = 3, exconst8 = 1, sxop = 2;
