@@ -49,6 +49,8 @@ class MicroWord(object):
 
     def updateCall(self, procAddresses):
         if self.dest_proc_name != None:
+            if self.dest_proc_name not in procAddresses:
+                raise Exception(f'Nonexistent procedure: {self.dest_proc_name}')
             value = procAddresses[self.dest_proc_name]
             self.update('seq.address', value, check=False)
 
@@ -79,12 +81,14 @@ class MicroWordBlock(object):
         self.seq_width = seq_width
         self.outputWords = []
         self.branchWords = []
+        self.callWords = []
         for stat in stat_list:
             lineNumber = stat[0].value.lineNumber
             if stat[0].value.name == 'loop':
                 top = len(self.outputWords)
                 block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, stat[1])
                 self.outputWords.extend(block.outputWords)
+                self.callWords.extend(block.callWords)
                 self.outputWords[-1].update('seq.op', SEQ_OP_JUMP, lineNumber)
                 self.outputWords[-1].update('seq.address', top, lineNumber)
                 self.branchWords.append(self.outputWords[-1])
@@ -93,6 +97,7 @@ class MicroWordBlock(object):
                 top = len(self.outputWords)
                 block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, stat[1])
                 self.outputWords.extend(block.outputWords)
+                self.callWords.extend(block.callWords)
                 self.outputWords[-1].update('seq.address', top, lineNumber)
                 block.updateAddresses(top)
                 # invert branch
@@ -118,8 +123,8 @@ class MicroWordBlock(object):
                 word.update('seq.op', SEQ_OP_CALL, lineNumber)
                 op = stat[op_index]
                 op_index += 1
-                proc_name = op.value.value
-                word.dest_proc_name = proc_name
+                word.dest_proc_name = op.value.value
+                self.callWords.append(word)
             if op.value.name == 'while':
                 is_not = False
                 if stat[op_index].value.name == 'not':
@@ -132,6 +137,7 @@ class MicroWordBlock(object):
                 btop = len(self.outputWords)
                 block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, stat_list)
                 self.outputWords.extend(block.outputWords)
+                self.callWords.extend(block.callWords)
                 self.outputWords[-1].update('seq.op', SEQ_OP_JUMP, lineNumber)
                 self.outputWords[-1].update('seq.address', top, lineNumber)
                 self.branchWords.append(self.outputWords[-1])
@@ -149,7 +155,8 @@ class MicroWordBlock(object):
             word.updateAddress(startAddress)
     
     def updateCalls(self, procAddresses):
-        for word in self.outputWords:
+        for word in self.callWords:
+            print(f'word: {word.dest_proc_name}')
             word.updateCall(procAddresses)
 
     def getOutput(self, startAddress, procAddresses):
