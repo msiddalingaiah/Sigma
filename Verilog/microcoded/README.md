@@ -1,7 +1,7 @@
 
 # Microcode Sequencer
 
-![Sequencer](images/sequencer.png "Sequencer Diagram")
+![Sequencer](images/sequencer.png =250x)
 
 A general purpose microcode sequencer in Verilog influenced by the [Am2911](https://bitsavers.org/components/amd/bitslice/1978_The_Am2900_Family_Data_Book.pdf) bit slice sequencer described in [Bit-Slice Microprocessor Design](https://bitsavers.org/components/amd/bitslice/Mick_Bit-Slice_Microprocessor_Design_1980.pdf) by John Mick and Jim Brick.
 
