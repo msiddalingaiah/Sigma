@@ -34,7 +34,7 @@ def main {
         do {
             sxop = 3, e_count = E_COUNT_M1, seq.condition = COND_E_ZERO;
         } while not;
-        _const8 = 2, exconst8 = 1, sxop = 4;
+        _const8 = 2, exconst8 = 1, sxop = 4, call LI;
         sxop = 5, seq.condition = COND_E_ZERO, while not {
             sxop = 5, e_count = E_COUNT_M1;
         }

@@ -3,7 +3,7 @@
 0029c00000 //    2: lb_select=1, cxm=1, orxm=1, p_count=1, sxop=1
 0040100003 //    3: _const8=3, exconst8=1, sxop=2
 1260080004 //    4: sxop=3, e_count=2, seq.condition=1, seq.address=4, seq.op=1; if not condition[1] jump 4
-0080100002 //    5: _const8=2, exconst8=1, sxop=4
+2080100009 //    5: _const8=2, exconst8=1, sxop=4, seq.op=2, seq.address=9; call 9
 02a0000008 //    6: sxop=5, seq.condition=1, seq.address=8; if condition[1] jump 8
 10a0080006 //    7: sxop=5, e_count=2, seq.op=1, seq.address=6; jump 6
 10e0000002 //    8: sxop=7, seq.op=1, seq.address=2; jump 2
