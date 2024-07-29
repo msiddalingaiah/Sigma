@@ -251,7 +251,7 @@ class Parser(object):
             tree.add(self.sc.terminal)
             self.sc.expect(';')
             return tree
-        self.sc.expect('if', 'while', 'loop', 'call', 'return')
+        self.sc.expect('if', 'do', 'while', 'loop', 'switch', 'call', 'return')
 
     def parseSwitchBlock(self):
         tree = Tree(self.sc.expect('{'))
