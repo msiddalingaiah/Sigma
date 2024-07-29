@@ -61,10 +61,14 @@ class MicroWord(object):
         op = self.field_values['seq.op']
         condition = self.field_values['seq.condition']
         address = self.field_values['seq.address']
-        if op == SEQ_OP_JUMP and condition == 0:
+        relative = self.field_values['seq.relative']
+        address_mux = self.field_values['seq.address_mux']
+        if op == SEQ_OP_JUMP and condition == 0 and relative == 0:
             branch = f'; jump {address}'
         if op == SEQ_OP_JUMP and condition != 0:
             branch = f'; if not condition[{condition}] jump {address}'
+        if op == SEQ_OP_JUMP and relative != 0:
+            branch = f'; switch address_mux[{address_mux}]'
         if op == 0 and condition != 0:
             branch = f'; if condition[{condition}] jump {address}'
         if op == SEQ_OP_CALL:
@@ -185,6 +189,38 @@ class MicroWordBlock(object):
                 next = len(self.outputWords)
                 word.update('seq.address', next, lineNumber, check=False)
                 block.updateAddresses(iftop)
+                return
+            if op.value.name == 'switch':
+                addr_mux = self.expr.eval(stat[op_index])
+                op_index += 1
+                word.update('seq.address_mux', addr_mux, lineNumber)
+                word.update('seq.relative', 1, lineNumber)
+                word.update('seq.op', SEQ_OP_JUMP, lineNumber)
+                self.outputWords.append(word)
+                tree = stat[op_index]
+                n = len(tree)
+                blocks = []
+                patch_words = []
+                for i in range(0, n, 2):
+                    label = self.expr.eval(tree[i])
+                    if i>>1 != label:
+                        lineNumber = tree[i].value.lineNumber
+                        raise Exception(f'line: {lineNumber}, label out of order ({label} != {i>>1})')
+                    block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, tree[i+1])
+                    blocks.append(block)
+                    word = block.outputWords[0]
+                    if len(block) == 1:
+                        word.update('seq.op', SEQ_OP_JUMP, lineNumber)
+                        patch_words.append(word)
+                        top = len(self.outputWords)
+                        self.branchWords.append(word)
+                        self.outputWords.append(word)
+                    else:
+                        # TODO multi-line support
+                        pass
+                next = len(self.outputWords)
+                for word in patch_words:
+                    word.update('seq.address', next, lineNumber)
                 return
         self.outputWords.append(word)
 

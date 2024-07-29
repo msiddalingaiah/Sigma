@@ -237,6 +237,11 @@ class Parser(object):
             tree.add(self.parseExp())
             tree.add(self.parseStatList())
             return tree
+        if self.sc.matches('switch'):
+            tree.add(self.sc.terminal)
+            tree.add(self.parseExp())
+            tree.add(self.parseSwitchBlock())
+            return tree
         if self.sc.matches('call'):
             tree.add(self.sc.terminal)
             tree.add(self.sc.expect('ID'))
@@ -247,6 +252,14 @@ class Parser(object):
             self.sc.expect(';')
             return tree
         self.sc.expect('if', 'while', 'loop', 'call', 'return')
+
+    def parseSwitchBlock(self):
+        tree = Tree(self.sc.expect('{'))
+        while not self.sc.matches('}'):
+            tree.add(self.parseExp())
+            self.sc.expect(':')
+            tree.add(self.parseStatList())
+        return tree
 
     def parseExp(self, index=0):
         result = self.parseTail(index)

@@ -2,7 +2,7 @@
 const seq.endian = BIG;
 const seq.width = 40;
 
-field seq.mux = 0:1;
+field seq.address_mux = 0:1;
 field seq.op = 2:3;
 field seq.condition = 4:6;
 field seq.relative = 27:27;
@@ -22,6 +22,8 @@ field exconst8 = control+12:control+12;
 field e_count = control+13:control+14;
 const E_COUNT_P1 = 1;
 const E_COUNT_M1 = 2;
+
+const ADDR_MUX_OPCODE = 1;
 
 field _const8 = 32:39;
 
@@ -68,4 +70,13 @@ def Z_if_else {
         sxop = 2;
     }
     sxop = 3, return;
+}
+
+def Z_switch {
+    sxop = 0, switch ADDR_MUX_OPCODE {
+        0: { sxop = 1; }
+        1: { sxop = 2; }
+        2: { sxop = 3; }
+    }
+    sxop = 99, return;
 }
