@@ -110,7 +110,7 @@ class Parser(object):
         patterns = []
         patterns.append(Pattern('def', r'def'))
         patterns.append(Pattern('if', r'if'))
-        patterns.append(Pattern('else', r'if'))
+        patterns.append(Pattern('else', r'else'))
         patterns.append(Pattern('loop', r'loop'))
         patterns.append(Pattern('while', r'while'))
         patterns.append(Pattern('do', r'do'))

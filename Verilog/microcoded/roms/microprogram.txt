@@ -53,3 +53,19 @@ def HALT {
         sxop = 3, cxm = 0;
     }
 }
+
+def Z_if {
+    sxop = 0, if COND_EQ_ZERO {
+        sxop = 1;
+    }
+    sxop = 2, return;
+}
+
+def Z_if_else {
+    sxop = 0, if COND_EQ_ZERO {
+        sxop = 1;
+    } else {
+        sxop = 2;
+    }
+    sxop = 3, return;
+}

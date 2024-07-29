@@ -4,20 +4,20 @@
 0040100003 //    3: _const8=3, exconst8=1, sxop=2
 1260080004 //    4: sxop=3, e_count=2, seq.address=4, seq.op=1, seq.condition=1; if not condition[1] jump 4
 2080000009 //    5: sxop=4, seq.op=2, seq.address=9; call 9
-0300000008 //    6: sxop=8, seq.address=8, seq.condition=1; if condition[1] jump 8
+0300000008 //    6: sxop=8, seq.condition=1, seq.address=8; if condition[1] jump 8
 1120080006 //    7: sxop=9, e_count=2, seq.op=1, seq.address=6; jump 6
 1140000002 //    8: sxop=10, seq.op=1, seq.address=2; jump 2
 00a0800000 //    9: cxm=1, sxop=5
 00c0000000 //   10: sxop=6
 30e0100002 //   11: _const8=2, exconst8=1, cxm=0, sxop=7, seq.op=3; return
 106000000c //   12: sxop=3, cxm=0, seq.op=1, seq.address=12; jump 12
-0000000000
-0000000000
-0000000000
-0000000000
-0000000000
-0000000000
-0000000000
+120000000f //   13: sxop=0, seq.op=1, seq.condition=1, seq.address=15; if not condition[1] jump 15
+0020000000 //   14: sxop=1
+3040000000 //   15: sxop=2, seq.op=3; return
+1200000012 //   16: sxop=0, seq.op=1, seq.condition=1, seq.address=18; if not condition[1] jump 18
+1020000013 //   17: sxop=1, seq.op=1, seq.address=19; jump 19
+0040000000 //   18: sxop=2
+3060000000 //   19: sxop=3, seq.op=3; return
 0000000000
 0000000000
 0000000000
