@@ -19,3 +19,8 @@ Hardwired control units execute efficiently, but their design, implementation, a
 ## High Level Compiler
 
 Historically, writing microcode was one step below assembly language programming. High level flow control structures, such as if/else, do/while loops, switch statements, and procedures would simplify the process. To this end, a compiler translates these flow control structures into microcode.
+
+TODO:
+
+* Check for nested leading/trailing branches in statement lists (Compiler)
+* Check for overlapping field assignments (Generator)

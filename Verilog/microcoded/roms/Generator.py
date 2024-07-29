@@ -211,7 +211,6 @@ class MicroWordBlock(object):
                     word.update('seq.op', SEQ_OP_JUMP, lineNumber)
                     self.branchWords.append(word)
                     self.outputWords.append(word)
-                    # TODO Check for branch/call/return
                     if len(block) == 1:
                         patch_words.append(word)
                     else:
