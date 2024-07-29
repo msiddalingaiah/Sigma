@@ -199,7 +199,7 @@ class MicroWordBlock(object):
                 self.outputWords.append(word)
                 tree = stat[op_index]
                 n = len(tree)
-                blocks = []
+                multi_blocks = []
                 patch_words = []
                 for i in range(0, n, 2):
                     label = self.expr.eval(tree[i])
@@ -207,17 +207,26 @@ class MicroWordBlock(object):
                         lineNumber = tree[i].value.lineNumber
                         raise Exception(f'line: {lineNumber}, label out of order ({label} != {i>>1})')
                     block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, tree[i+1])
-                    blocks.append(block)
                     word = block.outputWords[0]
+                    word.update('seq.op', SEQ_OP_JUMP, lineNumber)
+                    self.branchWords.append(word)
+                    self.outputWords.append(word)
+                    # TODO Check for branch/call/return
                     if len(block) == 1:
-                        word.update('seq.op', SEQ_OP_JUMP, lineNumber)
                         patch_words.append(word)
-                        top = len(self.outputWords)
-                        self.branchWords.append(word)
-                        self.outputWords.append(word)
                     else:
-                        # TODO multi-line support
-                        pass
+                        multi_blocks.append(block)
+                        tail = block.outputWords[-1]
+                        tail.update('seq.op', SEQ_OP_JUMP, lineNumber)
+                        patch_words.append(tail)
+                        self.branchWords.append(tail)
+                for block in multi_blocks:
+                    top = len(self.outputWords)
+                    head = block.outputWords[0]
+                    head.update('seq.address', top, lineNumber)
+                    self.outputWords.extend(block.outputWords[1:])
+                    self.callWords.extend(block.callWords)
+                    block.updateAddresses(top-1)
                 next = len(self.outputWords)
                 for word in patch_words:
                     word.update('seq.address', next, lineNumber)

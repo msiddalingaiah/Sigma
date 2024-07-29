@@ -19,11 +19,11 @@
 0040000000 //   18: sxop=2
 3060000000 //   19: sxop=3, seq.op=3; return
 5000001000 //   20: sxop=0, seq.address_mux=1, seq.relative=1, seq.op=1; switch address_mux[1]
-1020000018 //   21: sxop=1, seq.op=1, seq.address=24; jump 24
+1020000019 //   21: sxop=1, seq.op=1, seq.address=25; jump 25
 1040000018 //   22: sxop=2, seq.op=1, seq.address=24; jump 24
-1060000018 //   23: sxop=3, seq.op=1, seq.address=24; jump 24
-3060000000 //   24: sxop=99, seq.op=3; return
-0000000000
+1060000019 //   23: sxop=3, seq.op=1, seq.address=25; jump 25
+1000800019 //   24: cxm=1, seq.op=1, seq.address=25; jump 25
+3060000000 //   25: sxop=99, seq.op=3; return
 0000000000
 0000000000
 0000000000

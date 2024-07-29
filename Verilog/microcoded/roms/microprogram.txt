@@ -75,7 +75,7 @@ def Z_if_else {
 def Z_switch {
     sxop = 0, switch ADDR_MUX_OPCODE {
         0: { sxop = 1; }
-        1: { sxop = 2; }
+        1: { sxop = 2; cxm = 1; }
         2: { sxop = 3; }
     }
     sxop = 99, return;
