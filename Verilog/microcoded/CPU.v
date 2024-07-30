@@ -12,8 +12,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // Microcode sequencer
     reg [0:1] uc_op;
     reg [0:11] uc_din;
-    reg relative;
-    Sequencer seq(reset, clock, uc_op, relative, uc_din, uc_rom_address);
+    Sequencer seq(reset, clock, uc_op, uc_din, uc_rom_address);
     // Microcode ROM(s)
     wire [0:11] uc_rom_address;
     wire [0:39] uc_rom_data;
@@ -22,9 +21,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // 0       8       16      24      32      40
     // |-------|-------|-------|-------|-------|
     //    op                        | uc_din  |
-    //                             | <- relative branch (27)
     //  mx - sequencer d_in mux: 0 = pipeline, 1 = instruction, 2, 3 = unused
-    // 4:27 - control 24 bits
+    // 7:27 - control 21 bits
     //     register write enables (10)
     //     p inc (1)
     //     memory address mux (2)
@@ -34,7 +32,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire [0:1] pipeline_op = pipeline[2:3];
     wire [0:2] condition = pipeline[4:6];
     // See datapath pp 3-7
-    wire [0:19] control = pipeline[7:26];
+    wire [0:20] control = pipeline[7:27];
     wire [0:3] sxop = control[0:3];
     wire [0:1] lb_select = control[4:5];
     wire [0:2] p_count = control[6:8];
@@ -115,7 +113,6 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             2: ; // call
             3: ; // return
         endcase
-        relative = pipeline[27];
     end
 
     // Guideline #1: When modeling sequential logic, use nonblocking 

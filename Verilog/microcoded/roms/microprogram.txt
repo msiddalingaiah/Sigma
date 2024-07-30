@@ -5,7 +5,6 @@ const seq.width = 40;
 field seq.address_mux = 0:1;
 field seq.op = 2:3;
 field seq.condition = 4:6;
-field seq.relative = 27:27;
 field seq.address = 28:39;
 
 const COND_EQ_ZERO = 1;

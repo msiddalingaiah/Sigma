@@ -62,13 +62,12 @@ class MicroWord(object):
         op = self.field_values['seq.op']
         condition = self.field_values['seq.condition']
         address = self.field_values['seq.address']
-        relative = self.field_values['seq.relative']
         address_mux = self.field_values['seq.address_mux']
         if op == SEQ_OP_JUMP and condition == 0 and address_mux == 0:
             branch = f'; jump {address}'
         if op == SEQ_OP_JUMP and condition != 0:
             branch = f'; if not condition[{condition}] jump {address}'
-        if op == SEQ_OP_JUMP and relative != 0 and address_mux != 0:
+        if op == SEQ_OP_JUMP and address_mux != 0:
             branch = f'; switch address_mux[{address_mux}]'
         if op == 0 and condition != 0:
             branch = f'; if condition[{condition}] jump {address}'
@@ -94,14 +93,12 @@ class MicroWordBlock(object):
                 self.callWords.extend(block.callWords)
                 self.outputWords[-1].update('seq.op', SEQ_OP_JUMP, lineNumber)
                 self.outputWords[-1].update('seq.address', -len(block), lineNumber)
-                self.outputWords[-1].update('seq.relative', 1, lineNumber)
             elif stat[0].value.name == 'do':
                 block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, stat[1])
                 self.outputWords.extend(block.outputWords)
                 self.callWords.extend(block.callWords)
                 tail_word = self.outputWords[-1]
                 tail_word.update('seq.address', -len(block), lineNumber)
-                tail_word.update('seq.relative', 1, lineNumber)
                 exp_index = 2
                 # invert branch
                 if len(stat) == 4 and stat[2].value.name == 'not':
@@ -125,7 +122,6 @@ class MicroWordBlock(object):
                 word.update('seq.op', SEQ_OP_RETURN, lineNumber)
             if op.value.name == 'call':
                 word.update('seq.op', SEQ_OP_CALL, lineNumber)
-                word.update('seq.relative', 1, lineNumber)
                 op = stat[op_index]
                 op_index += 1
                 word.dest_proc_name = op.value.value
@@ -147,9 +143,7 @@ class MicroWordBlock(object):
                 tail_word = self.outputWords[-1]
                 tail_word.update('seq.op', SEQ_OP_JUMP, lineNumber)
                 tail_word.update('seq.address', -len(block)-1, lineNumber)
-                tail_word.update('seq.relative', 1, lineNumber)
                 word.update('seq.address', len(block), lineNumber, check=False)
-                word.update('seq.relative', 1, lineNumber)
                 return
             if op.value.name == 'if':
                 if stat[op_index].value.name == 'not':
@@ -158,7 +152,6 @@ class MicroWordBlock(object):
                     word.update('seq.op', SEQ_OP_JUMP, lineNumber)
                 condition = self.expr.eval(stat[op_index])
                 word.update('seq.condition', condition, lineNumber)
-                word.update('seq.relative', 1, lineNumber)
                 op_index += 1
                 self.outputWords.append(word)
                 stat_list = stat[op_index]
@@ -170,7 +163,6 @@ class MicroWordBlock(object):
                     word.update('seq.address', len(block), lineNumber, check=False)
                     word = self.outputWords[-1]
                     word.update('seq.op', SEQ_OP_JUMP, lineNumber)
-                    word.update('seq.relative', 1, lineNumber)
                     stat_list = stat[op_index]
                     op_index += 1
                     block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, stat_list)
@@ -182,7 +174,6 @@ class MicroWordBlock(object):
                 addr_mux = self.expr.eval(stat[op_index])
                 op_index += 1
                 word.update('seq.address_mux', addr_mux, lineNumber)
-                word.update('seq.relative', 1, lineNumber)
                 word.update('seq.op', SEQ_OP_JUMP, lineNumber)
                 self.outputWords.append(word)
                 tree = stat[op_index]
@@ -197,7 +188,6 @@ class MicroWordBlock(object):
                     block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, tree[i+1])
                     word = block.outputWords[0]
                     word.update('seq.op', SEQ_OP_JUMP, lineNumber)
-                    word.update('seq.relative', 1, lineNumber)
                     self.outputWords.append(word)
                     if len(block) == 1:
                         patch_tail.append((len(self.outputWords), word))
@@ -209,7 +199,6 @@ class MicroWordBlock(object):
                     head.update('seq.address', top-pc, lineNumber)
                     tail = block.outputWords[-1]
                     tail.update('seq.op', SEQ_OP_JUMP, lineNumber)
-                    tail.update('seq.relative', 1, lineNumber)
                     self.outputWords.extend(block.outputWords[1:])
                     self.callWords.extend(block.callWords)
                     patch_tail.append((len(self.outputWords), tail))
