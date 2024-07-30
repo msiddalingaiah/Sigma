@@ -22,5 +22,6 @@ Historically, writing microcode was one step below assembly language programming
 
 TODO:
 
+* Always use relative branches (deprecate absolute branch)
 * Check for nested leading/trailing branches in statement lists (Compiler)
 * Check for overlapping field assignments (Generator)

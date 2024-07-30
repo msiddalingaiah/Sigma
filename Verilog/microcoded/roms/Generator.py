@@ -18,6 +18,7 @@ class MicroWord(object):
         self.used_bits = 0
         self.field_values = defaultdict(int)
         self.dest_proc_name = None
+        self.pc = 0
 
     def update(self, field_name, value, lineNumber=-1, check=True):
         if field_name not in self.fields:
@@ -51,8 +52,8 @@ class MicroWord(object):
         if self.dest_proc_name != None:
             if self.dest_proc_name not in procAddresses:
                 raise Exception(f'Nonexistent procedure: {self.dest_proc_name}')
-            value = procAddresses[self.dest_proc_name]
-            self.update('seq.address', value, check=False)
+            addr = procAddresses[self.dest_proc_name]
+            self.update('seq.address', addr-self.pc-1, check=False)
 
     def genComment(self):
         fields = [f'{name}={value}' for name, value in self.field_values.items()]
@@ -63,11 +64,11 @@ class MicroWord(object):
         address = self.field_values['seq.address']
         relative = self.field_values['seq.relative']
         address_mux = self.field_values['seq.address_mux']
-        if op == SEQ_OP_JUMP and condition == 0 and relative == 0:
+        if op == SEQ_OP_JUMP and condition == 0 and address_mux == 0:
             branch = f'; jump {address}'
         if op == SEQ_OP_JUMP and condition != 0:
             branch = f'; if not condition[{condition}] jump {address}'
-        if op == SEQ_OP_JUMP and relative != 0:
+        if op == SEQ_OP_JUMP and relative != 0 and address_mux != 0:
             branch = f'; switch address_mux[{address_mux}]'
         if op == 0 and condition != 0:
             branch = f'; if condition[{condition}] jump {address}'
@@ -84,34 +85,29 @@ class MicroWordBlock(object):
         self.big_endian = big_endian
         self.seq_width = seq_width
         self.outputWords = []
-        self.branchWords = []
         self.callWords = []
         for stat in stat_list:
             lineNumber = stat[0].value.lineNumber
             if stat[0].value.name == 'loop':
-                top = len(self.outputWords)
                 block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, stat[1])
                 self.outputWords.extend(block.outputWords)
                 self.callWords.extend(block.callWords)
                 self.outputWords[-1].update('seq.op', SEQ_OP_JUMP, lineNumber)
-                self.outputWords[-1].update('seq.address', top, lineNumber)
-                self.branchWords.append(self.outputWords[-1])
-                block.updateAddresses(top)
+                self.outputWords[-1].update('seq.address', -len(block), lineNumber)
+                self.outputWords[-1].update('seq.relative', 1, lineNumber)
             elif stat[0].value.name == 'do':
-                top = len(self.outputWords)
                 block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, stat[1])
                 self.outputWords.extend(block.outputWords)
                 self.callWords.extend(block.callWords)
                 tail_word = self.outputWords[-1]
-                tail_word.update('seq.address', top, lineNumber)
-                block.updateAddresses(top)
+                tail_word.update('seq.address', -len(block), lineNumber)
+                tail_word.update('seq.relative', 1, lineNumber)
                 exp_index = 2
                 # invert branch
                 if len(stat) == 4 and stat[2].value.name == 'not':
                     tail_word.update('seq.op', SEQ_OP_JUMP, lineNumber)
                     exp_index += 1
                 tail_word.update('seq.condition', self.expr.eval(stat[exp_index]), lineNumber)
-                self.branchWords.append(tail_word)
             else:
                 self.gen_stat(stat)
 
@@ -129,6 +125,7 @@ class MicroWordBlock(object):
                 word.update('seq.op', SEQ_OP_RETURN, lineNumber)
             if op.value.name == 'call':
                 word.update('seq.op', SEQ_OP_CALL, lineNumber)
+                word.update('seq.relative', 1, lineNumber)
                 op = stat[op_index]
                 op_index += 1
                 word.dest_proc_name = op.value.value
@@ -140,23 +137,19 @@ class MicroWordBlock(object):
                     word.update('seq.op', SEQ_OP_JUMP, lineNumber)
                 condition = self.expr.eval(stat[op_index])
                 word.update('seq.condition', condition, lineNumber)
-                self.branchWords.append(word)
                 op_index += 1
-                top = len(self.outputWords)
                 self.outputWords.append(word)
                 stat_list = stat[op_index]
                 op_index += 1
-                btop = len(self.outputWords)
                 block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, stat_list)
                 self.outputWords.extend(block.outputWords)
                 self.callWords.extend(block.callWords)
                 tail_word = self.outputWords[-1]
                 tail_word.update('seq.op', SEQ_OP_JUMP, lineNumber)
-                tail_word.update('seq.address', top, lineNumber)
-                self.branchWords.append(tail_word)
-                next = len(self.outputWords)
-                word.update('seq.address', next, lineNumber, check=False)
-                block.updateAddresses(btop)
+                tail_word.update('seq.address', -len(block)-1, lineNumber)
+                tail_word.update('seq.relative', 1, lineNumber)
+                word.update('seq.address', len(block), lineNumber, check=False)
+                word.update('seq.relative', 1, lineNumber)
                 return
             if op.value.name == 'if':
                 if stat[op_index].value.name == 'not':
@@ -165,30 +158,25 @@ class MicroWordBlock(object):
                     word.update('seq.op', SEQ_OP_JUMP, lineNumber)
                 condition = self.expr.eval(stat[op_index])
                 word.update('seq.condition', condition, lineNumber)
-                self.branchWords.append(word)
+                word.update('seq.relative', 1, lineNumber)
                 op_index += 1
                 self.outputWords.append(word)
                 stat_list = stat[op_index]
                 op_index += 1
-                iftop = len(self.outputWords)
                 block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, stat_list)
                 self.outputWords.extend(block.outputWords)
                 self.callWords.extend(block.callWords)
                 if len(stat) > op_index:
-                    elsetop = len(self.outputWords)
-                    word.update('seq.address', elsetop, lineNumber, check=False)
+                    word.update('seq.address', len(block), lineNumber, check=False)
                     word = self.outputWords[-1]
                     word.update('seq.op', SEQ_OP_JUMP, lineNumber)
-                    self.branchWords.append(word)
+                    word.update('seq.relative', 1, lineNumber)
                     stat_list = stat[op_index]
                     op_index += 1
-                    elseblock = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, stat_list)
-                    self.outputWords.extend(elseblock.outputWords)
-                    self.callWords.extend(elseblock.callWords)
-                    elseblock.updateAddresses(elsetop)
-                next = len(self.outputWords)
-                word.update('seq.address', next, lineNumber, check=False)
-                block.updateAddresses(iftop)
+                    block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, stat_list)
+                    self.outputWords.extend(block.outputWords)
+                    self.callWords.extend(block.callWords)
+                word.update('seq.address', len(block), lineNumber, check=False)
                 return
             if op.value.name == 'switch':
                 addr_mux = self.expr.eval(stat[op_index])
@@ -200,7 +188,7 @@ class MicroWordBlock(object):
                 tree = stat[op_index]
                 n = len(tree)
                 multi_blocks = []
-                patch_words = []
+                patch_tail = []
                 for i in range(0, n, 2):
                     label = self.expr.eval(tree[i])
                     if i>>1 != label:
@@ -209,46 +197,44 @@ class MicroWordBlock(object):
                     block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, tree[i+1])
                     word = block.outputWords[0]
                     word.update('seq.op', SEQ_OP_JUMP, lineNumber)
-                    self.branchWords.append(word)
+                    word.update('seq.relative', 1, lineNumber)
                     self.outputWords.append(word)
                     if len(block) == 1:
-                        patch_words.append(word)
+                        patch_tail.append((len(self.outputWords), word))
                     else:
-                        multi_blocks.append(block)
-                        tail = block.outputWords[-1]
-                        tail.update('seq.op', SEQ_OP_JUMP, lineNumber)
-                        patch_words.append(tail)
-                        self.branchWords.append(tail)
-                for block in multi_blocks:
+                        multi_blocks.append((len(self.outputWords), block))
+                for pc, block in multi_blocks:
                     top = len(self.outputWords)
                     head = block.outputWords[0]
-                    head.update('seq.address', top, lineNumber)
+                    head.update('seq.address', top-pc, lineNumber)
+                    tail = block.outputWords[-1]
+                    tail.update('seq.op', SEQ_OP_JUMP, lineNumber)
+                    tail.update('seq.relative', 1, lineNumber)
                     self.outputWords.extend(block.outputWords[1:])
                     self.callWords.extend(block.callWords)
-                    block.updateAddresses(top-1)
+                    patch_tail.append((len(self.outputWords), tail))
                 next = len(self.outputWords)
-                for word in patch_words:
-                    word.update('seq.address', next, lineNumber)
+                for pc, word in patch_tail:
+                    word.update('seq.address', next-pc, lineNumber)
                 return
         self.outputWords.append(word)
 
-    def updateAddresses(self, startAddress):
-        for word in self.branchWords:
-            word.updateAddress(startAddress)
-    
     def updateCalls(self, procAddresses):
         for word in self.callWords:
             word.updateCall(procAddresses)
 
-    def getOutput(self, startAddress, procAddresses):
-        self.updateAddresses(startAddress)
+    def updatePC(self, startAddress):
+        for i, mc in enumerate(self.outputWords):
+            mc.pc = startAddress + i
+
+    def getOutput(self, procAddresses):
         self.updateCalls(procAddresses)
         format = f'{{0:0{self.seq_width >> 2}x}}'
         results = []
-        for i, mc in enumerate(self.outputWords):
+        for mc in self.outputWords:
             code = format.format(mc.word)
             comment = mc.genComment()
-            results.append(f'{code} // {i+startAddress:4d}: {comment}')
+            results.append(f'{code} // {mc.pc:4d}: {comment}')
         return results
     
     def __len__(self):
@@ -270,23 +256,25 @@ class Generator(object):
             self.procedureBlocks[name] = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, stat_list)
 
     def write(self, file_name):
+        names = list(self.procedureBlocks.keys())
+        names.remove('main')
+        names = ['main'] + names
+        procAddresses = {}
+        address = 0
+        for name in names:
+            block = self.procedureBlocks[name]
+            block.updatePC(address)
+            procAddresses[name] = address
+            address += len(block)
+
         a1, a2 = self.fields['seq.address']
         w = abs(a1-a2)+1
         word_count = 1 << w
         with open(file_name, 'wt') as f:
-            names = list(self.procedureBlocks.keys())
-            names.remove('main')
-            names = ['main'] + names
-            procAddresses = {}
             address = 0
             for name in names:
                 block = self.procedureBlocks[name]
-                procAddresses[name] = address
-                address += len(block)
-            address = 0
-            for name in names:
-                block = self.procedureBlocks[name]
-                output = block.getOutput(address, procAddresses)
+                output = block.getOutput(procAddresses)
                 for line in output:
                     f.write(line + '\n')
                 address += len(output)
