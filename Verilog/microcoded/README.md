@@ -8,7 +8,7 @@ This directory contains a general purpose microcode sequencer in Verilog influen
 There are a few differences in this design:
 
 * Scalable design, rather than a series of bit-slices
-* Built in adder to support relative branching
+* Built in adder to support relative only branching (position independent code)
 
 ## Microprogramming
 
@@ -22,6 +22,5 @@ Historically, writing microcode was one step below assembly language programming
 
 TODO:
 
-* Always use relative branches (deprecate absolute branch)
 * Check for nested leading/trailing branches in statement lists (Compiler)
 * Check for overlapping field assignments (Generator)

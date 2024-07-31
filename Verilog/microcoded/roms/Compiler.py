@@ -188,24 +188,43 @@ class Parser(object):
             return tree
         tree = Tree(self.sc.expect('def'))
         tree.add(self.sc.expect('ID'))
-        tree.add(self.parseStatList())
+        tree.add(self.parseStatList(noHeadBranch=False, noTailBranch=False))
         return tree
 
-    def parseStatList(self):
+    def getBranch(self, stat):
+        if stat[0].value.name in ('loop', 'do'):
+            return stat[0].value.name
+        for op in stat:
+            if op.value.name in ('call', 'return', 'while', 'if'):
+                return op.value.name
+        return ''
+
+    def isHeadBranch(self, stat):
+        return self.getBranch(stat) in ('call', 'return', 'while', 'if')
+
+    def isTailBranch(self, stat):
+        return self.getBranch(stat) in ('loop', 'do', 'call', 'return', 'while')
+
+    def parseStatList(self, noHeadBranch=True, noTailBranch=True):
         tree = Tree(self.sc.expect('{'))
         while not self.sc.matches('}'):
             tree.add(self.parseStatement())
+        head, tail = tree[0], tree[-1]
+        if noHeadBranch and self.isHeadBranch(head):
+            raise Exception(f'line {head.value.lineNumber}: {self.getBranch(head)} not allowed here')
+        if noTailBranch and self.isTailBranch(tail):
+            raise Exception(f'line {tail.value.lineNumber}: {self.getBranch(tail)} not allowed here')
         return tree
 
     def parseStatement(self):
         tree = Tree(Terminal('stat', 'stat'))
         if self.sc.matches('loop'):
             tree.add(self.sc.terminal)
-            tree.add(self.parseStatList())
+            tree.add(self.parseStatList(noHeadBranch=False))
             return tree
         if self.sc.matches('do'):
             tree.add(self.sc.terminal)
-            tree.add(self.parseStatList())
+            tree.add(self.parseStatList(noHeadBranch=False))
             self.sc.expect('while')
             if self.sc.matches('not'):
                 tree.add(self.sc.terminal)
@@ -228,7 +247,7 @@ class Parser(object):
             tree.add(self.parseExp())
             tree.add(self.parseStatList())
             if self.sc.matches('else'):
-                tree.add(self.parseStatList())
+                tree.add(self.parseStatList(noTailBranch=False))
             return tree
         if self.sc.matches('while'):
             tree.add(self.sc.terminal)

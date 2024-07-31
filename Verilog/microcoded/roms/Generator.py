@@ -20,7 +20,7 @@ class MicroWord(object):
         self.dest_proc_name = None
         self.pc = 0
 
-    def update(self, field_name, value, lineNumber=-1, check=True):
+    def update(self, field_name, value, lineNumber=-1):
         if field_name not in self.fields:
             raise Exception(f'line {lineNumber}, No such field: {field_name}')
         self.field_values[field_name] = value
@@ -33,17 +33,13 @@ class MicroWord(object):
         else:
             shift = i2
         mask <<= shift
-        if mask & self.used_bits != 0 and check:
+        if mask & self.used_bits != 0:
             raise Exception(f"line {lineNumber}: field '{field_name}' already assigned")
         self.used_bits |= mask
         value <<= shift
         self.word &= ~mask
         self.word |= value
         return value
-
-    def updateAddress(self, offset):
-        value = self.field_values['seq.address'] + offset
-        self.update('seq.address', value, check=False)
 
     def is_branch(self):
         return self.field_values['seq.op'] != 0 or self.field_values['seq.condition'] != 0
@@ -53,7 +49,7 @@ class MicroWord(object):
             if self.dest_proc_name not in procAddresses:
                 raise Exception(f'Nonexistent procedure: {self.dest_proc_name}')
             addr = procAddresses[self.dest_proc_name]
-            self.update('seq.address', addr-self.pc-1, check=False)
+            self.update('seq.address', addr-self.pc-1)
 
     def genComment(self):
         fields = [f'{name}={value}' for name, value in self.field_values.items()]
@@ -143,7 +139,7 @@ class MicroWordBlock(object):
                 tail_word = self.outputWords[-1]
                 tail_word.update('seq.op', SEQ_OP_JUMP, lineNumber)
                 tail_word.update('seq.address', -len(block)-1, lineNumber)
-                word.update('seq.address', len(block), lineNumber, check=False)
+                word.update('seq.address', len(block), lineNumber)
                 return
             if op.value.name == 'if':
                 if stat[op_index].value.name == 'not':
@@ -160,7 +156,7 @@ class MicroWordBlock(object):
                 self.outputWords.extend(block.outputWords)
                 self.callWords.extend(block.callWords)
                 if len(stat) > op_index:
-                    word.update('seq.address', len(block), lineNumber, check=False)
+                    word.update('seq.address', len(block), lineNumber)
                     word = self.outputWords[-1]
                     word.update('seq.op', SEQ_OP_JUMP, lineNumber)
                     stat_list = stat[op_index]
@@ -168,7 +164,7 @@ class MicroWordBlock(object):
                     block = MicroWordBlock(self.fields, self.expr, self.big_endian, self.seq_width, stat_list)
                     self.outputWords.extend(block.outputWords)
                     self.callWords.extend(block.callWords)
-                word.update('seq.address', len(block), lineNumber, check=False)
+                word.update('seq.address', len(block), lineNumber)
                 return
             if op.value.name == 'switch':
                 addr_mux = self.expr.eval(stat[op_index])
