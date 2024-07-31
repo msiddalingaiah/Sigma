@@ -199,6 +199,14 @@ class Parser(object):
                 return op.value.name
         return ''
 
+    def getBranchLine(self, stat):
+        if stat[0].value.name in ('loop', 'do'):
+            return stat[0].value.lineNumber
+        for op in stat:
+            if op.value.name in ('call', 'return', 'while', 'if'):
+                return op.value.lineNumber
+        return ''
+
     def isHeadBranch(self, stat):
         return self.getBranch(stat) in ('call', 'return', 'while', 'if')
 
@@ -211,9 +219,9 @@ class Parser(object):
             tree.add(self.parseStatement())
         head, tail = tree[0], tree[-1]
         if noHeadBranch and self.isHeadBranch(head):
-            raise Exception(f'line {head.value.lineNumber}: {self.getBranch(head)} not allowed here')
+            raise Exception(f'line {self.getBranchLine(head)}: {self.getBranch(head)} not allowed here')
         if noTailBranch and self.isTailBranch(tail):
-            raise Exception(f'line {tail.value.lineNumber}: {self.getBranch(tail)} not allowed here')
+            raise Exception(f'line {self.getBranchLine(tail)}: {self.getBranch(tail)} not allowed here')
         return tree
 
     def parseStatement(self):

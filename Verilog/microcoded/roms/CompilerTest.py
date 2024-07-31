@@ -49,7 +49,7 @@ class TestStringMethods(unittest.TestCase):
                         }''')
             self.fail()
         except Exception as e:
-            self.assertTrue(str(e).endswith('loop not allowed here'))
+            self.assertEqual(str(e), 'line 2: loop not allowed here')
 
     def test_while_error(self):
         p = Parser()
@@ -59,7 +59,7 @@ class TestStringMethods(unittest.TestCase):
                         }''')
             self.fail()
         except Exception as e:
-            self.assertTrue(str(e).endswith('while not allowed here'))
+            self.assertEqual(str(e), 'line 2: while not allowed here')
 
     def test_do_error(self):
         p = Parser()
@@ -69,7 +69,7 @@ class TestStringMethods(unittest.TestCase):
                         }''')
             self.fail()
         except Exception as e:
-            self.assertTrue(str(e).endswith('do not allowed here'))
+            self.assertEqual(str(e), 'line 2: do not allowed here')
 
     def test_call_error(self):
         p = Parser()
@@ -79,7 +79,7 @@ class TestStringMethods(unittest.TestCase):
                         }''')
             self.fail()
         except Exception as e:
-            self.assertTrue(str(e).endswith('call not allowed here'))
+            self.assertEqual(str(e), 'line 2: call not allowed here')
 
     def test_return_error(self):
         p = Parser()
@@ -89,7 +89,7 @@ class TestStringMethods(unittest.TestCase):
                         }''')
             self.fail()
         except Exception as e:
-            self.assertTrue(str(e).endswith('return not allowed here'))
+            self.assertEqual(str(e), 'line 2: return not allowed here')
 
     def test_if_error(self):
         p = Parser()
