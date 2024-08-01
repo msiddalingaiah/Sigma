@@ -195,7 +195,7 @@ class Parser(object):
         if stat[0].value.name in ('loop', 'do'):
             return stat[0].value.name
         for op in stat:
-            if op.value.name in ('call', 'return', 'while', 'if'):
+            if op.value.name in ('call', 'return', 'while', 'if', 'switch'):
                 return op.value.name
         return ''
 
@@ -203,15 +203,15 @@ class Parser(object):
         if stat[0].value.name in ('loop', 'do'):
             return stat[0].value.lineNumber
         for op in stat:
-            if op.value.name in ('call', 'return', 'while', 'if'):
+            if op.value.name in ('call', 'return', 'while', 'if', 'switch'):
                 return op.value.lineNumber
         return ''
 
     def isHeadBranch(self, stat):
-        return self.getBranch(stat) in ('call', 'return', 'while', 'if')
+        return self.getBranch(stat) in ('call', 'return', 'while', 'if', 'switch')
 
     def isTailBranch(self, stat):
-        return self.getBranch(stat) in ('loop', 'do', 'call', 'return', 'while')
+        return self.getBranch(stat) in ('loop', 'do', 'call', 'return', 'while', 'switch')
 
     def parseStatList(self, noHeadBranch=True, noTailBranch=True):
         tree = Tree(self.sc.expect('{'))
@@ -245,6 +245,11 @@ class Parser(object):
             t2.add(lhs)
             t2.add(self.parseExp())
             tree.add(t2)
+            if self.sc.matches(';'):
+                return tree
+            self.sc.expect(',')
+        if self.sc.matches('"'):
+            tree.add(self.sc.terminal)
             if self.sc.matches(';'):
                 return tree
             self.sc.expect(',')
@@ -347,7 +352,6 @@ if __name__ == '__main__':
     cp = Parser()
     with open('microprogram.txt') as f:
         tree = cp.parse(f.read())
-    #print(tree)
     g = gen.Generator(tree)
     g.write('microcode.txt')
 

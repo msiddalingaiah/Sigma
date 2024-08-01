@@ -27,7 +27,7 @@ const ADDR_MUX_OPCODE = 1;
 field _const8 = 32:39;
 
 def main {
-    cxm = 0, sxop = 15;
+    cxm = 0, sxop = 15, "foobar";
     cxm = 0, sxop = 14;
     loop {
         lb_select=1, cxm=1, orxm=1, p_count=1, sxop = 1;

@@ -1,0 +1,560 @@
+
+const seq.endian = BIG;
+const seq.width = 40;
+
+field seq.address_mux = 0:1;
+field seq.op = 2:3;
+field seq.condition = 4:6;
+field seq.address = 28:39;
+
+const COND_EQ_ZERO = 1;
+const COND_INDIRECT = 2;
+const COND_INDEXED = 3;
+
+const control = 7;
+field sxop = control+0:control+3;
+field lb_select = control+4:control+5;
+field p_count = control+6:control+8;
+
+field cxm = control+9:control+9;
+field orxm = control+10:control+10;
+field qxp = control+11:control+11;
+field exconst8 = control+12:control+12;
+field e_count = control+13:control+14;
+field ende = control+15:control+15;
+
+const E_COUNT_P1 = 1;
+const E_COUNT_M1 = 2;
+
+const ADDR_MUX_OPCODE = 1;
+
+field _const8 = 32:39;
+
+const OP_NAO_00 = 0;
+const OP_NAO_01 = 1;
+const OP_LCFI = 2;
+const OP_NAO_03 = 3;
+const OP_CAL1 = 4;
+const OP_CAL2 = 5;
+const OP_CAL3 = 6;
+const OP_CAL4 = 7;
+const OP_PLW = 8;
+const OP_PSW = 9;
+const OP_PLM = 10;
+const OP_PSM = 11;
+const OP_NAO_0c = 12;
+const OP_NAO_0d = 13;
+const OP_LPSD = 14;
+const OP_XPSD = 15;
+const OP_AD = 16;
+const OP_CD = 17;
+const OP_LD = 18;
+const OP_MSP = 19;
+const OP_NAO_14 = 20;
+const OP_STD = 21;
+const OP_NAO_16 = 22;
+const OP_NAO_17 = 23;
+const OP_SD = 24;
+const OP_CLM = 25;
+const OP_LCD = 26;
+const OP_LAD = 27;
+const OP_FSL = 28;
+const OP_FAL = 29;
+const OP_FDL = 30;
+const OP_FML = 31;
+const OP_AI = 32;
+const OP_CI = 33;
+const OP_LI = 34;
+const OP_MI = 35;
+const OP_SF = 36;
+const OP_S = 37;
+const OP_NAO_26 = 38;
+const OP_NAO_27 = 39;
+const OP_CVS = 40;
+const OP_CVA = 41;
+const OP_LM = 42;
+const OP_STM = 43;
+const OP_NAO_2c = 44;
+const OP_NAO_2d = 45;
+const OP_WAIT = 46;
+const OP_LRP = 47;
+const OP_AW = 48;
+const OP_CW = 49;
+const OP_LW = 50;
+const OP_MTW = 51;
+const OP_NAO_34 = 52;
+const OP_STW = 53;
+const OP_DW = 54;
+const OP_MW = 55;
+const OP_SW = 56;
+const OP_CLR = 57;
+const OP_LCW = 58;
+const OP_LAW = 59;
+const OP_FSS = 60;
+const OP_FAS = 61;
+const OP_FDS = 62;
+const OP_FMS = 63;
+const OP_TTBS = 64;
+const OP_TBS = 65;
+const OP_NAO_42 = 66;
+const OP_NAO_43 = 67;
+const OP_ANLZ = 68;
+const OP_CS = 69;
+const OP_XW = 70;
+const OP_STS = 71;
+const OP_EOR = 72;
+const OP_OR = 73;
+const OP_LS = 74;
+const OP_AND = 75;
+const OP_SIO = 76;
+const OP_TIO = 77;
+const OP_TDV = 78;
+const OP_HIO = 79;
+const OP_AH = 80;
+const OP_CH = 81;
+const OP_LH = 82;
+const OP_MTH = 83;
+const OP_NAO_54 = 84;
+const OP_STH = 85;
+const OP_DH = 86;
+const OP_MH = 87;
+const OP_SH = 88;
+const OP_NAO_59 = 89;
+const OP_LCH = 90;
+const OP_LAH = 91;
+const OP_NAO_5c = 92;
+const OP_NAO_5d = 93;
+const OP_NAO_5e = 94;
+const OP_NAO_5f = 95;
+const OP_CBS = 96;
+const OP_MBS = 97;
+const OP_NAO_62 = 98;
+const OP_EBS = 99;
+const OP_BDR = 100;
+const OP_BIR = 101;
+const OP_AWM = 102;
+const OP_EXU = 103;
+const OP_BCR = 104;
+const OP_BCS = 105;
+const OP_BAL = 106;
+const OP_INT = 107;
+const OP_RD = 108;
+const OP_WD = 109;
+const OP_AIO = 110;
+const OP_MMC = 111;
+const OP_LCF = 112;
+const OP_CB = 113;
+const OP_LB = 114;
+const OP_MTB = 115;
+const OP_STFC = 116;
+const OP_STB = 117;
+const OP_PACK = 118;
+const OP_UNPK = 119;
+const OP_DS = 120;
+const OP_DA = 121;
+const OP_DD = 122;
+const OP_DM = 123;
+const OP_DSA = 124;
+const OP_DC = 125;
+const OP_DL = 126;
+const OP_DST = 127;
+
+def main {
+    ende = 1;
+    loop {
+        qxp=1, if COND_INDIRECT {
+            cxm=1;
+        }
+        if COND_INDEXED {
+            cxm=0;
+        }
+        switch ADDR_MUX_OPCODE {
+            OP_NAO_00: {
+                sxop = 0;
+            }
+            OP_NAO_01: {
+                sxop = 0;
+            }
+            OP_LCFI: {
+                sxop = 0;
+            }
+            OP_NAO_03: {
+                sxop = 0;
+            }
+            OP_CAL1: {
+                sxop = 0;
+            }
+            OP_CAL2: {
+                sxop = 0;
+            }
+            OP_CAL3: {
+                sxop = 0;
+            }
+            OP_CAL4: {
+                sxop = 0;
+            }
+            OP_PLW: {
+                sxop = 0;
+            }
+            OP_PSW: {
+                sxop = 0;
+            }
+            OP_PLM: {
+                sxop = 0;
+            }
+            OP_PSM: {
+                sxop = 0;
+            }
+            OP_NAO_0c: {
+                sxop = 0;
+            }
+            OP_NAO_0d: {
+                sxop = 0;
+            }
+            OP_LPSD: {
+                sxop = 0;
+            }
+            OP_XPSD: {
+                sxop = 0;
+            }
+            OP_AD: {
+                sxop = 0;
+            }
+            OP_CD: {
+                sxop = 0;
+            }
+            OP_LD: {
+                sxop = 0;
+            }
+            OP_MSP: {
+                sxop = 0;
+            }
+            OP_NAO_14: {
+                sxop = 0;
+            }
+            OP_STD: {
+                sxop = 0;
+            }
+            OP_NAO_16: {
+                sxop = 0;
+            }
+            OP_NAO_17: {
+                sxop = 0;
+            }
+            OP_SD: {
+                sxop = 0;
+            }
+            OP_CLM: {
+                sxop = 0;
+            }
+            OP_LCD: {
+                sxop = 0;
+            }
+            OP_LAD: {
+                sxop = 0;
+            }
+            OP_FSL: {
+                sxop = 0;
+            }
+            OP_FAL: {
+                sxop = 0;
+            }
+            OP_FDL: {
+                sxop = 0;
+            }
+            OP_FML: {
+                sxop = 0;
+            }
+            OP_AI: {
+                sxop = 0;
+            }
+            OP_CI: {
+                sxop = 0;
+            }
+            OP_LI: {
+                sxop = 0;
+            }
+            OP_MI: {
+                sxop = 0;
+            }
+            OP_SF: {
+                sxop = 0;
+            }
+            OP_S: {
+                sxop = 0;
+            }
+            OP_NAO_26: {
+                sxop = 0;
+            }
+            OP_NAO_27: {
+                sxop = 0;
+            }
+            OP_CVS: {
+                sxop = 0;
+            }
+            OP_CVA: {
+                sxop = 0;
+            }
+            OP_LM: {
+                sxop = 0;
+            }
+            OP_STM: {
+                sxop = 0;
+            }
+            OP_NAO_2c: {
+                sxop = 0;
+            }
+            OP_NAO_2d: {
+                sxop = 0;
+            }
+            OP_WAIT: {
+                sxop = 0;
+            }
+            OP_LRP: {
+                sxop = 0;
+            }
+            OP_AW: {
+                sxop = 0;
+            }
+            OP_CW: {
+                sxop = 0;
+            }
+            OP_LW: {
+                sxop = 0;
+            }
+            OP_MTW: {
+                sxop = 0;
+            }
+            OP_NAO_34: {
+                sxop = 0;
+            }
+            OP_STW: {
+                sxop = 0;
+            }
+            OP_DW: {
+                sxop = 0;
+            }
+            OP_MW: {
+                sxop = 0;
+            }
+            OP_SW: {
+                sxop = 0;
+            }
+            OP_CLR: {
+                sxop = 0;
+            }
+            OP_LCW: {
+                sxop = 0;
+            }
+            OP_LAW: {
+                sxop = 0;
+            }
+            OP_FSS: {
+                sxop = 0;
+            }
+            OP_FAS: {
+                sxop = 0;
+            }
+            OP_FDS: {
+                sxop = 0;
+            }
+            OP_FMS: {
+                sxop = 0;
+            }
+            OP_TTBS: {
+                sxop = 0;
+            }
+            OP_TBS: {
+                sxop = 0;
+            }
+            OP_NAO_42: {
+                sxop = 0;
+            }
+            OP_NAO_43: {
+                sxop = 0;
+            }
+            OP_ANLZ: {
+                sxop = 0;
+            }
+            OP_CS: {
+                sxop = 0;
+            }
+            OP_XW: {
+                sxop = 0;
+            }
+            OP_STS: {
+                sxop = 0;
+            }
+            OP_EOR: {
+                sxop = 0;
+            }
+            OP_OR: {
+                sxop = 0;
+            }
+            OP_LS: {
+                sxop = 0;
+            }
+            OP_AND: {
+                sxop = 0;
+            }
+            OP_SIO: {
+                sxop = 0;
+            }
+            OP_TIO: {
+                sxop = 0;
+            }
+            OP_TDV: {
+                sxop = 0;
+            }
+            OP_HIO: {
+                sxop = 0;
+            }
+            OP_AH: {
+                sxop = 0;
+            }
+            OP_CH: {
+                sxop = 0;
+            }
+            OP_LH: {
+                sxop = 0;
+            }
+            OP_MTH: {
+                sxop = 0;
+            }
+            OP_NAO_54: {
+                sxop = 0;
+            }
+            OP_STH: {
+                sxop = 0;
+            }
+            OP_DH: {
+                sxop = 0;
+            }
+            OP_MH: {
+                sxop = 0;
+            }
+            OP_SH: {
+                sxop = 0;
+            }
+            OP_NAO_59: {
+                sxop = 0;
+            }
+            OP_LCH: {
+                sxop = 0;
+            }
+            OP_LAH: {
+                sxop = 0;
+            }
+            OP_NAO_5c: {
+                sxop = 0;
+            }
+            OP_NAO_5d: {
+                sxop = 0;
+            }
+            OP_NAO_5e: {
+                sxop = 0;
+            }
+            OP_NAO_5f: {
+                sxop = 0;
+            }
+            OP_CBS: {
+                sxop = 0;
+            }
+            OP_MBS: {
+                sxop = 0;
+            }
+            OP_NAO_62: {
+                sxop = 0;
+            }
+            OP_EBS: {
+                sxop = 0;
+            }
+            OP_BDR: {
+                sxop = 0;
+            }
+            OP_BIR: {
+                sxop = 0;
+            }
+            OP_AWM: {
+                sxop = 0;
+            }
+            OP_EXU: {
+                sxop = 0;
+            }
+            OP_BCR: {
+                sxop = 0;
+            }
+            OP_BCS: {
+                sxop = 0;
+            }
+            OP_BAL: {
+                sxop = 0;
+            }
+            OP_INT: {
+                sxop = 0;
+            }
+            OP_RD: {
+                sxop = 0;
+            }
+            OP_WD: {
+                sxop = 0;
+            }
+            OP_AIO: {
+                sxop = 0;
+            }
+            OP_MMC: {
+                sxop = 0;
+            }
+            OP_LCF: {
+                sxop = 0;
+            }
+            OP_CB: {
+                sxop = 0;
+            }
+            OP_LB: {
+                sxop = 0;
+            }
+            OP_MTB: {
+                sxop = 0;
+            }
+            OP_STFC: {
+                sxop = 0;
+            }
+            OP_STB: {
+                sxop = 0;
+            }
+            OP_PACK: {
+                sxop = 0;
+            }
+            OP_UNPK: {
+                sxop = 0;
+            }
+            OP_DS: {
+                sxop = 0;
+            }
+            OP_DA: {
+                sxop = 0;
+            }
+            OP_DD: {
+                sxop = 0;
+            }
+            OP_DM: {
+                sxop = 0;
+            }
+            OP_DSA: {
+                sxop = 0;
+            }
+            OP_DC: {
+                sxop = 0;
+            }
+            OP_DL: {
+                sxop = 0;
+            }
+            OP_DST: {
+                sxop = 0;
+            }
+        }
+        sxop = 0;
+    }
+}
+

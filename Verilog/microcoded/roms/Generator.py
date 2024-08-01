@@ -111,6 +111,8 @@ class MicroWordBlock(object):
             op = stat[op_index]
             op_index += 1
             lineNumber = op.value.lineNumber
+            if op.value.name == '"':
+                comment = op.value.value[1:-1]
             if op.value.name == '=':
                 field_name = op[0].value.value
                 word.update(field_name, self.expr.eval(op[1]), lineNumber)
