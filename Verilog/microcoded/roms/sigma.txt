@@ -22,6 +22,9 @@ field qxp = control+11:control+11;
 field exconst8 = control+12:control+12;
 field e_count = control+13:control+14;
 field ende = control+15:control+15;
+field axcin = control+16:control+16;
+field rrxa = control+17:control+17;
+field testa = control+18:control+18;
 
 const E_COUNT_P1 = 1;
 const E_COUNT_M1 = 2;
@@ -160,15 +163,10 @@ const OP_DL = 126;
 const OP_DST = 127;
 
 def main {
+    sxop = 0;
     ende = 1;
     loop {
-        qxp=1, if COND_INDIRECT {
-            cxm=1;
-        }
-        if COND_INDEXED {
-            cxm=0;
-        }
-        switch ADDR_MUX_OPCODE {
+        top: switch ADDR_MUX_OPCODE {
             OP_NAO_00: {
                 sxop = 0;
             }
@@ -272,7 +270,8 @@ def main {
                 sxop = 0;
             }
             OP_LI: {
-                sxop = 0;
+                axcin = 1;
+                rrxa = 1, testa = 1, ende = 1, continue top;
             }
             OP_MI: {
                 sxop = 0;
@@ -308,7 +307,7 @@ def main {
                 sxop = 0;
             }
             OP_WAIT: {
-                sxop = 0;
+                forever: sxop = 0, continue forever;
             }
             OP_LRP: {
                 sxop = 0;

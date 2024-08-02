@@ -41,6 +41,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire qxp = control[11];
     wire exconst8 = control[12];
     wire [0:1] e_count = control[13:14];
+    wire ende = control[15];
+    wire axcin = control[16];
+    wire rrxa = control[17];
+    wire testa = control[18];
 
     wire [0:7] const8 = pipeline[32:39];
     wire [0:11] jump_address = pipeline[28:39];
@@ -48,9 +52,9 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     reg branch;
 
     // Instruction map ROM
-    wire [0:6] op_rom_address = o;
-    wire [0:11] op_rom_data;
-    MapROM op_rom(op_rom_address, op_rom_data);
+    //wire [0:6] op_rom_address = o;
+    // wire [0:11] op_rom_data;
+    //MapROM op_rom(op_rom_address, op_rom_data);
 
     // Standard register configuration
     reg [0:31] a, b, d;
@@ -78,7 +82,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // private memory address (register number), pctr counts up, mctr counts down
     reg [28:31] r;
     // private memory registers
-    reg [0:31] rr[0:31];
+    reg [0:31] rr[0:16];
     // register pointer
     reg [23:27] rp;
     // sum bus
@@ -92,7 +96,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
         // Sequencer d_in mux
         case (pipeline[0:1])
             0: uc_din = jump_address; // jump or call
-            1: uc_din = op_rom_data; // instruction map ROM
+            1: uc_din = o; // instruction op code
             2: uc_din = 0; // not used
             3: uc_din = 0; // not used
         endcase
@@ -113,6 +117,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             2: ; // call
             3: ; // return
         endcase
+        lb = p;
     end
 
     // Guideline #1: When modeling sequential logic, use nonblocking 
@@ -122,6 +127,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             a <= 0;
             b <= 0;
             c <= 0;
+            cc <= 0;
             d <= 0;
             o <= 0;
             p <= 0;
@@ -138,6 +144,19 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 2: e <= e - 1;
                 3: ;
             endcase
+            if (ende == 1) begin
+                c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; p <= p + 1;
+            end
+            if (axcin == 1) begin
+                a <= { {12{c_in[12]}}, c_in[12:31] };
+            end
+            if (rrxa == 1) begin
+                rr[r] <= a;
+            end
+            // CC3 <= TESTA & !A[0] & NA0031Z, CC4 <= TESTA & A[0]
+            if (testa == 1) begin
+                cc[3] <= (~a[0]) & (a != 0); cc[4] <= a[0];
+            end
         end
     end
 endmodule

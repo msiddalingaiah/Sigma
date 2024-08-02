@@ -6,7 +6,7 @@
 module CodeROM(input wire [11:0] address, output wire [39:0] data);
     reg [39:0] memory[0:4095];
     initial begin
-        $readmemh("roms/microcode.txt", memory);
+        $readmemh("roms/sigma_microcode.txt", memory);
     end
 
     assign data = memory[address];

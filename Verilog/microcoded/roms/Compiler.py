@@ -224,7 +224,7 @@ class Parser(object):
             if stat_name == 'switch' and self.getBranch(head) != 'continue':
                 raise Exception(f'line {self.getBranchLine(head)}: {self.getBranch(head)} not allowed here')
         if noTailBranch and self.isTailBranch(tail):
-            if stat_name == 'switch' and self.getBranch(head) != 'continue':
+            if stat_name == 'switch' and self.getBranch(tail) != 'continue':
                 raise Exception(f'line {self.getBranchLine(tail)}: {self.getBranch(tail)} not allowed here')
         return tree
 
@@ -373,8 +373,8 @@ class Parser(object):
 
 if __name__ == '__main__':
     cp = Parser()
-    with open('microprogram.txt') as f:
+    with open('sigma.txt') as f:
         tree = cp.parse(f.read())
     g = gen.Generator(tree)
-    g.write('microcode.txt')
+    g.write('sigma_microcode.txt')
 
