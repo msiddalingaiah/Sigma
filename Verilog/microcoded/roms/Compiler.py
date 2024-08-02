@@ -214,15 +214,18 @@ class Parser(object):
     def isTailBranch(self, stat):
         return self.getBranch(stat) in ('loop', 'do', 'call', 'return', 'while', 'switch', 'continue')
 
-    def parseStatList(self, noHeadBranch=True, noTailBranch=True):
+    def parseStatList(self, noHeadBranch=True, noTailBranch=True, stat_name=''):
         tree = Tree(self.sc.expect('{'))
         while not self.sc.matches('}'):
             tree.add(self.parseStatement())
         head, tail = tree[0], tree[-1]
+        # switch blocks can start or end with continue statements
         if noHeadBranch and self.isHeadBranch(head):
-            raise Exception(f'line {self.getBranchLine(head)}: {self.getBranch(head)} not allowed here')
+            if stat_name == 'switch' and self.getBranch(head) != 'continue':
+                raise Exception(f'line {self.getBranchLine(head)}: {self.getBranch(head)} not allowed here')
         if noTailBranch and self.isTailBranch(tail):
-            raise Exception(f'line {self.getBranchLine(tail)}: {self.getBranch(tail)} not allowed here')
+            if stat_name == 'switch' and self.getBranch(head) != 'continue':
+                raise Exception(f'line {self.getBranchLine(tail)}: {self.getBranch(tail)} not allowed here')
         return tree
 
     def parseStatement(self):
@@ -310,7 +313,7 @@ class Parser(object):
         while not self.sc.matches('}'):
             tree.add(self.parseExp())
             self.sc.expect(':')
-            tree.add(self.parseStatList())
+            tree.add(self.parseStatList(stat_name='switch'))
         return tree
 
     def parseExp(self, index=0):

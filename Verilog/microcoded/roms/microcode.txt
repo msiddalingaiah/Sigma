@@ -22,7 +22,7 @@
 1020000003 //   21: sxop=1, seq.op=1, seq.address=3; jump 3
 1040000001 //   22: sxop=2, seq.op=1, seq.address=1; jump 1
 1060000001 //   23: sxop=3, seq.op=1, seq.address=1; jump 1
-1000800000 //   24: cxm=1, seq.op=1, seq.address=0; jump 0
+0000800000 //   24: cxm=1, seq.op=0
 3060000000 //   25: sxop=99, seq.op=3; return
 0000000000
 0000000000

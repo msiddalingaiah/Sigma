@@ -245,24 +245,28 @@ class MicroWordBlock(object):
                         lineNumber = tree[i].value.lineNumber
                         raise Exception(f'line: {lineNumber}, label out of order ({label} != {i>>1})')
                     block = MicroWordBlock(self.globals, tree[i+1])
-                    word = block.outputWords[0]
-                    word.update('seq.op', SEQ_OP_JUMP)
-                    self.outputWords.append(word)
+                    head = block.outputWords[0]
+                    self.outputWords.append(head)
                     if len(block) == 1:
-                        patch_tail.append((len(self.outputWords), word))
+                        if head.field_values['seq.op'] == SEQ_OP_NEXT:
+                            patch_tail.append((len(self.outputWords), head))
                     else:
                         multi_blocks.append((len(self.outputWords), block))
                 for pc, block in multi_blocks:
                     top = len(self.outputWords)
                     head = block.outputWords[0]
+                    head.update('seq.op', SEQ_OP_JUMP)
                     head.update('seq.address', top-pc)
                     tail = block.outputWords[-1]
-                    tail.update('seq.op', SEQ_OP_JUMP)
                     self.outputWords.extend(block.outputWords[1:])
-                    patch_tail.append((len(self.outputWords), tail))
+                    if tail.field_values['seq.op'] == SEQ_OP_NEXT:
+                        patch_tail.append((len(self.outputWords), tail))
                 next = len(self.outputWords)
-                for pc, word in patch_tail:
-                    word.update('seq.address', next-pc)
+                for pc, tail in patch_tail:
+                    offset = next - pc
+                    if offset != 0:
+                        tail.update('seq.op', SEQ_OP_JUMP)
+                        tail.update('seq.address', offset)
                 return
         self.outputWords.append(word)
 
