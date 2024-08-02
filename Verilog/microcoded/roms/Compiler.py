@@ -83,7 +83,7 @@ class Scanner(object):
             if match:
                 self.index = match.end()
                 return Terminal(p.name, match.group(), self.lineNumber)
-        raise Exception('Unrecognized input: %s' % (self.input[self.index]))
+        raise Exception(f'line: {self.lineNumber}: unrecognized input: {self.input[self.index]}')
         
     def matches(self, *types):
         if self.lookAhead == None:
@@ -98,7 +98,7 @@ class Scanner(object):
     def expect(self, *types):
         if self.matches(*types):
             return self.terminal
-        raise Exception('Expected %s, found %s' % (','.join(types), self.lookAhead))
+        raise Exception(f'line: {self.lineNumber}: expected {",".join(types)}, found {self.lookAhead}')
 
     def atEnd(self):
         return self.lookAhead == None
@@ -120,6 +120,7 @@ class Parser(object):
         patterns.append(Pattern('return', r'return'))
         patterns.append(Pattern('not', r'not'))
         patterns.append(Pattern('switch', r'switch'))
+        patterns.append(Pattern('continue', r'continue'))
         patterns.append(Pattern('ID', r'[a-zA-Z_][a-zA-Z0-9_\.]*'))
         patterns.append(Pattern('INT', r'(0x)?[0-9a-fA-F]+'))
         patterns.append(Pattern(';', r'\;'))
@@ -195,7 +196,7 @@ class Parser(object):
         if stat[0].value.name in ('loop', 'do'):
             return stat[0].value.name
         for op in stat:
-            if op.value.name in ('call', 'return', 'while', 'if', 'switch'):
+            if op.value.name in ('call', 'return', 'while', 'if', 'switch', 'continue'):
                 return op.value.name
         return ''
 
@@ -203,15 +204,15 @@ class Parser(object):
         if stat[0].value.name in ('loop', 'do'):
             return stat[0].value.lineNumber
         for op in stat:
-            if op.value.name in ('call', 'return', 'while', 'if', 'switch'):
+            if op.value.name in ('call', 'return', 'while', 'if', 'switch', 'continue'):
                 return op.value.lineNumber
         return ''
 
     def isHeadBranch(self, stat):
-        return self.getBranch(stat) in ('call', 'return', 'while', 'if', 'switch')
+        return self.getBranch(stat) in ('call', 'return', 'while', 'if', 'switch', 'continue')
 
     def isTailBranch(self, stat):
-        return self.getBranch(stat) in ('loop', 'do', 'call', 'return', 'while', 'switch')
+        return self.getBranch(stat) in ('loop', 'do', 'call', 'return', 'while', 'switch', 'continue')
 
     def parseStatList(self, noHeadBranch=True, noTailBranch=True):
         tree = Tree(self.sc.expect('{'))
@@ -239,15 +240,29 @@ class Parser(object):
             tree.add(self.parseExp())
             self.sc.expect(';')
             return tree
-        while self.sc.matches('ID'):
-            lhs = self.sc.terminal
-            t2 = Tree(self.sc.expect('='))
-            t2.add(lhs)
-            t2.add(self.parseExp())
-            tree.add(t2)
-            if self.sc.matches(';'):
-                return tree
-            self.sc.expect(',')
+        if self.sc.matches('ID'):
+            id = self.sc.terminal
+            if self.sc.matches(':'):
+                t2 = Tree(self.sc.terminal)
+                t2.add(id)
+                tree.add(t2)
+            else:
+                t2 = Tree(self.sc.expect('='))
+                t2.add(id)
+                t2.add(self.parseExp())
+                tree.add(t2)
+                if self.sc.matches(';'):
+                    return tree
+                self.sc.expect(',')
+            while self.sc.matches('ID'):
+                lhs = self.sc.terminal
+                t2 = Tree(self.sc.expect('='))
+                t2.add(lhs)
+                t2.add(self.parseExp())
+                tree.add(t2)
+                if self.sc.matches(';'):
+                    return tree
+                self.sc.expect(',')
         if self.sc.matches('"'):
             tree.add(self.sc.terminal)
             if self.sc.matches(';'):
@@ -283,7 +298,12 @@ class Parser(object):
             tree.add(self.sc.terminal)
             self.sc.expect(';')
             return tree
-        self.sc.expect('if', 'do', 'while', 'loop', 'switch', 'call', 'return')
+        if self.sc.matches('continue'):
+            tree.add(self.sc.terminal)
+            tree.add(self.sc.expect('ID'))
+            self.sc.expect(';')
+            return tree
+        self.sc.expect('if', 'do', 'while', 'loop', 'switch', 'call', 'return', 'continue')
 
     def parseSwitchBlock(self):
         tree = Tree(self.sc.expect('{'))

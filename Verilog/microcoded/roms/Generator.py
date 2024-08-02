@@ -164,6 +164,11 @@ class MicroWordBlock(object):
             op = stat[op_index]
             op_index += 1
             word.lineNumber = op.value.lineNumber
+            if op.value.name == ':':
+                label_name = op[0].value.value
+                if label_name in self.globals.labeledWords:
+                    raise Exception(f"line {word.lineNumber}: duplicate label definition '{label_name}'")
+                self.globals.labeledWords[label_name] = word
             if op.value.name == '"':
                 comment = op.value.value[1:-1]
             if op.value.name == '=':
@@ -193,6 +198,13 @@ class MicroWordBlock(object):
                 tail_word.update('seq.op', SEQ_OP_JUMP)
                 tail_word.update('seq.address', -len(block)-1)
                 word.update('seq.address', len(block))
+                return
+            if op.value.name == 'continue':
+                label = stat[op_index].value.value
+                op_index += 1
+                word.update('seq.op', SEQ_OP_JUMP)
+                self.globals.labelReferenceWords[label].append(word)
+                self.outputWords.append(word)
                 return
             if op.value.name == 'if':
                 if stat[op_index].value.name == 'not':

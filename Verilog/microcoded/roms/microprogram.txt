@@ -30,7 +30,7 @@ def main {
     cxm = 0, sxop = 15, "foobar";
     cxm = 0, sxop = 14;
     loop {
-        lb_select=1, cxm=1, orxm=1, p_count=1, sxop = 1;
+        top: lb_select=1, cxm=1, orxm=1, p_count=1, sxop = 1;
         _const8 = 3, exconst8 = 1, sxop = 2;
         do {
             sxop = 3, e_count = E_COUNT_M1;
@@ -39,7 +39,7 @@ def main {
         sxop = 8, while not COND_EQ_ZERO {
             sxop = 9, e_count = E_COUNT_M1;
         }
-        sxop = 10;
+        bottom: sxop = 10;
     }
 }
 
@@ -50,9 +50,7 @@ def LI {
 }
 
 def HALT {
-    loop {
-        sxop = 3, cxm = 0;
-    }
+    forever: sxop = 3, cxm = 0, continue forever;
 }
 
 def Z_if {
