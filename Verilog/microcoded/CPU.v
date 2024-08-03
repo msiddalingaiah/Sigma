@@ -39,7 +39,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire axc = control[6];
     wire rrxa = control[7];
     wire wd_en = control[8];
-    wire dxm1 = control[9];
+    wire dx1 = control[9];
     wire axrr = control[10];
     wire axs = control[11];
     wire exconst8 = control[12];
@@ -103,6 +103,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
         s = 0;
         case (sxop)
             0: s = a+d;
+            1: s = a-d;
         endcase
         branch = 0;
         case (condition)
@@ -158,7 +159,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             if (rrxa == 1) begin rr[r] <= a; end
             if (rrxs == 1) begin rr[r] <= s; end
             if (testa == 1) begin cc[3] <= (~a[0]) & (a != 0); cc[4] <= a[0]; end
-            if (dxm1 == 1) begin d <= 32'hffffffff; end
+            if (dx1 == 1) begin d <= 32'h1; end
             if (pxqxp == 1) begin p <= q; q <= p; end
             if (pxd == 1) begin p <= d[15:31]; end
             if (wd_en == 1) begin
