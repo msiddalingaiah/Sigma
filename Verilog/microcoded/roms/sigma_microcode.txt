@@ -132,7 +132,7 @@
 1000000006 //  131: sxop=0, seq.op=1, seq.address=6; jump 6
 1000000005 //  132: sxop=0, seq.op=1, seq.address=5; jump 5
 105a000f7e //  133: sxop=2, rrxa=1, testa=1, ende=1, seq.op=1, seq.address=-130; jump -130
-0000208000 //  134: sxop=0, axs=1, rrxs=1
+0000008000 //  134: sxop=0, rrxs=1
 1400000001 //  135: seq.op=1, seq.condition=2, seq.address=1; if not condition[2] jump 1
 1010000f7b //  136: ende=1, seq.op=1, seq.address=-133; jump -133
 1010020f7a //  137: pxqxp=1, ende=1, seq.op=1, seq.address=-134; jump -134

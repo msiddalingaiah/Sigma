@@ -71,11 +71,22 @@ class Scanner(object):
         self.terminal = None
         self.lookAhead = self.next()
 
-    def next(self):
+    def skipWhiteSpace(self):
         while self.index < len(self.input) and self.input[self.index].isspace():
             if self.input[self.index] == '\n':
                 self.lineNumber += 1
             self.index += 1
+
+    def skipComment(self):
+        if self.index < len(self.input) and self.input[self.index] == '#':
+            while self.index < len(self.input) and self.input[self.index] != '\n':
+                self.index += 1
+            self.lineNumber += 1
+
+    def next(self):
+        self.skipWhiteSpace()
+        self.skipComment()
+        self.skipWhiteSpace()
         if self.index >= len(self.input):
             return None
         for p in self.patterns:

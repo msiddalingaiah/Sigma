@@ -472,11 +472,11 @@ def main {
             }
             OP_BDR: {
                 axrr=1, dxm1=1, pxd=1, pxqxp = 1;
-                sxop = 0, axs = 1, rrxs=1;
+                sxop = 0, rrxs=1;
                 if COND_S_GT_ZERO {
-                    ende = 1, continue top;
+                    ende = 1, continue top; # take branch
                 }
-                pxqxp = 1, ende = 1, continue top;
+                pxqxp = 1, ende = 1, continue top; # next instruction
             }
             OP_BIR: {
                 sxop = 0;
