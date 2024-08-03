@@ -1,5 +1,5 @@
 
-vcd/CPUTestBench: *.v roms/microcode.txt roms/sigma_microcode.txt programs/init.txt
+vcd/CPUTestBench: *.v roms/sigma_microcode.txt programs/init.txt
 	iverilog -o vcd/CPUTestBench CPUTestBench.v
 	vvp vcd/CPUTestBench
 

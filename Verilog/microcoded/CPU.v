@@ -90,14 +90,21 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
 
     // Guideline #3: When modeling combinational logic with an "always" 
     //              block, use blocking assignments.
+    // Order matters here!!!
     always @(*) begin
         // Sequencer d_in mux
+        uc_din = jump_address;
         case (pipeline[0:1])
             0: uc_din = jump_address; // jump or call
             1: uc_din = o; // instruction op code
             2: uc_din = 0; // not used
             3: uc_din = 0; // not used
         endcase
+        s = 0;
+        case (sxop)
+            0: s = a+d;
+        endcase
+        branch = 0;
         case (condition)
             0: branch = 0; // branch unconditionally
             1: branch = e == 0; // COND_EQ_ZERO
@@ -114,10 +121,6 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             1: uc_op = { 1'h0, ~branch }; // jump
             2: ; // call
             3: ; // return
-        endcase
-        s = 0;
-        case (sxop)
-            0: s = a+d;
         endcase
         lb = p;
     end
