@@ -22,5 +22,6 @@ Historically, writing microcode was one step below assembly language programming
 
 TODO:
 
-* Add continue statement
+* Microcode debugging
+* Add if continue statement
 * Check for overlapping field assignments (Generator)

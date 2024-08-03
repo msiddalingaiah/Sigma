@@ -41,7 +41,7 @@ module CPUTestBench;
         $readmemh("programs/init.txt", ram.ram_cells);
         sim_end = 0; #0 reset = 0; #25 reset = 1; #90 reset = 0;
         // wait(sim_end == 1);
-        #6000 $finish;
+        #10000 $finish;
 
         $display("All done!");
         $finish;

@@ -32,20 +32,22 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire [0:1] pipeline_op = pipeline[2:3];
     wire [0:2] condition = pipeline[4:6];
     // See datapath pp 3-7
+
     wire [0:20] control = pipeline[7:27];
     wire [0:3] sxop = control[0:3];
-    wire [0:1] lb_select = control[4:5];
-    wire [0:2] p_count = control[6:8];
-    wire cxm = control[9];
-    wire orxm = control[10];
-    wire qxp = control[11];
+    wire ende = control[4];
+    wire testa = control[5];
+    wire axc = control[6];
+    wire rrxa = control[7];
+    wire wd_en = control[8];
+    wire dxm1 = control[9];
+    wire axrr = control[10];
+    wire axs = control[11];
     wire exconst8 = control[12];
     wire [0:1] e_count = control[13:14];
-    wire ende = control[15];
-    wire axc = control[16];
-    wire rrxa = control[17];
-    wire testa = control[18];
-    wire wd_en = control[19];
+    wire pxqxp = control[15];
+    wire pxd = control[16];
+    wire rrxs = control[17];
 
     wire [0:7] const8 = pipeline[32:39];
     wire [0:11] jump_address = pipeline[28:39];
@@ -75,7 +77,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // opcode register
     reg [1:7] o;
     // p is a counting register, acts as the program counter in conjunction with q
-    reg [15:33] p;
+    reg [15:31] p;
     // Phase register, one-hot encoded
     reg [0:7] phase;
     // q holds the next instruction address
@@ -103,8 +105,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
         endcase
         case (condition)
             0: branch = 0; // branch unconditionally
-            1: branch = e == 0;
-            2: branch = 0;
+            1: branch = e == 0; // COND_EQ_ZERO
+            2: branch = ~(s[0] | (s == 0)); // COND_S_GT_ZERO
             3: branch = 0;
             4: branch = 0;
             5: branch = 0;
@@ -117,6 +119,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             1: uc_op = { 1'h0, ~branch }; // jump
             2: ; // call
             3: ; // return
+        endcase
+        s = 0;
+        case (sxop)
+            0: s = a+d;
         endcase
         lb = p;
     end
@@ -148,15 +154,15 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             if (ende == 1) begin
                 c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; p <= p + 1;
             end
-            if (axc == 1) begin
-                a <= { {12{c[12]}}, c[12:31] };
-            end
-            if (rrxa == 1) begin
-                rr[r] <= a;
-            end
-            if (testa == 1) begin
-                cc[3] <= (~a[0]) & (a != 0); cc[4] <= a[0];
-            end
+            if (axc == 1) begin a <= { {12{c[12]}}, c[12:31] }; end
+            if (axs == 1) begin a <= s; end
+            if (axrr == 1) begin a <= rr[r]; end
+            if (rrxa == 1) begin rr[r] <= a; end
+            if (rrxs == 1) begin rr[r] <= s; end
+            if (testa == 1) begin cc[3] <= (~a[0]) & (a != 0); cc[4] <= a[0]; end
+            if (dxm1 == 1) begin d <= 32'hffffffff; end
+            if (pxqxp == 1) begin p <= q; q <= p; end
+            if (pxd == 1) begin p <= d[15:31]; end
             if (wd_en == 1) begin
                 // $display("wd_en, d[24:31] = %x, r = %x, rr[r][25:31]", d[24:31], r, rr[r][25:31]);
                 if ((d[24:31] == 0) && (r != 0)) begin

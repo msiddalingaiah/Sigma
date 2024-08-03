@@ -8,24 +8,23 @@ field seq.condition = 4:6;
 field seq.address = 28:39;
 
 const COND_EQ_ZERO = 1;
-const COND_INDIRECT = 2;
-const COND_INDEXED = 3;
+const COND_S_GT_ZERO = 2;
 
 const control = 7;
 field sxop = control+0:control+3;
-field lb_select = control+4:control+5;
-field p_count = control+6:control+8;
-
-field cxm = control+9:control+9;
-field orxm = control+10:control+10;
-field qxp = control+11:control+11;
+field ende = control+4:control+4;
+field testa = control+5:control+5;
+field axc = control+6:control+6;
+field rrxa = control+7:control+7;
+field wd_en = control+8:control+8;
+field dxm1 = control+9:control+9;
+field axrr = control+10:control+10;
+field axs = control+11:control+11;
 field exconst8 = control+12:control+12;
 field e_count = control+13:control+14;
-field ende = control+15:control+15;
-field axc = control+16:control+16;
-field rrxa = control+17:control+17;
-field testa = control+18:control+18;
-field wd_en = control+19:control+19;
+field pxqxp = control+15:control+15;
+field pxd = control+16:control+16;
+field rrxs = control+17:control+17;
 
 const E_COUNT_P1 = 1;
 const E_COUNT_M1 = 2;
@@ -165,20 +164,22 @@ const OP_DST = 127;
 
 def main {
     sxop = 0;
-    ende = 1;
+    sxop = 0;
+    sxop = 0;
+    ende = 1, "ende";
     loop {
         top: sxop = 0, switch ADDR_MUX_OPCODE {
             OP_NAO_00: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_NAO_01: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_LCFI: {
                 sxop = 0;
             }
             OP_NAO_03: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_CAL1: {
                 sxop = 0;
@@ -205,10 +206,10 @@ def main {
                 sxop = 0;
             }
             OP_NAO_0c: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_NAO_0d: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_LPSD: {
                 sxop = 0;
@@ -229,16 +230,16 @@ def main {
                 sxop = 0;
             }
             OP_NAO_14: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_STD: {
                 sxop = 0;
             }
             OP_NAO_16: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_NAO_17: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_SD: {
                 sxop = 0;
@@ -271,8 +272,8 @@ def main {
                 sxop = 0;
             }
             OP_LI: {
-                axc = 1, sxop = 1;
-                sxop = 2, rrxa = 1, testa = 1, ende = 1, continue top;
+                axc = 1, sxop = 1, "a=imm";
+                sxop = 2, rrxa = 1, testa = 1, ende = 1, "rr=a,testa,ende", continue top;
             }
             OP_MI: {
                 sxop = 0;
@@ -284,10 +285,10 @@ def main {
                 sxop = 0;
             }
             OP_NAO_26: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_NAO_27: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_CVS: {
                 sxop = 0;
@@ -302,10 +303,10 @@ def main {
                 sxop = 0;
             }
             OP_NAO_2c: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_NAO_2d: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_WAIT: {
                 forever: sxop = 0, continue forever;
@@ -326,7 +327,7 @@ def main {
                 sxop = 0;
             }
             OP_NAO_34: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_STW: {
                 sxop = 0;
@@ -368,10 +369,10 @@ def main {
                 sxop = 0;
             }
             OP_NAO_42: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_NAO_43: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_ANLZ: {
                 sxop = 0;
@@ -446,16 +447,16 @@ def main {
                 sxop = 0;
             }
             OP_NAO_5c: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_NAO_5d: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_NAO_5e: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_NAO_5f: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_CBS: {
                 sxop = 0;
@@ -464,13 +465,18 @@ def main {
                 sxop = 0;
             }
             OP_NAO_62: {
-                sxop = 0;
+                sxop = 0, "nao";
             }
             OP_EBS: {
                 sxop = 0;
             }
             OP_BDR: {
-                sxop = 0;
+                axrr=1, dxm1=1, pxd=1, pxqxp = 1;
+                sxop = 0, axs = 1, rrxs=1;
+                if COND_S_GT_ZERO {
+                    ende = 1, continue top;
+                }
+                pxqxp = 1, ende = 1, continue top;
             }
             OP_BIR: {
                 sxop = 0;
@@ -497,7 +503,7 @@ def main {
                 sxop = 0;
             }
             OP_WD: {
-                sxop = 2, wd_en = 1, ende = 1, continue top;
+                sxop = 2, wd_en = 1, ende = 1, "wd,ende", continue top;
             }
             OP_AIO: {
                 sxop = 0;

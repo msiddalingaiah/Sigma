@@ -285,6 +285,9 @@ class MicroWordBlock(object):
             results.append(f'{code} // {mc.pc:4d}: {comment}')
         return results
     
+    def getComments(self):
+        return [w.comment for w in self.outputWords]
+    
     def __len__(self):
         return len(self.outputWords)
 
@@ -312,10 +315,12 @@ class Generator(object):
         a1, a2 = self.globals.fields['seq.address']
         w = abs(a1-a2)+1
         word_count = 1 << w
+        commentSet = set()
         with open(file_name, 'wt') as f:
             address = 0
             for name in names:
                 block = self.procedureBlocks[name]
+                commentSet.update(block.getComments())
                 output = block.getOutput()
                 for line in output:
                     f.write(line + '\n')
@@ -323,3 +328,6 @@ class Generator(object):
             format = f'{{0:0{self.globals.seq_width >> 2}x}}'
             for i in range(word_count-address):
                 f.write(format.format(0) + '\n')
+
+        for c in sorted(list(commentSet)):
+            print(c)
