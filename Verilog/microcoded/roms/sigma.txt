@@ -25,6 +25,7 @@ field e_count = control+13:control+14;
 field pxqxp = control+15:control+15;
 field pxd = control+16:control+16;
 field rrxs = control+17:control+17;
+field uc_debug = control+20:control+20;
 
 const E_COUNT_P1 = 1;
 const E_COUNT_M1 = 2;
@@ -473,8 +474,8 @@ def main {
             OP_BDR: {
                 axrr=1, dxm1=1, pxd=1, pxqxp = 1;
                 sxop = 0, rrxs=1;
-                if COND_S_GT_ZERO {
-                    ende = 1, continue top; # take branch
+                uc_debug=1, if COND_S_GT_ZERO {
+                    uc_debug=1, ende = 1, continue top; # take branch
                 }
                 pxqxp = 1, ende = 1, continue top; # next instruction
             }

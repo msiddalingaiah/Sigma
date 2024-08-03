@@ -1,7 +1,6 @@
 
 `include "Sequencer.v"
 `include "CodeROM.v"
-`include "MapROM.v"
 
 /*
 Memory is word addressed, 17 bits
@@ -48,16 +47,12 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire pxqxp = control[15];
     wire pxd = control[16];
     wire rrxs = control[17];
+    wire uc_debug = control[20];
 
     wire [0:7] const8 = pipeline[32:39];
     wire [0:11] jump_address = pipeline[28:39];
 
     reg branch;
-
-    // Instruction map ROM
-    //wire [0:6] op_rom_address = o;
-    // wire [0:11] op_rom_data;
-    //MapROM op_rom(op_rom_address, op_rom_data);
 
     // Standard register configuration
     reg [0:31] a, b, d;
@@ -168,6 +163,9 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 if ((d[24:31] == 0) && (r != 0)) begin
                     $write("%s", rr[r][25:31]);
                 end
+            end
+            if (uc_debug == 1) begin
+                $display("%4d: op %1d, branch: %1d, s %x", seq.pc-1, seq.op, branch, s);
             end
         end
     end

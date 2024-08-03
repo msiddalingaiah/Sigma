@@ -382,10 +382,12 @@ class Parser(object):
             return result
         return Tree(self.sc.expect('ID'))
 
+import sys
+
 if __name__ == '__main__':
     cp = Parser()
-    with open('sigma.txt') as f:
+    with open(sys.argv[1]) as f:
         tree = cp.parse(f.read())
     g = gen.Generator(tree)
-    g.write('sigma_microcode.txt')
+    g.write(sys.argv[2])
 

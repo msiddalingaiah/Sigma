@@ -20,6 +20,12 @@ Hardwired control units execute efficiently, but their design, implementation, a
 
 Historically, writing microcode was one step below assembly language programming. High level flow control structures, such as if/else, do/while loops, switch statements, and procedures would simplify the process. To this end, a compiler translates these flow control structures into microcode.
 
+# Tools
+
+* Python 3
+* [Icarus Verilog](https://bleyer.org/icarus/)
+* make (winget install ezwinports.make)
+
 TODO:
 
 * Microcode debugging
