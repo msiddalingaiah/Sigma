@@ -42,9 +42,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire exconst8 = control[12];
     wire [0:1] e_count = control[13:14];
     wire ende = control[15];
-    wire axcin = control[16];
+    wire axc = control[16];
     wire rrxa = control[17];
     wire testa = control[18];
+    wire wd_en = control[19];
 
     wire [0:7] const8 = pipeline[32:39];
     wire [0:11] jump_address = pipeline[28:39];
@@ -147,15 +148,21 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             if (ende == 1) begin
                 c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; p <= p + 1;
             end
-            if (axcin == 1) begin
-                a <= { {12{c_in[12]}}, c_in[12:31] };
+            if (axc == 1) begin
+                a <= { {12{c[12]}}, c[12:31] };
             end
             if (rrxa == 1) begin
+                //$display("rrxa: rr[%x] = %x", r, a);
                 rr[r] <= a;
             end
-            // CC3 <= TESTA & !A[0] & NA0031Z, CC4 <= TESTA & A[0]
             if (testa == 1) begin
                 cc[3] <= (~a[0]) & (a != 0); cc[4] <= a[0];
+            end
+            if (wd_en == 1) begin
+                // $display("wd_en, d[24:31] = %x, r = %x, rr[r][25:31]", d[24:31], r, rr[r][25:31]);
+                if ((d[24:31] == 0) && (r != 0)) begin
+                    $write("%s", rr[r][25:31]);
+                end
             end
         end
     end

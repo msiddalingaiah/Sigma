@@ -82,6 +82,7 @@ class MicroWord(object):
         self.used_bits = 0
         self.field_values = defaultdict(int)
         self.pc = 0
+        self.comment = ''
 
     def update(self, field_name, value):
         if field_name not in self.globals.fields:
@@ -171,6 +172,7 @@ class MicroWordBlock(object):
                 self.globals.labeledWords[label_name] = word
             if op.value.name == '"':
                 comment = op.value.value[1:-1]
+                word.comment = comment
             if op.value.name == '=':
                 field_name = op[0].value.value
                 word.update(field_name, self.globals.eval(op[1]))

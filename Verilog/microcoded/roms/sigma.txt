@@ -22,9 +22,10 @@ field qxp = control+11:control+11;
 field exconst8 = control+12:control+12;
 field e_count = control+13:control+14;
 field ende = control+15:control+15;
-field axcin = control+16:control+16;
+field axc = control+16:control+16;
 field rrxa = control+17:control+17;
 field testa = control+18:control+18;
+field wd_en = control+19:control+19;
 
 const E_COUNT_P1 = 1;
 const E_COUNT_M1 = 2;
@@ -166,7 +167,7 @@ def main {
     sxop = 0;
     ende = 1;
     loop {
-        top: switch ADDR_MUX_OPCODE {
+        top: sxop = 0, switch ADDR_MUX_OPCODE {
             OP_NAO_00: {
                 sxop = 0;
             }
@@ -270,8 +271,8 @@ def main {
                 sxop = 0;
             }
             OP_LI: {
-                axcin = 1;
-                rrxa = 1, testa = 1, ende = 1, continue top;
+                axc = 1, sxop = 1;
+                sxop = 2, rrxa = 1, testa = 1, ende = 1, continue top;
             }
             OP_MI: {
                 sxop = 0;
@@ -496,7 +497,8 @@ def main {
                 sxop = 0;
             }
             OP_WD: {
-                sxop = 0;
+                sxop = 1;
+                sxop = 2, wd_en = 1, ende = 1, continue top;
             }
             OP_AIO: {
                 sxop = 0;
