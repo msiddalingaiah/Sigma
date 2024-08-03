@@ -36,7 +36,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire [0:3] sxop = control[0:3];
     wire ende = control[4];
     wire testa = control[5];
-    wire axc = control[6];
+    // available 6
     wire rrxa = control[7];
     wire wd_en = control[8];
     wire dx1 = control[9];
@@ -86,6 +86,9 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // sum bus
     reg [0:31] s;
 
+    reg [0:15] instruction_count;
+    reg [0:15] cycle_count;
+
     // Signals
 
     // Guideline #3: When modeling combinational logic with an "always" 
@@ -110,7 +113,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             0: branch = 0; // branch unconditionally
             1: branch = e == 0; // COND_EQ_ZERO
             2: branch = ~(s[0] | (s == 0)); // COND_S_GT_ZERO
-            3: branch = 0;
+            3: branch = s[0]; // COND_S_LT_ZERO
             4: branch = 0;
             5: branch = 0;
             6: branch = 0;
@@ -141,7 +144,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             r <= 0;
             e <= 0;
             pipeline <= 0;
+            instruction_count <= 0;
+            cycle_count <= 0;
         end else begin
+            cycle_count <= cycle_count + 1;
             pipeline <= uc_rom_data;
             if (exconst8 == 1) e <= const8;
             case (e_count)
@@ -151,9 +157,11 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 3: ;
             endcase
             if (ende == 1) begin
-                c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; p <= p + 1;
+                c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; p <= p + 1; a <= 0;
+                // immediate value
+                if (~c_in[3] & ~c_in[4] & ~c_in[5]) begin d <= { {12{c_in[12]}}, c_in[12:31] }; end
+                instruction_count <= instruction_count + 1;
             end
-            if (axc == 1) begin a <= { {12{c[12]}}, c[12:31] }; end
             if (axs == 1) begin a <= s; end
             if (axrr == 1) begin a <= rr[r]; end
             if (rrxa == 1) begin rr[r] <= a; end
@@ -169,8 +177,17 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 end
             end
             if (uc_debug == 1) begin
-                $display("%4d: op %1d, branch: %1d, s %x", seq.pc-1, seq.op, branch, s);
+                $display("%4d: op %1d, branch: %1d, s %x, rr[r] %x", seq.pc-1, seq.op, branch, s, rr[r]);
             end
         end
     end
 endmodule
+
+/*
+123 4567
+  0 00
+  0   xx
+  2   xx
+  4   xx
+  6   xx
+*/

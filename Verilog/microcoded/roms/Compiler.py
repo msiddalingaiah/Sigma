@@ -82,11 +82,13 @@ class Scanner(object):
             while self.index < len(self.input) and self.input[self.index] != '\n':
                 self.index += 1
             self.lineNumber += 1
+            return True
+        return False
 
     def next(self):
         self.skipWhiteSpace()
-        self.skipComment()
-        self.skipWhiteSpace()
+        while self.skipComment():
+            self.skipWhiteSpace()
         if self.index >= len(self.input):
             return None
         for p in self.patterns:

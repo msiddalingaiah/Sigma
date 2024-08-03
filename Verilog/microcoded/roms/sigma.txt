@@ -9,6 +9,7 @@ field seq.address = 28:39;
 
 const COND_EQ_ZERO = 1;
 const COND_S_GT_ZERO = 2;
+const COND_S_LT_ZERO = 3;
 
 const SX_OP_ADD = 0;
 const SX_OP_SUB = 1;
@@ -17,7 +18,7 @@ const control = 7;
 field sxop = control+0:control+3;
 field ende = control+4:control+4;
 field testa = control+5:control+5;
-field axc = control+6:control+6;
+# available 6
 field rrxa = control+7:control+7;
 field wd_en = control+8:control+8;
 field dx1 = control+9:control+9;
@@ -28,7 +29,7 @@ field e_count = control+13:control+14;
 field pxqxp = control+15:control+15;
 field pxd = control+16:control+16;
 field rrxs = control+17:control+17;
-field uc_debug = control+20:control+20;
+field debug = control+20:control+20;
 
 const E_COUNT_P1 = 1;
 const E_COUNT_M1 = 2;
@@ -270,14 +271,18 @@ def main {
                 sxop = 0;
             }
             OP_AI: {
-                sxop = 0;
+                axrr = 1;
+                sxop = SX_OP_ADD, axs = 1, rrxs = 1;
+                testa = 1, ende = 1, "rr=a,testa,ende", continue top;
             }
             OP_CI: {
+                # d has immediate value
                 sxop = 0;
             }
-            OP_LI: {
-                axc = 1, sxop = 1, "a=imm";
-                sxop = 2, rrxa = 1, testa = 1, ende = 1, "rr=a,testa,ende", continue top;
+            OP_LI: { # 3-215
+                # d has immediate value
+                sxop = SX_OP_ADD, axs=1, rrxs = 1;
+                testa = 1, ende = 1, "rr=a,testa,ende", continue top;
             }
             OP_MI: {
                 sxop = 0;
@@ -482,7 +487,11 @@ def main {
                 pxqxp = 1, ende = 1, continue top; # next instruction
             }
             OP_BIR: {
-                sxop = 0;
+                axrr=1, dx1=1, pxd=1, pxqxp = 1;
+                sxop = SX_OP_ADD, rrxs=1, if COND_S_LT_ZERO {
+                    ende = 1, continue top; # take branch
+                }
+                pxqxp = 1, ende = 1, continue top; # next instruction
             }
             OP_AWM: {
                 sxop = 0;
