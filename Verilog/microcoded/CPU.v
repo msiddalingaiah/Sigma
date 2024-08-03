@@ -152,7 +152,6 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 a <= { {12{c[12]}}, c[12:31] };
             end
             if (rrxa == 1) begin
-                //$display("rrxa: rr[%x] = %x", r, a);
                 rr[r] <= a;
             end
             if (testa == 1) begin
