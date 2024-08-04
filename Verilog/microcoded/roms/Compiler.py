@@ -233,10 +233,13 @@ class Parser(object):
             tree.add(self.parseStatement())
         head, tail = tree[0], tree[-1]
         # switch blocks can start or end with continue statements
+        # TODO this doesn't work for other statements
         if noHeadBranch and self.isHeadBranch(head):
+            # print('noHeadBranch', stat_name, self.getBranch(head))
             if stat_name == 'switch' and self.getBranch(head) != 'continue':
                 raise Exception(f'line {self.getBranchLine(head)}: {self.getBranch(head)} not allowed here')
         if noTailBranch and self.isTailBranch(tail):
+            # print('noTailBranch', stat_name, self.getBranch(tail))
             if stat_name == 'switch' and self.getBranch(tail) != 'continue':
                 raise Exception(f'line {self.getBranchLine(tail)}: {self.getBranch(tail)} not allowed here')
         return tree
@@ -245,11 +248,11 @@ class Parser(object):
         tree = Tree(Terminal('stat', 'stat'))
         if self.sc.matches('loop'):
             tree.add(self.sc.terminal)
-            tree.add(self.parseStatList(noHeadBranch=False))
+            tree.add(self.parseStatList(noHeadBranch=False, stat_name='loop'))
             return tree
         if self.sc.matches('do'):
             tree.add(self.sc.terminal)
-            tree.add(self.parseStatList(noHeadBranch=False))
+            tree.add(self.parseStatList(noHeadBranch=False, stat_name='do'))
             self.sc.expect('while')
             if self.sc.matches('not'):
                 tree.add(self.sc.terminal)
@@ -289,16 +292,16 @@ class Parser(object):
             if self.sc.matches('not'):
                 tree.add(self.sc.terminal)
             tree.add(self.parseExp())
-            tree.add(self.parseStatList())
+            tree.add(self.parseStatList(stat_name='if'))
             if self.sc.matches('else'):
-                tree.add(self.parseStatList(noTailBranch=False))
+                tree.add(self.parseStatList(noTailBranch=False, stat_name='else'))
             return tree
         if self.sc.matches('while'):
             tree.add(self.sc.terminal)
             if self.sc.matches('not'):
                 tree.add(self.sc.terminal)
             tree.add(self.parseExp())
-            tree.add(self.parseStatList())
+            tree.add(self.parseStatList(stat_name='while'))
             return tree
         if self.sc.matches('switch'):
             tree.add(self.sc.terminal)
