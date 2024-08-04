@@ -86,9 +86,6 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // sum bus
     reg [0:31] s;
 
-    reg [0:15] instruction_count;
-    reg [0:15] cycle_count;
-
     // Signals
 
     // Guideline #3: When modeling combinational logic with an "always" 
@@ -144,10 +141,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             r <= 0;
             e <= 0;
             pipeline <= 0;
-            instruction_count <= 0;
-            cycle_count <= 0;
         end else begin
-            cycle_count <= cycle_count + 1;
             pipeline <= uc_rom_data;
             if (exconst8 == 1) e <= const8;
             case (e_count)
@@ -160,7 +154,6 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; p <= p + 1; a <= 0;
                 // immediate value
                 if (~c_in[3] & ~c_in[4] & ~c_in[5]) begin d <= { {12{c_in[12]}}, c_in[12:31] }; end
-                instruction_count <= instruction_count + 1;
             end
             if (axs == 1) begin a <= s; end
             if (axrr == 1) begin a <= rr[r]; end
@@ -182,12 +175,3 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
         end
     end
 endmodule
-
-/*
-123 4567
-  0 00
-  0   xx
-  2   xx
-  4   xx
-  6   xx
-*/

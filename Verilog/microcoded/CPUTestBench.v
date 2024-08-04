@@ -35,13 +35,14 @@ endmodule
 
 module CPUTestBench;
     initial begin
+        cycle_count = 0;
+        instruction_count = 0;
         $dumpfile("vcd/CPUTestBench.vcd");
         $dumpvars(0, CPUTestBench);
 
         $readmemh("programs/init.txt", ram.ram_cells);
-        sim_end = 0; #0 reset = 0; #25 reset = 1; #90 reset = 0;
-        // wait(sim_end == 1);
-        #16000 $finish;
+        #0 reset = 0; #25 reset = 1; #90 reset = 0;
+        #20000 $finish;
 
         $display("All done!");
         $finish;
@@ -55,14 +56,21 @@ module CPUTestBench;
     Memory ram(clock, addressBus, writeEnBus, data_c2r, data_r2c);
     reg reset;
     CPU cpu(reset, clock, data_r2c, addressBus);
-    reg sim_end;
+    reg [0:31] cycle_count;
+    reg [0:15] instruction_count;
 
     always @(posedge clock) begin
-        if (writeEnBus == 1) begin
-            // A hack to stop simulation
-            if (addressBus == 17'h00100 && data_c2r == 32'h00010001) begin
-                sim_end <= 1;
-            end
+        cycle_count <= cycle_count + 1;
+        if (cycle_count >= 200) begin
+            $display("\nTimed out after %4d cycles and %4d instructions.", cycle_count, instruction_count);
+            $finish;
+        end
+        if (cpu.o == 46) begin
+            $display("\nWAIT after %4d cycles and %4d instructions.", cycle_count, instruction_count);
+            $finish;
+        end
+        if (cpu.ende) begin
+            instruction_count <= instruction_count + 1;
         end
     end
 endmodule
