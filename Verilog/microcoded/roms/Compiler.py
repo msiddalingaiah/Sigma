@@ -233,7 +233,7 @@ class Parser(object):
             tree.add(self.parseStatement())
         head, tail = tree[0], tree[-1]
         # switch blocks can start or end with continue statements
-        # TODO this doesn't work for other statements
+        # TODO this doesn't work with if ... continue
         if noHeadBranch and self.isHeadBranch(head):
             # print('noHeadBranch', stat_name, self.getBranch(head))
             if stat_name == 'switch' and self.getBranch(head) != 'continue':
