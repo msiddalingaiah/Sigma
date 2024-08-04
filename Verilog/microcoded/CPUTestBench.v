@@ -1,11 +1,29 @@
 
 `timescale 1 ns/10 ps  // time-unit = 1 ns, precision = 10 ps
 `include "CPU.v"
-`include "Clock.v"
 
 /**
  * This file contains a test bench for the CPU.
  */
+
+/**
+ * A clock generator for simulation only.
+ * This module is not used during synthesis.
+ *
+ * See https://d1.amobbs.com/bbs_upload782111/files_33/ourdev_585395BQ8J9A.pdf
+ * pp 129
+ */
+module Clock(output reg clock);
+    initial begin
+        #0 clock = 0;
+    end
+
+    // Assume a fixed requency, 10MHz clock
+    always begin
+        #50 clock <= ~clock;
+    end
+endmodule
+
 module Memory(input wire clock, input wire [15:31] address, input wire write_en, input wire [0:31] data_in,
     output reg [0:31] data_out);
 
@@ -40,13 +58,11 @@ module CPUTestBench;
         $dumpfile("vcd/CPUTestBench.vcd");
         $dumpvars(0, CPUTestBench);
 
+        $readmemh("roms/sigma_microcode.txt", cpu.uc_rom.memory);
         $readmemh("programs/init.txt", ram.ram_cells);
         #0 reset = 0; #25 reset = 1; #90 reset = 0;
         #20000 $display("\nTime limit reached, possible infinite loop.");
         $display("%4d cycles, %4d instructions.", cycle_count, instruction_count);
-        $finish;
-
-        $display("All done!");
         $finish;
     end
 

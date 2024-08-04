@@ -1,6 +1,15 @@
 
 `include "Sequencer.v"
-`include "CodeROM.v"
+
+/**
+ * This module implements the microcode ROM.
+ * Microcode is loaded from a text file, which is synthesizable.
+ */
+module CodeROM(input wire [11:0] address, output wire [39:0] data);
+    reg [39:0] memory[0:4095];
+
+    assign data = memory[address];
+endmodule
 
 /*
 Memory is word addressed, 17 bits
