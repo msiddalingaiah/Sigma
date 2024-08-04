@@ -42,7 +42,9 @@ module CPUTestBench;
 
         $readmemh("programs/init.txt", ram.ram_cells);
         #0 reset = 0; #25 reset = 1; #90 reset = 0;
-        #20000 $finish;
+        #20000 $display("\nTime limit reached, possible infinite loop.");
+        $display("%4d cycles, %4d instructions.", cycle_count, instruction_count);
+        $finish;
 
         $display("All done!");
         $finish;
@@ -62,11 +64,13 @@ module CPUTestBench;
     always @(posedge clock) begin
         cycle_count <= cycle_count + 1;
         if (cycle_count >= 200) begin
-            $display("\nTimed out after %4d cycles and %4d instructions.", cycle_count, instruction_count);
+            $display("\nClock limit reached, possible inifinite loop.");
+            $display("%4d cycles, %4d instructions.", cycle_count, instruction_count);
             $finish;
         end
         if (cpu.o == 46) begin
-            $display("\nWAIT after %4d cycles and %4d instructions.", cycle_count, instruction_count);
+            $display("\nCPU WAIT, execution terminated normally.");
+            $display("%4d cycles, %4d instructions.", cycle_count, instruction_count);
             $finish;
         end
         if (cpu.ende) begin
