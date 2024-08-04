@@ -25,41 +25,62 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire [0:11] uc_rom_address;
     wire [0:39] uc_rom_data;
     CodeROM uc_rom(uc_rom_address, uc_rom_data);
+
+    // ---- BEGIN Pipeline definitions DO NOT EDIT
+
     // Microcode pipeline register
-    // 0       8       16      24      32      40
+    // 0       8       16      24      32      40      
     // |-------|-------|-------|-------|-------|
-    //    op                        | uc_din  |
-    //  mx - sequencer d_in mux: 0 = pipeline, 1 = instruction, 2, 3 = unused
-    // 7:27 - control 21 bits
-    //     register write enables (10)
-    //     p inc (1)
-    //     memory address mux (2)
-    //     memory write enable (1)
-    //     ALU op (4)
+    // | - seq_address_mux[0:1] 2 bits
+    //   | - seq_op[2:3] 2 bits
+    //     | - seq_condition[4:6] 3 bits
+    //        | - sxop[7:10] 4 bits
+    // |-------|-------|-------|-------|-------|
+    //            | - ende[11]
+    //             | - testa[12]
+    //              | - __blank1[13]
+    //               | - rrxa[14]
+    // |-------|-------|-------|-------|-------|
+    //                | - wd_en[15]
+    //                 | - dx1[16]
+    //                  | - axrr[17]
+    //                   | - axs[18]
+    // |-------|-------|-------|-------|-------|
+    //                    | - exconst8[19]
+    //                     | - e_count[20:21] 2 bits
+    //                       | - pxqxp[22]
+    //                        | - pxd[23]
+    // |-------|-------|-------|-------|-------|
+    //                         | - rrxs[24]
+    //                          | - uc_debug[25]
+    //                           | - __blank2[26:27] 2 bits
+    //                             | - seq_address[28:39] 12 bits
+    //                                 | - const8[32:39] 8 bits
+
     reg [0:39] pipeline;
-    wire [0:1] pipeline_op = pipeline[2:3];
-    wire [0:2] condition = pipeline[4:6];
-    // See datapath pp 3-7
-
-    wire [0:20] control = pipeline[7:27];
-    wire [0:3] sxop = control[0:3];
-    wire ende = control[4];
-    wire testa = control[5];
-    // available 6
-    wire rrxa = control[7];
-    wire wd_en = control[8];
-    wire dx1 = control[9];
-    wire axrr = control[10];
-    wire axs = control[11];
-    wire exconst8 = control[12];
-    wire [0:1] e_count = control[13:14];
-    wire pxqxp = control[15];
-    wire pxd = control[16];
-    wire rrxs = control[17];
-    wire uc_debug = control[20];
-
+    wire [0:1] seq_address_mux = pipeline[0:1];
+    wire [0:1] seq_op = pipeline[2:3];
+    wire [0:2] seq_condition = pipeline[4:6];
+    wire [0:3] sxop = pipeline[7:10];
+    wire ende = pipeline[11];
+    wire testa = pipeline[12];
+    wire __blank1 = pipeline[13];
+    wire rrxa = pipeline[14];
+    wire wd_en = pipeline[15];
+    wire dx1 = pipeline[16];
+    wire axrr = pipeline[17];
+    wire axs = pipeline[18];
+    wire exconst8 = pipeline[19];
+    wire [0:1] e_count = pipeline[20:21];
+    wire pxqxp = pipeline[22];
+    wire pxd = pipeline[23];
+    wire rrxs = pipeline[24];
+    wire uc_debug = pipeline[25];
+    wire [0:1] __blank2 = pipeline[26:27];
+    wire [0:11] seq_address = pipeline[28:39];
     wire [0:7] const8 = pipeline[32:39];
-    wire [0:11] jump_address = pipeline[28:39];
+
+    // ---- END Pipeline definitions DO NOT EDIT
 
     reg branch;
 
@@ -102,9 +123,9 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // Order matters here!!!
     always @(*) begin
         // Sequencer d_in mux
-        uc_din = jump_address;
-        case (pipeline[0:1])
-            0: uc_din = jump_address; // jump or call
+        uc_din = seq_address;
+        case (seq_address_mux)
+            0: uc_din = seq_address; // jump or call
             1: uc_din = o; // instruction op code
             2: uc_din = 0; // not used
             3: uc_din = 0; // not used
@@ -115,7 +136,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             1: s = a-d;
         endcase
         branch = 0;
-        case (condition)
+        case (seq_condition)
             0: branch = 0; // branch unconditionally
             1: branch = e == 0; // COND_EQ_ZERO
             2: branch = ~(s[0] | (s == 0)); // COND_S_GT_ZERO
@@ -125,8 +146,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             6: branch = 0;
             7: branch = 0;
         endcase
-        uc_op = pipeline_op;
-        case (pipeline_op)
+        uc_op = seq_op;
+        case (seq_op)
             0: uc_op = { 1'h0, branch }; // next, invert selected branch condition
             1: uc_op = { 1'h0, ~branch }; // jump
             2: ; // call
