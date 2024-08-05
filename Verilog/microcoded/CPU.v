@@ -5,8 +5,8 @@
  * This module implements the microcode ROM.
  * Microcode is loaded from a text file, which is synthesizable.
  */
-module CodeROM(input wire [11:0] address, output wire [39:0] data);
-    reg [39:0] memory[0:4095];
+module CodeROM(input wire [11:0] address, output wire [55:0] data);
+    reg [55:0] memory[0:4095];
 
     assign data = memory[address];
 endmodule
@@ -23,62 +23,60 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     Sequencer seq(reset, clock, uc_op, uc_din, uc_rom_address);
     // Microcode ROM(s)
     wire [0:11] uc_rom_address;
-    wire [0:39] uc_rom_data;
+    wire [0:55] uc_rom_data;
     CodeROM uc_rom(uc_rom_address, uc_rom_data);
 
     // ---- BEGIN Pipeline definitions DO NOT EDIT
 
     // Microcode pipeline register
-    // 0       8       16      24      32      40      
-    // |-------|-------|-------|-------|-------|
+    // 0       8       16      24      32      40      48      56      
+    // |-------|-------|-------|-------|-------|-------|-------|
     // | - seq_address_mux[0:1] 2 bits
     //   | - seq_op[2:3] 2 bits
     //     | - seq_condition[4:6] 3 bits
     //        | - sxop[7:10] 4 bits
-    // |-------|-------|-------|-------|-------|
+    // |-------|-------|-------|-------|-------|-------|-------|
     //            | - ende[11]
     //             | - testa[12]
-    //              | - __blank1[13]
-    //               | - rrxa[14]
-    // |-------|-------|-------|-------|-------|
-    //                | - wd_en[15]
-    //                 | - dx1[16]
-    //                  | - axrr[17]
-    //                   | - axs[18]
-    // |-------|-------|-------|-------|-------|
-    //                    | - exconst8[19]
-    //                     | - e_count[20:21] 2 bits
-    //                       | - pxqxp[22]
-    //                        | - pxd[23]
-    // |-------|-------|-------|-------|-------|
-    //                         | - rrxs[24]
-    //                          | - uc_debug[25]
-    //                           | - __blank2[26:27] 2 bits
-    //                             | - seq_address[28:39] 12 bits
-    //                                 | - _const8[32:39] 8 bits
+    //              | - rrxa[13]
+    //               | - wd_en[14]
+    // |-------|-------|-------|-------|-------|-------|-------|
+    //                | - dx1[15]
+    //                 | - axrr[16]
+    //                  | - axs[17]
+    //                   | - exconst8[18]
+    // |-------|-------|-------|-------|-------|-------|-------|
+    //                    | - e_count[19:20] 2 bits
+    //                      | - pxqxp[21]
+    //                       | - pxd[22]
+    //                        | - rrxs[23]
+    // |-------|-------|-------|-------|-------|-------|-------|
+    //                         | - uc_debug[24]
+    //                          | - __unused[25:43] 19 bits
+    //                                             | - seq_address[44:55] 12 bits
+    //                                                 | - _const8[48:55] 8 bits
 
-    reg [0:39] pipeline;
+    reg [0:55] pipeline;
     wire [0:1] seq_address_mux = pipeline[0:1];
     wire [0:1] seq_op = pipeline[2:3];
     wire [0:2] seq_condition = pipeline[4:6];
     wire [0:3] sxop = pipeline[7:10];
     wire ende = pipeline[11];
     wire testa = pipeline[12];
-    wire __blank1 = pipeline[13];
-    wire rrxa = pipeline[14];
-    wire wd_en = pipeline[15];
-    wire dx1 = pipeline[16];
-    wire axrr = pipeline[17];
-    wire axs = pipeline[18];
-    wire exconst8 = pipeline[19];
-    wire [0:1] e_count = pipeline[20:21];
-    wire pxqxp = pipeline[22];
-    wire pxd = pipeline[23];
-    wire rrxs = pipeline[24];
-    wire uc_debug = pipeline[25];
-    wire [0:1] __blank2 = pipeline[26:27];
-    wire [0:11] seq_address = pipeline[28:39];
-    wire [0:7] _const8 = pipeline[32:39];
+    wire rrxa = pipeline[13];
+    wire wd_en = pipeline[14];
+    wire dx1 = pipeline[15];
+    wire axrr = pipeline[16];
+    wire axs = pipeline[17];
+    wire exconst8 = pipeline[18];
+    wire [0:1] e_count = pipeline[19:20];
+    wire pxqxp = pipeline[21];
+    wire pxd = pipeline[22];
+    wire rrxs = pipeline[23];
+    wire uc_debug = pipeline[24];
+    wire [0:18] __unused = pipeline[25:43];
+    wire [0:11] seq_address = pipeline[44:55];
+    wire [0:7] _const8 = pipeline[48:55];
 
     // ---- END Pipeline definitions DO NOT EDIT
 

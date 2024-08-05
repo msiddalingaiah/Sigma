@@ -390,6 +390,10 @@ class Parser(object):
 import sys
 
 if __name__ == '__main__':
+    if len(sys.argv) < 3:
+        print('usage: python Compiler.py <source-file> <microcode-file>')
+        sys.exit(1)
+
     cp = Parser()
     with open(sys.argv[1]) as f:
         tree = cp.parse(f.read())

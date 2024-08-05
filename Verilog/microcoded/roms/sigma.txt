@@ -2,7 +2,7 @@
 # ---- BEGIN Pipeline definitions DO NOT EDIT
 
 const seq.endian = BIG;
-const seq.width = 40;
+const seq.width = 56;
 
 field seq.address_mux = 0:1;
 field seq.op = 2:3;
@@ -10,21 +10,20 @@ field seq.condition = 4:6;
 field sxop = 7:10;
 field ende = 11:11;
 field testa = 12:12;
-field __blank1 = 13:13;
-field rrxa = 14:14;
-field wd_en = 15:15;
-field dx1 = 16:16;
-field axrr = 17:17;
-field axs = 18:18;
-field exconst8 = 19:19;
-field e_count = 20:21;
-field pxqxp = 22:22;
-field pxd = 23:23;
-field rrxs = 24:24;
-field uc_debug = 25:25;
-field __blank2 = 26:27;
-field seq.address = 28:39;
-field _const8 = 32:39;
+field rrxa = 13:13;
+field wd_en = 14:14;
+field dx1 = 15:15;
+field axrr = 16:16;
+field axs = 17:17;
+field exconst8 = 18:18;
+field e_count = 19:20;
+field pxqxp = 21:21;
+field pxd = 22:22;
+field rrxs = 23:23;
+field uc_debug = 24:24;
+field __unused = 25:43;
+field seq.address = 44:55;
+field _const8 = 48:55;
 
 # ---- END Pipeline definitions DO NOT EDIT
 

@@ -64,7 +64,7 @@ class Pipeline(object):
     def getMicroLines(self):
         lines = []
         lines.append('const seq.endian = BIG;')
-        lines.append('const seq.width = 40;')
+        lines.append(f'const seq.width = {self.width};')
         lines.append('')
         start = 0
         for name, width in self.fields.items():
@@ -119,7 +119,7 @@ class Pipeline(object):
 
             f.write(f'# {BEGIN_MARKER}\n\n')
             # for line in p.getDocs():
-            #     f.write(f'    // {line}\n')
+            #     f.write(f'# {line}\n')
             # f.write('\n')
             for line in self.getMicroLines():
                 f.write(f'{line}\n')
@@ -135,6 +135,8 @@ if __name__ == '__main__':
         print('usage: python Pipeline.py <verilog-file> <micro-def-file>')
         sys.exit(1)
 
+    width = 56
+
     fields = {}
     fields['seq_address_mux'] = 2
     fields['seq_op'] = 2
@@ -142,7 +144,6 @@ if __name__ == '__main__':
     fields['sxop'] = 4
     fields['ende'] = 1
     fields['testa'] = 1
-    fields['__blank1'] = 1
     fields['rrxa'] = 1
     fields['wd_en'] = 1
     fields['dx1'] = 1
@@ -154,13 +155,13 @@ if __name__ == '__main__':
     fields['pxd'] = 1
     fields['rrxs'] = 1
     fields['uc_debug'] = 1
-    fields['__blank2'] = 2
+    fields['__unused'] = 19
     fields['seq_address'] = 12
 
     overlaps = {}
-    overlaps['_const8'] = (40-8, 8)
+    overlaps['_const8'] = (width-8, 8)
 
 
-    p = Pipeline(40, fields, overlaps)
+    p = Pipeline(width, fields, overlaps)
     p.writeVerilog(sys.argv[1])
     p.writeMicro(sys.argv[2])
