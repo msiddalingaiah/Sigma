@@ -55,7 +55,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     //                          | - uc_debug[25]
     //                           | - __blank2[26:27] 2 bits
     //                             | - seq_address[28:39] 12 bits
-    //                                 | - const8[32:39] 8 bits
+    //                                 | - _const8[32:39] 8 bits
 
     reg [0:39] pipeline;
     wire [0:1] seq_address_mux = pipeline[0:1];
@@ -78,7 +78,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire uc_debug = pipeline[25];
     wire [0:1] __blank2 = pipeline[26:27];
     wire [0:11] seq_address = pipeline[28:39];
-    wire [0:7] const8 = pipeline[32:39];
+    wire [0:7] _const8 = pipeline[32:39];
 
     // ---- END Pipeline definitions DO NOT EDIT
 
@@ -173,7 +173,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             pipeline <= 0;
         end else begin
             pipeline <= uc_rom_data;
-            if (exconst8 == 1) e <= const8;
+            if (exconst8 == 1) e <= _const8;
             case (e_count)
                 0: ;
                 1: e <= e + 1;

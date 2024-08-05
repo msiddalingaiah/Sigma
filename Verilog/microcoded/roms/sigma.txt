@@ -1,11 +1,32 @@
 
+# ---- BEGIN Pipeline definitions DO NOT EDIT
+
 const seq.endian = BIG;
 const seq.width = 40;
 
 field seq.address_mux = 0:1;
 field seq.op = 2:3;
 field seq.condition = 4:6;
+field sxop = 7:10;
+field ende = 11:11;
+field testa = 12:12;
+field __blank1 = 13:13;
+field rrxa = 14:14;
+field wd_en = 15:15;
+field dx1 = 16:16;
+field axrr = 17:17;
+field axs = 18:18;
+field exconst8 = 19:19;
+field e_count = 20:21;
+field pxqxp = 22:22;
+field pxd = 23:23;
+field rrxs = 24:24;
+field uc_debug = 25:25;
+field __blank2 = 26:27;
 field seq.address = 28:39;
+field _const8 = 32:39;
+
+# ---- END Pipeline definitions DO NOT EDIT
 
 const COND_EQ_ZERO = 1;
 const COND_S_GT_ZERO = 2;
@@ -13,23 +34,6 @@ const COND_S_LT_ZERO = 3;
 
 const SX_OP_ADD = 0;
 const SX_OP_SUB = 1;
-
-const control = 7;
-field sxop = control+0:control+3;
-field ende = control+4:control+4;
-field testa = control+5:control+5;
-# available 6
-field rrxa = control+7:control+7;
-field wd_en = control+8:control+8;
-field dx1 = control+9:control+9;
-field axrr = control+10:control+10;
-field axs = control+11:control+11;
-field exconst8 = control+12:control+12;
-field e_count = control+13:control+14;
-field pxqxp = control+15:control+15;
-field pxd = control+16:control+16;
-field rrxs = control+17:control+17;
-field debug = control+20:control+20;
 
 const E_COUNT_P1 = 1;
 const E_COUNT_M1 = 2;

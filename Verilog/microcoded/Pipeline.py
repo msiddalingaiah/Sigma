@@ -1,4 +1,7 @@
 
+BEGIN_MARKER = '---- BEGIN Pipeline definitions DO NOT EDIT'
+END_MARKER = '---- END Pipeline definitions DO NOT EDIT'
+
 class Pipeline(object):
     def __init__(self, width, fields, overlaps):
         self.width = width
@@ -58,6 +61,23 @@ class Pipeline(object):
             start += width
         return lines
 
+    def getMicroLines(self):
+        lines = []
+        lines.append('const seq.endian = BIG;')
+        lines.append('const seq.width = 40;')
+        lines.append('')
+        start = 0
+        for name, width in self.fields.items():
+            if name.startswith('seq_'):
+                name = name.replace('seq_', 'seq.')
+            end = start + width-1
+            lines.append(f'field {name} = {start}:{end};')
+            start += width
+        for name, (start, width) in self.overlaps.items():
+            end = start + width-1
+            lines.append(f'field {name} = {start}:{end};')
+        return lines
+
 if __name__ == '__main__':
     fields = {}
     fields['seq_address_mux'] = 2
@@ -82,12 +102,25 @@ if __name__ == '__main__':
     fields['seq_address'] = 12
 
     overlaps = {}
-    overlaps['const8'] = (40-8, 8)
+    overlaps['_const8'] = (40-8, 8)
 
 
     p = Pipeline(40, fields, overlaps)
+    print(f'    // {BEGIN_MARKER}')
+    print()
     for line in p.getDocs():
         print(f'    // {line}')
     print()
     for line in p.getVerilog():
         print(f'    {line}')
+    print()
+    print(f'    // {END_MARKER}')
+
+    print()
+    print()
+    print(f'# {BEGIN_MARKER}')
+    print()
+    for line in p.getMicroLines():
+        print(line)
+    print()
+    print(f'# {END_MARKER}')
