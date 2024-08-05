@@ -153,18 +153,17 @@ if __name__ == '__main__':
     fields['seq_op'] = 2
     fields['seq_address_mux'] = 2
     fields['seq_condition'] = 3
+    fields['ax'] = 4
+    fields['rrx'] = 4
     fields['sxop'] = 4
     fields['ende'] = 1
     fields['testa'] = 1
     fields['wd_en'] = 1
     fields['dx1'] = 1
-    fields['axrr'] = 1
-    fields['axs'] = 1
     fields['pxqxp'] = 1
     fields['pxd'] = 1
-    fields['rrxs'] = 1
     fields['uc_debug'] = 1
-    fields['__unused'] = 23
+    fields['__unused'] = 18
     fields['seq_address'] = 12
 
     overlaps = {}

@@ -7,18 +7,17 @@ const seq.width = 56;
 field seq.op = 0:1;
 field seq.address_mux = 2:3;
 field seq.condition = 4:6;
-field sxop = 7:10;
-field ende = 11:11;
-field testa = 12:12;
-field wd_en = 13:13;
-field dx1 = 14:14;
-field axrr = 15:15;
-field axs = 16:16;
-field pxqxp = 17:17;
-field pxd = 18:18;
-field rrxs = 19:19;
-field uc_debug = 20:20;
-field __unused = 21:43;
+field ax = 7:10;
+field rrx = 11:14;
+field sxop = 15:18;
+field ende = 19:19;
+field testa = 20:20;
+field wd_en = 21:21;
+field dx1 = 22:22;
+field pxqxp = 23:23;
+field pxd = 24:24;
+field uc_debug = 25:25;
+field __unused = 26:43;
 field seq.address = 44:55;
 field _const8 = 48:55;
 
@@ -268,8 +267,8 @@ def main {
                 sxop = 0;
             }
             OP_AI: {
-                axrr = 1;
-                sxop = SX_OP_ADD, axs = 1, rrxs = 1;
+                ax = 2;
+                sxop = SX_OP_ADD, ax = 1, rrx = 1;
                 testa = 1, ende = 1, continue top;
             }
             OP_CI: {
@@ -278,7 +277,7 @@ def main {
             }
             OP_LI: { # 3-215
                 # d has immediate value
-                sxop = SX_OP_ADD, axs=1, rrxs = 1;
+                sxop = SX_OP_ADD, ax=1, rrx = 1;
                 testa = 1, ende = 1, continue top;
             }
             OP_MI: {
@@ -477,15 +476,15 @@ def main {
                 sxop = 0;
             }
             OP_BDR: {
-                axrr=1, dx1=1, pxd=1, pxqxp = 1;
-                sxop = SX_OP_SUB, rrxs=1, if COND_S_GT_ZERO {
+                ax=2, dx1=1, pxd=1, pxqxp = 1;
+                sxop = SX_OP_SUB, rrx=1, if COND_S_GT_ZERO {
                     ende = 1, continue top; # take branch
                 }
                 pxqxp = 1, ende = 1, continue top; # next instruction
             }
             OP_BIR: {
-                axrr=1, dx1=1, pxd=1, pxqxp = 1;
-                sxop = SX_OP_ADD, rrxs=1, if COND_S_LT_ZERO {
+                ax=2, dx1=1, pxd=1, pxqxp = 1;
+                sxop = SX_OP_ADD, rrx=1, if COND_S_LT_ZERO {
                     ende = 1, continue top; # take branch
                 }
                 pxqxp = 1, ende = 1, continue top; # next instruction
