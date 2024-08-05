@@ -328,6 +328,3 @@ class Generator(object):
             format = f'{{0:0{self.globals.seq_width >> 2}x}}'
             for i in range(word_count-address):
                 f.write(format.format(0) + '\n')
-
-        for c in sorted(list(commentSet)):
-            print(c)

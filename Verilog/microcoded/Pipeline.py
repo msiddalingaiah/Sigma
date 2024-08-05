@@ -7,6 +7,16 @@ class Pipeline(object):
         self.width = width
         self.fields = fields
         self.overlaps = overlaps
+        start = 0
+        for name, w in fields.items():
+            end = start + w
+            if end > width:
+                raise Exception(f'field {name} exceeds width of {width} bits by {end-width} bit(s)')
+            start += w
+        for name, (start, w) in self.overlaps.items():
+            end = start + w
+            if end > width:
+                raise Exception(f'field {name} exceeds width of {width} bits by {end-width} bit(s)')
 
     def getDocs(self):
         lines = []
@@ -23,22 +33,24 @@ class Pipeline(object):
         n = 0
         for name, width in self.fields.items():
             spaces = ' '*start
+            space_w = '_'*(width-2)
             end = start + width-1
             if n % 4 == 0:
                 lines.append(markers)
             if width == 1:
                 lines.append(f'{spaces}| - {name}[{start}]')
             else:
-                lines.append(f'{spaces}| - {name}[{start}:{end}] {width} bits')
+                lines.append(f'{spaces}|{space_w}| - {name}[{start}:{end}] {width} bits')
             start += width
             n += 1
         for name, (start, width) in self.overlaps.items():
             spaces = ' '*start
+            space_w = '_'*(width-2)
             end = start + width-1
             if width == 1:
                 lines.append(f'{spaces}| - {name}[{start}]')
             else:
-                lines.append(f'{spaces}| - {name}[{start}:{end}] {width} bits')
+                lines.append(f'{spaces}|{space_w}| - {name}[{start}:{end}] {width} bits')
         return lines
 
     def getVerilog(self):
@@ -138,24 +150,21 @@ if __name__ == '__main__':
     width = 56
 
     fields = {}
-    fields['seq_address_mux'] = 2
     fields['seq_op'] = 2
+    fields['seq_address_mux'] = 2
     fields['seq_condition'] = 3
     fields['sxop'] = 4
     fields['ende'] = 1
     fields['testa'] = 1
-    fields['rrxa'] = 1
     fields['wd_en'] = 1
     fields['dx1'] = 1
     fields['axrr'] = 1
     fields['axs'] = 1
-    fields['exconst8'] = 1
-    fields['e_count'] = 2
     fields['pxqxp'] = 1
     fields['pxd'] = 1
     fields['rrxs'] = 1
     fields['uc_debug'] = 1
-    fields['__unused'] = 19
+    fields['__unused'] = 23
     fields['seq_address'] = 12
 
     overlaps = {}

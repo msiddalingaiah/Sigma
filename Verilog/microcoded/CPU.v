@@ -31,50 +31,43 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // Microcode pipeline register
     // 0       8       16      24      32      40      48      56      
     // |-------|-------|-------|-------|-------|-------|-------|
-    // | - seq_address_mux[0:1] 2 bits
-    //   | - seq_op[2:3] 2 bits
-    //     | - seq_condition[4:6] 3 bits
-    //        | - sxop[7:10] 4 bits
+    // || - seq_op[0:1] 2 bits
+    //   || - seq_address_mux[2:3] 2 bits
+    //     |_| - seq_condition[4:6] 3 bits
+    //        |__| - sxop[7:10] 4 bits
     // |-------|-------|-------|-------|-------|-------|-------|
     //            | - ende[11]
     //             | - testa[12]
-    //              | - rrxa[13]
-    //               | - wd_en[14]
+    //              | - wd_en[13]
+    //               | - dx1[14]
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                | - dx1[15]
-    //                 | - axrr[16]
-    //                  | - axs[17]
-    //                   | - exconst8[18]
+    //                | - axrr[15]
+    //                 | - axs[16]
+    //                  | - pxqxp[17]
+    //                   | - pxd[18]
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                    | - e_count[19:20] 2 bits
-    //                      | - pxqxp[21]
-    //                       | - pxd[22]
-    //                        | - rrxs[23]
-    // |-------|-------|-------|-------|-------|-------|-------|
-    //                         | - uc_debug[24]
-    //                          | - __unused[25:43] 19 bits
-    //                                             | - seq_address[44:55] 12 bits
-    //                                                 | - _const8[48:55] 8 bits
+    //                    | - rrxs[19]
+    //                     | - uc_debug[20]
+    //                      |_____________________| - __unused[21:43] 23 bits
+    //                                             |__________| - seq_address[44:55] 12 bits
+    //                                                 |______| - _const8[48:55] 8 bits
 
     reg [0:55] pipeline;
-    wire [0:1] seq_address_mux = pipeline[0:1];
-    wire [0:1] seq_op = pipeline[2:3];
+    wire [0:1] seq_op = pipeline[0:1];
+    wire [0:1] seq_address_mux = pipeline[2:3];
     wire [0:2] seq_condition = pipeline[4:6];
     wire [0:3] sxop = pipeline[7:10];
     wire ende = pipeline[11];
     wire testa = pipeline[12];
-    wire rrxa = pipeline[13];
-    wire wd_en = pipeline[14];
-    wire dx1 = pipeline[15];
-    wire axrr = pipeline[16];
-    wire axs = pipeline[17];
-    wire exconst8 = pipeline[18];
-    wire [0:1] e_count = pipeline[19:20];
-    wire pxqxp = pipeline[21];
-    wire pxd = pipeline[22];
-    wire rrxs = pipeline[23];
-    wire uc_debug = pipeline[24];
-    wire [0:18] __unused = pipeline[25:43];
+    wire wd_en = pipeline[13];
+    wire dx1 = pipeline[14];
+    wire axrr = pipeline[15];
+    wire axs = pipeline[16];
+    wire pxqxp = pipeline[17];
+    wire pxd = pipeline[18];
+    wire rrxs = pipeline[19];
+    wire uc_debug = pipeline[20];
+    wire [0:22] __unused = pipeline[21:43];
     wire [0:11] seq_address = pipeline[44:55];
     wire [0:7] _const8 = pipeline[48:55];
 
@@ -171,13 +164,6 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             pipeline <= 0;
         end else begin
             pipeline <= uc_rom_data;
-            if (exconst8 == 1) e <= _const8;
-            case (e_count)
-                0: ;
-                1: e <= e + 1;
-                2: e <= e - 1;
-                3: ;
-            endcase
             if (ende == 1) begin
                 c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; p <= p + 1; a <= 0;
                 // immediate value
@@ -185,7 +171,6 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             end
             if (axs == 1) begin a <= s; end
             if (axrr == 1) begin a <= rr[r]; end
-            if (rrxa == 1) begin rr[r] <= a; end
             if (rrxs == 1) begin rr[r] <= s; end
             if (testa == 1) begin cc[3] <= (~a[0]) & (a != 0); cc[4] <= a[0]; end
             if (dx1 == 1) begin d <= 32'h1; end
