@@ -7,7 +7,7 @@ roms/sigma_microcode.txt: roms/sigma.txt roms/*.py
 	python roms/Compiler.py roms/sigma.txt roms/sigma_microcode.txt
 
 pipeline:
-	python Pipeline.py
+	python Pipeline.py CPU.v roms/sigma.txt
 
 test:
 	python roms/CompilerTest.py

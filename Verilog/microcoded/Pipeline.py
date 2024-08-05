@@ -78,7 +78,63 @@ class Pipeline(object):
             lines.append(f'field {name} = {start}:{end};')
         return lines
 
+    def writeVerilog(self, filename):
+        with open(filename) as f:
+            sourcelines = f.readlines()
+        with open(filename, "w") as f:
+            for lineIndex in range(len(sourcelines)):
+                if BEGIN_MARKER in sourcelines[lineIndex]:
+                    break
+                f.write(sourcelines[lineIndex])
+            while lineIndex < len(sourcelines):
+                if END_MARKER in sourcelines[lineIndex]:
+                    break
+                lineIndex += 1
+            lineIndex += 1
+
+            f.write(f'    // {BEGIN_MARKER}\n\n')
+            for line in p.getDocs():
+                f.write(f'    // {line}\n')
+            f.write('\n')
+            for line in self.getVerilog():
+                f.write(f'    {line}\n')
+            f.write(f'\n    // {END_MARKER}\n')
+            while lineIndex < len(sourcelines):
+                f.write(sourcelines[lineIndex])
+                lineIndex += 1
+
+    def writeMicro(self, filename):
+        with open(filename) as f:
+            sourcelines = f.readlines()
+        with open(filename, "w") as f:
+            for lineIndex in range(len(sourcelines)):
+                if BEGIN_MARKER in sourcelines[lineIndex]:
+                    break
+                f.write(sourcelines[lineIndex])
+            while lineIndex < len(sourcelines):
+                if END_MARKER in sourcelines[lineIndex]:
+                    break
+                lineIndex += 1
+            lineIndex += 1
+
+            f.write(f'# {BEGIN_MARKER}\n\n')
+            # for line in p.getDocs():
+            #     f.write(f'    // {line}\n')
+            # f.write('\n')
+            for line in self.getMicroLines():
+                f.write(f'{line}\n')
+            f.write(f'\n# {END_MARKER}\n')
+            while lineIndex < len(sourcelines):
+                f.write(sourcelines[lineIndex])
+                lineIndex += 1
+
+import sys
+
 if __name__ == '__main__':
+    if len(sys.argv) < 3:
+        print('usage: python Pipeline.py <verilog-file> <micro-def-file>')
+        sys.exit(1)
+
     fields = {}
     fields['seq_address_mux'] = 2
     fields['seq_op'] = 2
@@ -106,21 +162,5 @@ if __name__ == '__main__':
 
 
     p = Pipeline(40, fields, overlaps)
-    print(f'    // {BEGIN_MARKER}')
-    print()
-    for line in p.getDocs():
-        print(f'    // {line}')
-    print()
-    for line in p.getVerilog():
-        print(f'    {line}')
-    print()
-    print(f'    // {END_MARKER}')
-
-    print()
-    print()
-    print(f'# {BEGIN_MARKER}')
-    print()
-    for line in p.getMicroLines():
-        print(line)
-    print()
-    print(f'# {END_MARKER}')
+    p.writeVerilog(sys.argv[1])
+    p.writeMicro(sys.argv[2])
