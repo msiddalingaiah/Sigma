@@ -76,7 +76,7 @@ class AParser(object):
         input = inputs[0]
         if len(input.strip()) == 0:
             return tree
-        fields = input.split('    ')
+        fields = re.split('    +', input)
         for i, fn in enumerate(['lf', 'cf', 'af']):
             if i < len(fields):
                 self.sc.setInput(fields[i])
@@ -87,9 +87,6 @@ class AParser(object):
             raise Exception(f'line {lineNumber}: Unexpected input: %s' % self.sc.terminal)
         if len(tree[1]) == 0:
             raise Exception(f'line {lineNumber}: Command field cannot be empty')
-        if len(inputs) > 1:
-            comment = ';'.join(inputs[1:]).strip()
-            tree.add(Tree('comment', Terminal('"', comment, lineNumber)))
         return tree
 
     def parseExpList(self, name):
@@ -158,27 +155,118 @@ class AParser(object):
             return result
         return Tree(self.sc.expect('ID'))
 
+class Defines(object):
+    def __init__(self):
+        self.constants = {}
+
+    def eval(self, tree):
+        if tree.value.name == 'INT':
+            return tree.value.value
+        if tree.value.name == 'ID':
+            name = tree.value.value
+            if name not in self.constants:
+                raise Exception(f"line {tree.value.lineNumber}, No such constant '{name}'")
+            return self.constants[name]
+        op = tree.value.name
+        a = self.eval(tree.children[0])
+        if op == 'NEG':
+            return -a
+        b = self.eval(tree.children[1])
+        if op == '+':
+            return a + b
+        if op == '-':
+            return a - b
+        if op == '*':
+            return a * b
+        if op == '/':
+            return a / b
+        raise Exception(f"line {tree.value.lineNumber}, Unknown operator '{op}'")
+
 class Generator(object):
-    def __init__(self, defs, tree, lineNumber, pc):
+    def __init__(self, defs, line, tree, lineNumber, pc):
         self.defs = defs
+        self.line = line
         self.tree = tree
         self.lineNumber = lineNumber
         self.pc = pc
 
+    def getLabels(self):
+        labels = []
+        for t in self.tree[0]:
+            if t.value.name != 'ID':
+                raise Exception(f'line {self.lineNumber}: expected label, found {t.value.value}')
+            labels.append(t.value.value)
+        return labels
+
+    def getNextPC(self):
+        return self.pc
+
     def getWords(self):
-        raise Exception(f'line: {self.lineNumber}: Unimplemented abstract method.')
+        return []
     
     @staticmethod
-    def new(defs, tree, lineNumber, pc):
-        # TODO check immediate mode
-        if tree[1][0].value.value in OPCODE_MAP:
-            return ImmInstruction(defs, tree, lineNumber, pc)
+    def new(defs, line, tree, lineNumber, pc):
+        lf, cf, af = tree[0],tree[1], tree[2]
+        cf0 = cf[0].value.value.upper()
+        if cf0 == 'DEF':
+            return DEF(defs, line, tree, lineNumber, pc)
+        if cf0 in OPCODE_MAP:
+            if OPCODE_MAP[cf0] & 0x1c000000 == 0:
+                return ImmInstruction(defs, line, tree, lineNumber, pc)
+            return Instruction(defs, line, tree, lineNumber, pc)
 
-class ImmInstruction(Generator):
-    def __init__(self, defs, tree, lineNumber, pc):
-        super().__init__(defs, tree, lineNumber, pc)
+class DEF(Generator):
+    def __init__(self, defs, line, tree, lineNumber, pc):
+        super().__init__(defs, line, tree, lineNumber, pc)
+        value = defs.eval(tree[2][0])
+        for label in self.getLabels():
+            defs.constants[label] = value
+
+class Instruction(Generator):
+    def __init__(self, defs, line, tree, lineNumber, pc):
+        super().__init__(defs, line, tree, lineNumber, pc)
+
+    def getNextPC(self):
+        return self.pc + 1
+
+    def setLabels(self):
+        for label in self.getLabels():
+            self.defs.constants[label] = self.pc
 
     def getWords(self):
+        self.setLabels()
+        cf = self.tree[1]
+        if len(cf) != 2:
+            raise Exception(f'line: {self.lineNumber}: One register is required.')
+        op = OPCODE_MAP[cf[0].value.value]
+        reg = self.defs.eval(cf[1].value.value)
+        word = (op << 24) | (reg << 20)
+
+        af = self.tree[2]
+        index = 0
+        if index >= len(af):
+            raise Exception(f'line {self.lineNumber}: missing address, index register')
+        if af[index].value.name == '*':
+            word |= 0x80000000
+            index += 1
+        if index >= len(af):
+            raise Exception(f'line {self.lineNumber}: missing address')
+        addr = self.defs.eval(af[index])
+        index += 1
+        word |= addr & 0x1ffff
+        if index >= len(af):
+            raise Exception(f'line {self.lineNumber}: missing index register')
+        ix = self.defs.eval(af[index])
+        index += 1
+        word |= (ix & 7) << 17
+        return [f'{word:08x} // {self.line}']
+
+class ImmInstruction(Instruction):
+    def __init__(self, defs, line, tree, lineNumber, pc):
+        super().__init__(defs, line, tree, lineNumber, pc)
+
+    def getWords(self):
+        self.setLabels()
         cf = self.tree[1]
         if len(cf) != 2:
             raise Exception(f'line: {self.lineNumber}: One register is required.')
@@ -186,15 +274,49 @@ class ImmInstruction(Generator):
         if len(af) != 1:
             raise Exception(f'line: {self.lineNumber}: One operand is required.')
         op = OPCODE_MAP[cf[0].value.value]
-        # TODO evaluate expression(s)
-        reg = int(cf[1].value.value)
-        arg = int(af[0].value.value)
+        reg = self.defs.eval(cf[1])
+        arg = self.defs.eval(af[0])
         word = (op << 24) | (reg << 20) | (arg & 0xfffff)
-        return ['%08x' % word]
+        return [f'{word:08x} // {self.pc:04x} {self.line}']
+
+class Assembler(object):
+    def __init__(self):
+        self.defs = Defines()
+    
+    def parse(self, fasm):
+        p = AParser()
+        self.genList = []
+        pc = 0
+        with open(fasm) as f:
+            lines = f.readlines()
+            for lineNumber, line in enumerate(lines):
+                lineNumber += 1
+                line = line.replace('\n', '')
+                tree = p.parse(line, lineNumber)
+                if len(tree) >= 3:
+                    gen = Generator.new(self.defs, line, tree, lineNumber, pc)
+                    pc = gen.getNextPC()
+                    self.genList.append(gen)
+
+    def write(self, fout):
+        n = 128
+        with open(fout, 'wt') as f:
+            for gen in self.genList:
+                words = gen.getWords()
+                for w in words:
+                    f.write(w + '\n')
+                    n -= 1
+            while n > 0:
+                f.write('00000000\n')
+                n -= 1
+
+import sys
 
 if __name__ == '__main__':
-    p = AParser()
-    tree = p.parse('    LI,1    35', 1)
-    inst = Generator.new(None, tree, 1, 0)
-    for w in inst.getWords():
-        print(w)
+    if len(sys.argv) < 3:
+        print('usage: python Assembler.py <asm-file> <code-file>')
+        sys.exit(1)
+
+    asm = Assembler()
+    asm.parse(sys.argv[1])
+    asm.write(sys.argv[2])
