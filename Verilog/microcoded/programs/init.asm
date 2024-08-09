@@ -27,3 +27,6 @@ loop    AI,1        1
         WD,1        0
 
         WAIT,0      0
+
+msg1    TEXTC       "Call me Ishmael..."
+msg2    TEXTC       "Bye"

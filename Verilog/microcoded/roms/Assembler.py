@@ -147,12 +147,8 @@ class AParser(object):
             return Tree(t)
         if self.sc.matches('"'):
             t = self.sc.terminal
-            string = self.escape(t.value[1:-1])
-            t.value = ''
-            result = Tree(t)
-            for c in string:
-                result.add(ord(c))
-            return result
+            t.value = self.escape(t.value[1:-1])
+            return Tree(t)
         return Tree(self.sc.expect('ID'))
 
 class Defines(object):
@@ -182,7 +178,7 @@ class Defines(object):
             return a / b
         raise Exception(f"line {tree.value.lineNumber}, Unknown operator '{op}'")
 
-class Generator(object):
+class Directive(object):
     def __init__(self, defs, line, tree, lineNumber, pc):
         self.defs = defs
         self.line = line
@@ -210,19 +206,46 @@ class Generator(object):
         cf0 = cf[0].value.value.upper()
         if cf0 == 'DEF':
             return DEF(defs, line, tree, lineNumber, pc)
+        if cf0 == 'TEXTC':
+            return TextC(defs, line, tree, lineNumber, pc)
         if cf0 in OPCODE_MAP:
             if OPCODE_MAP[cf0] & 0x1c000000 == 0:
                 return ImmInstruction(defs, line, tree, lineNumber, pc)
             return Instruction(defs, line, tree, lineNumber, pc)
 
-class DEF(Generator):
+class DEF(Directive):
     def __init__(self, defs, line, tree, lineNumber, pc):
         super().__init__(defs, line, tree, lineNumber, pc)
         value = defs.eval(tree[2][0])
         for label in self.getLabels():
             defs.constants[label] = value
 
-class Instruction(Generator):
+class TextC(Directive):
+    def __init__(self, defs, line, tree, lineNumber, pc):
+        super().__init__(defs, line, tree, lineNumber, pc)
+        af = tree[2]
+        if len(af) != 1 or af[0].value.name != '"':
+            raise Exception(f'line {lineNumber}: one string argument expected')
+        self.value = tree[2][0].value.value
+
+    def getNextPC(self):
+        return self.pc + ((len(self.value) + 4) >> 2)
+
+    def getWords(self):
+        for label in self.getLabels():
+            self.defs.constants[label] = self.pc
+        length = len(self.value)
+        padLen = (4 - ((len(self.value)+1) & 3)) & 3
+        value = self.value + (' '*(padLen))
+        words = []
+        words.append(f'{length:02x}{ord(value[0]):02x}{ord(value[1]):02x}{ord(value[2]):02x} // {self.pc:04x} {self.line}')
+        i = 3
+        while i < length:
+            words.append(f'{ord(value[i+0]):02x}{ord(value[i+1]):02x}{ord(value[i+2]):02x}{ord(value[i+3]):02x}')
+            i += 4
+        return words
+
+class Instruction(Directive):
     def __init__(self, defs, line, tree, lineNumber, pc):
         super().__init__(defs, line, tree, lineNumber, pc)
 
@@ -294,7 +317,7 @@ class Assembler(object):
                 line = line.replace('\n', '')
                 tree = p.parse(line, lineNumber)
                 if len(tree) >= 3:
-                    gen = Generator.new(self.defs, line, tree, lineNumber, pc)
+                    gen = Directive.new(self.defs, line, tree, lineNumber, pc)
                     pc = gen.getNextPC()
                     self.genList.append(gen)
 
