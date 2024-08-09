@@ -209,7 +209,7 @@ class Directive(object):
         if cf0 == 'TEXTC':
             return TextC(defs, line, tree, lineNumber, pc)
         if cf0 in OPCODE_MAP:
-            if OPCODE_MAP[cf0] & 0x1c000000 == 0:
+            if (OPCODE_MAP[cf0] & 0x1c) == 0:
                 return ImmInstruction(defs, line, tree, lineNumber, pc)
             return Instruction(defs, line, tree, lineNumber, pc)
 
@@ -262,7 +262,7 @@ class Instruction(Directive):
         if len(cf) != 2:
             raise Exception(f'line: {self.lineNumber}: One register is required.')
         op = OPCODE_MAP[cf[0].value.value]
-        reg = self.defs.eval(cf[1].value.value)
+        reg = self.defs.eval(cf[1])
         word = (op << 24) | (reg << 20)
 
         af = self.tree[2]
@@ -277,12 +277,11 @@ class Instruction(Directive):
         addr = self.defs.eval(af[index])
         index += 1
         word |= addr & 0x1ffff
-        if index >= len(af):
-            raise Exception(f'line {self.lineNumber}: missing index register')
-        ix = self.defs.eval(af[index])
-        index += 1
-        word |= (ix & 7) << 17
-        return [f'{word:08x} // {self.line}']
+        if index < len(af):
+            ix = self.defs.eval(af[index])
+            index += 1
+            word |= (ix & 7) << 17
+        return [f'{word:08x} // {self.pc:04x} {self.line}']
 
 class ImmInstruction(Instruction):
     def __init__(self, defs, line, tree, lineNumber, pc):
