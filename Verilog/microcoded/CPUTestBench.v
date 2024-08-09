@@ -85,7 +85,7 @@ module CPUTestBench;
             $finish;
         end
         if (cpu.o == 46) begin
-            $display("\nCPU WAIT, execution terminated normally.");
+            $display("\nCPU WAIT: execution terminated normally.");
             $display("%4d cycles, %4d instructions.", cycle_count, instruction_count);
             $finish;
         end

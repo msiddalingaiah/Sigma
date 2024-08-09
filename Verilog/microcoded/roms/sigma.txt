@@ -8,18 +8,33 @@ field seq.op = 0:1;
 field seq.address_mux = 2:3;
 field seq.condition = 4:6;
 field ax = 7:10;
-field rrx = 11:14;
-field sxop = 15:18;
-field ende = 19:19;
-field testa = 20:20;
-field wd_en = 21:21;
-field dx1 = 22:22;
-field pxqxp = 23:23;
-field pxd = 24:24;
-field uc_debug = 25:25;
-field __unused = 26:43;
+field dx = 11:13;
+field px = 14:16;
+field qx = 17:17;
+field rrx = 18:21;
+field sxop = 22:25;
+field ende = 26:26;
+field testa = 27:27;
+field wd_en = 28:28;
+field uc_debug = 29:29;
+field __unused = 30:43;
 field seq.address = 44:55;
 field _const8 = 48:55;
+
+const SX_ADD = 0;
+const SX_SUB = 1;
+const AX_NONE = 0;
+const AX_S = 1;
+const AX_RR = 2;
+const DX_NONE = 0;
+const DX_1 = 1;
+const PX_NONE = 0;
+const PX_D = 1;
+const PX_Q = 2;
+const QX_NONE = 0;
+const QX_P = 1;
+const RRX_NONE = 0;
+const RRX_S = 1;
 
 # ---- END Pipeline definitions DO NOT EDIT
 
@@ -164,411 +179,411 @@ const OP_DL = 126;
 const OP_DST = 127;
 
 def main {
-    sxop = 0;
-    sxop = 0;
-    sxop = 0;
+    sxop = SX_ADD;
+    sxop = SX_ADD;
+    sxop = SX_ADD;
     ende = 1;
     loop {
-        top: sxop = 0, switch ADDR_MUX_OPCODE {
+        top: sxop = SX_ADD, switch ADDR_MUX_OPCODE {
             OP_NAO_00: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_01: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LCFI: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_03: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_CAL1: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_CAL2: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_CAL3: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_CAL4: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_PLW: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_PSW: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_PLM: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_PSM: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_0c: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_0d: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LPSD: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_XPSD: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_AD: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_CD: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LD: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_MSP: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_14: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_STD: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_16: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_17: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_SD: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_CLM: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LCD: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LAD: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_FSL: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_FAL: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_FDL: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_FML: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_AI: {
-                ax = 2;
-                sxop = SX_OP_ADD, ax = 1, rrx = 1;
+                ax = AX_RR;
+                sxop = SX_OP_ADD, ax = AX_S, rrx = 1;
                 testa = 1, ende = 1, continue top;
             }
             OP_CI: {
                 # d has immediate value
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LI: { # 3-215
                 # d has immediate value
-                sxop = SX_OP_ADD, ax=1, rrx = 1;
+                sxop = SX_OP_ADD, ax = AX_S, rrx = 1;
                 testa = 1, ende = 1, continue top;
             }
             OP_MI: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_SF: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_S: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_26: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_27: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_CVS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_CVA: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LM: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_STM: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_2c: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_2d: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_WAIT: {
-                forever: sxop = 0, continue forever;
+                forever: sxop = SX_ADD, continue forever;
             }
             OP_LRP: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_AW: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_CW: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LW: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_MTW: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_34: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_STW: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_DW: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_MW: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_SW: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_CLR: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LCW: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LAW: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_FSS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_FAS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_FDS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_FMS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_TTBS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_TBS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_42: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_43: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_ANLZ: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_CS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_XW: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_STS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_EOR: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_OR: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_AND: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_SIO: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_TIO: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_TDV: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_HIO: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_AH: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_CH: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LH: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_MTH: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_54: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_STH: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_DH: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_MH: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_SH: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_59: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LCH: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LAH: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_5c: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_5d: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_5e: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_5f: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_CBS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_MBS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_NAO_62: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_EBS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_BDR: {
-                ax=2, dx1=1, pxd=1, pxqxp = 1;
+                ax = AX_RR, dx = DX_1, px = PX_D, qx = QX_P;
                 sxop = SX_OP_SUB, rrx=1, if COND_S_GT_ZERO {
                     ende = 1, continue top; # take branch
                 }
-                pxqxp = 1, ende = 1, continue top; # next instruction
+                px = PX_Q, ende = 1, continue top; # next instruction
             }
             OP_BIR: {
-                ax=2, dx1=1, pxd=1, pxqxp = 1;
+                ax = AX_RR, dx = DX_1, px = PX_D, qx = QX_P;
                 sxop = SX_OP_ADD, rrx=1, if COND_S_LT_ZERO {
                     ende = 1, continue top; # take branch
                 }
-                pxqxp = 1, ende = 1, continue top; # next instruction
+                px = PX_Q, ende = 1, continue top; # next instruction
             }
             OP_AWM: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_EXU: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_BCR: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_BCS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_BAL: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_INT: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_RD: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_WD: {
                 sxop = 2, wd_en = 1, ende = 1, continue top;
             }
             OP_AIO: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_MMC: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LCF: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_CB: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_LB: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_MTB: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_STFC: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_STB: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_PACK: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_UNPK: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_DS: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_DA: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_DD: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_DM: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_DSA: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_DC: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_DL: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
             OP_DST: {
-                sxop = 0;
+                sxop = SX_ADD;
             }
         }
-        sxop = 0;
+        sxop = SX_ADD;
     }
 }
 

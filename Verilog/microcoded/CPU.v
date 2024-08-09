@@ -36,18 +36,18 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     //     |_| - seq_condition[4:6] 3 bits
     //        |__| - ax[7:10] 4 bits
     // |-------|-------|-------|-------|-------|-------|-------|
-    //            |__| - rrx[11:14] 4 bits
-    //                |__| - sxop[15:18] 4 bits
-    //                    | - ende[19]
-    //                     | - testa[20]
+    //            |_| - dx[11:13] 3 bits
+    //               |_| - px[14:16] 3 bits
+    //                  | - qx[17]
+    //                   |__| - rrx[18:21] 4 bits
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                      | - wd_en[21]
-    //                       | - dx1[22]
-    //                        | - pxqxp[23]
-    //                         | - pxd[24]
+    //                       |__| - sxop[22:25] 4 bits
+    //                           | - ende[26]
+    //                            | - testa[27]
+    //                             | - wd_en[28]
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                          | - uc_debug[25]
-    //                           |________________| - __unused[26:43] 18 bits
+    //                              | - uc_debug[29]
+    //                               |____________| - __unused[30:43] 14 bits
     //                                             |__________| - seq_address[44:55] 12 bits
     //                                                 |______| - _const8[48:55] 8 bits
 
@@ -56,18 +56,33 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire [0:1] seq_address_mux = pipeline[2:3];
     wire [0:2] seq_condition = pipeline[4:6];
     wire [0:3] ax = pipeline[7:10];
-    wire [0:3] rrx = pipeline[11:14];
-    wire [0:3] sxop = pipeline[15:18];
-    wire ende = pipeline[19];
-    wire testa = pipeline[20];
-    wire wd_en = pipeline[21];
-    wire dx1 = pipeline[22];
-    wire pxqxp = pipeline[23];
-    wire pxd = pipeline[24];
-    wire uc_debug = pipeline[25];
-    wire [0:17] __unused = pipeline[26:43];
+    wire [0:2] dx = pipeline[11:13];
+    wire [0:2] px = pipeline[14:16];
+    wire qx = pipeline[17];
+    wire [0:3] rrx = pipeline[18:21];
+    wire [0:3] sxop = pipeline[22:25];
+    wire ende = pipeline[26];
+    wire testa = pipeline[27];
+    wire wd_en = pipeline[28];
+    wire uc_debug = pipeline[29];
+    wire [0:13] __unused = pipeline[30:43];
     wire [0:11] seq_address = pipeline[44:55];
     wire [0:7] _const8 = pipeline[48:55];
+    
+    localparam SX_ADD = 0;
+    localparam SX_SUB = 1;
+    localparam AX_NONE = 0;
+    localparam AX_S = 1;
+    localparam AX_RR = 2;
+    localparam DX_NONE = 0;
+    localparam DX_1 = 1;
+    localparam PX_NONE = 0;
+    localparam PX_D = 1;
+    localparam PX_Q = 2;
+    localparam QX_NONE = 0;
+    localparam QX_P = 1;
+    localparam RRX_NONE = 0;
+    localparam RRX_S = 1;
 
     // ---- END Pipeline definitions DO NOT EDIT
 
@@ -121,8 +136,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
         endcase
         s = 0;
         case (sxop)
-            0: s = a+d;
-            1: s = a-d;
+            SX_ADD: s = a+d;
+            SX_SUB: s = a-d;
         endcase
         branch = 0;
         case (seq_condition)
@@ -168,18 +183,28 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 if (~c_in[3] & ~c_in[4] & ~c_in[5]) begin d <= { {12{c_in[12]}}, c_in[12:31] }; end
             end
             case (ax)
-                0: ; // do nothing
-                1: a <= s;
-                2: a <= rr[r];
+                AX_NONE: ; // do nothing
+                AX_S: a <= s;
+                AX_RR: a <= rr[r];
+            endcase
+            case (dx)
+                DX_NONE: ; // do nothing
+                DX_1: d <= 32'h1;
             endcase
             case (rrx)
-                0: ; // do nothing
-                1: rr[r] <= s;
+                RRX_NONE: ; // do nothing
+                RRX_S: rr[r] <= s;
+            endcase
+            case (px)
+                PX_NONE: ; // do nothing
+                PX_D: p <= d[15:31];
+                PX_Q: p <= q;
+            endcase
+            case (qx)
+                QX_NONE: ; // do nothing
+                QX_P: q <= p;
             endcase
             if (testa == 1) begin cc[3] <= (~a[0]) & (a != 0); cc[4] <= a[0]; end
-            if (dx1 == 1) begin d <= 32'h1; end
-            if (pxqxp == 1) begin p <= q; q <= p; end
-            if (pxd == 1) begin p <= d[15:31]; end
             if (wd_en == 1) begin
                 // $display("wd_en, d[24:31] = %x, r = %x, rr[r][25:31]", d[24:31], r, rr[r][25:31]);
                 if ((d[24:31] == 0) && (r != 0)) begin

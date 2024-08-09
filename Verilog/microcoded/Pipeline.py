@@ -3,10 +3,11 @@ BEGIN_MARKER = '---- BEGIN Pipeline definitions DO NOT EDIT'
 END_MARKER = '---- END Pipeline definitions DO NOT EDIT'
 
 class Pipeline(object):
-    def __init__(self, width, fields, overlaps):
+    def __init__(self, width, fields, overlaps, constants):
         self.width = width
         self.fields = fields
         self.overlaps = overlaps
+        self.constants = constants
         start = 0
         for name, w in fields.items():
             end = start + w
@@ -71,6 +72,9 @@ class Pipeline(object):
             else:
                 lines.append(f'wire [0:{width-1}] {name} = pipeline[{start}:{end}];')
             start += width
+        lines.append('')
+        for name, value in self.constants.items():
+            lines.append(f'localparam {name} = {value};')
         return lines
 
     def getMicroLines(self):
@@ -88,6 +92,9 @@ class Pipeline(object):
         for name, (start, width) in self.overlaps.items():
             end = start + width-1
             lines.append(f'field {name} = {start}:{end};')
+        lines.append('')
+        for name, value in self.constants.items():
+            lines.append(f'const {name} = {value};')
         return lines
 
     def writeVerilog(self, filename):
@@ -154,22 +161,42 @@ if __name__ == '__main__':
     fields['seq_address_mux'] = 2
     fields['seq_condition'] = 3
     fields['ax'] = 4
+    fields['dx'] = 3
+    fields['px'] = 3
+    fields['qx'] = 1
     fields['rrx'] = 4
     fields['sxop'] = 4
     fields['ende'] = 1
     fields['testa'] = 1
     fields['wd_en'] = 1
-    fields['dx1'] = 1
-    fields['pxqxp'] = 1
-    fields['pxd'] = 1
     fields['uc_debug'] = 1
-    fields['__unused'] = 18
+    fields['__unused'] = 14
     fields['seq_address'] = 12
 
     overlaps = {}
     overlaps['_const8'] = (width-8, 8)
 
+    constants = {}
+    constants['SX_ADD'] = 0
+    constants['SX_SUB'] = 1
 
-    p = Pipeline(width, fields, overlaps)
+    constants['AX_NONE'] = 0
+    constants['AX_S'] = 1
+    constants['AX_RR'] = 2
+
+    constants['DX_NONE'] = 0
+    constants['DX_1'] = 1
+
+    constants['PX_NONE'] = 0
+    constants['PX_D'] = 1
+    constants['PX_Q'] = 2
+
+    constants['QX_NONE'] = 0
+    constants['QX_P'] = 1
+
+    constants['RRX_NONE'] = 0
+    constants['RRX_S'] = 1
+
+    p = Pipeline(width, fields, overlaps, constants)
     p.writeVerilog(sys.argv[1])
     p.writeMicro(sys.argv[2])
