@@ -71,9 +71,11 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     
     localparam SX_ADD = 0;
     localparam SX_SUB = 1;
+    localparam SX_D = 2;
     localparam AX_NONE = 0;
-    localparam AX_S = 1;
-    localparam AX_RR = 2;
+    localparam AX_D = 1;
+    localparam AX_S = 2;
+    localparam AX_RR = 3;
     localparam DX_NONE = 0;
     localparam DX_1 = 1;
     localparam PX_NONE = 0;
@@ -83,6 +85,11 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     localparam QX_P = 1;
     localparam RRX_NONE = 0;
     localparam RRX_S = 1;
+    localparam COND_NONE = 0;
+    localparam COND_S_GT_ZERO = 1;
+    localparam COND_S_LT_ZERO = 2;
+    localparam ADDR_MUX_SEQ = 0;
+    localparam ADDR_MUX_OPCODE = 1;
 
     // ---- END Pipeline definitions DO NOT EDIT
 
@@ -129,26 +136,20 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
         // Sequencer d_in mux
         uc_din = seq_address;
         case (seq_address_mux)
-            0: uc_din = seq_address; // jump or call
-            1: uc_din = o; // instruction op code
-            2: uc_din = 0; // not used
-            3: uc_din = 0; // not used
+            ADDR_MUX_SEQ: uc_din = seq_address; // jump or call
+            ADDR_MUX_OPCODE: uc_din = o; // instruction op code
         endcase
         s = 0;
         case (sxop)
             SX_ADD: s = a+d;
             SX_SUB: s = a-d;
+            SX_D: s = d;
         endcase
         branch = 0;
         case (seq_condition)
-            0: branch = 0; // branch unconditionally
-            1: branch = e == 0; // COND_EQ_ZERO
-            2: branch = ~(s[0] | (s == 0)); // COND_S_GT_ZERO
-            3: branch = s[0]; // COND_S_LT_ZERO
-            4: branch = 0;
-            5: branch = 0;
-            6: branch = 0;
-            7: branch = 0;
+            COND_NONE: branch = 0; // branch unconditionally
+            COND_S_GT_ZERO: branch = ~(s[0] | (s == 0));
+            COND_S_LT_ZERO: branch = s[0];
         endcase
         uc_op = seq_op;
         case (seq_op)
@@ -184,6 +185,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             end
             case (ax)
                 AX_NONE: ; // do nothing
+                AX_D: a <= d;
                 AX_S: a <= s;
                 AX_RR: a <= rr[r];
             endcase

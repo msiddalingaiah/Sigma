@@ -179,10 +179,12 @@ if __name__ == '__main__':
     constants = {}
     constants['SX_ADD'] = 0
     constants['SX_SUB'] = 1
+    constants['SX_D'] = 2
 
     constants['AX_NONE'] = 0
-    constants['AX_S'] = 1
-    constants['AX_RR'] = 2
+    constants['AX_D'] = 1
+    constants['AX_S'] = 2
+    constants['AX_RR'] = 3
 
     constants['DX_NONE'] = 0
     constants['DX_1'] = 1
@@ -196,6 +198,13 @@ if __name__ == '__main__':
 
     constants['RRX_NONE'] = 0
     constants['RRX_S'] = 1
+
+    constants['COND_NONE'] = 0
+    constants['COND_S_GT_ZERO'] = 1
+    constants['COND_S_LT_ZERO'] = 2
+
+    constants['ADDR_MUX_SEQ'] = 0
+    constants['ADDR_MUX_OPCODE'] = 1
 
     p = Pipeline(width, fields, overlaps, constants)
     p.writeVerilog(sys.argv[1])

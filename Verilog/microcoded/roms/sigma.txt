@@ -23,9 +23,11 @@ field _const8 = 48:55;
 
 const SX_ADD = 0;
 const SX_SUB = 1;
+const SX_D = 2;
 const AX_NONE = 0;
-const AX_S = 1;
-const AX_RR = 2;
+const AX_D = 1;
+const AX_S = 2;
+const AX_RR = 3;
 const DX_NONE = 0;
 const DX_1 = 1;
 const PX_NONE = 0;
@@ -35,19 +37,13 @@ const QX_NONE = 0;
 const QX_P = 1;
 const RRX_NONE = 0;
 const RRX_S = 1;
-
-# ---- END Pipeline definitions DO NOT EDIT
-
-const COND_EQ_ZERO = 1;
-const COND_S_GT_ZERO = 2;
-const COND_S_LT_ZERO = 3;
-
-const SX_OP_ADD = 0;
-const SX_OP_SUB = 1;
-
+const COND_NONE = 0;
+const COND_S_GT_ZERO = 1;
+const COND_S_LT_ZERO = 2;
+const ADDR_MUX_SEQ = 0;
 const ADDR_MUX_OPCODE = 1;
 
-field _const8 = 32:39;
+# ---- END Pipeline definitions DO NOT EDIT
 
 const OP_NAO_00 = 0;
 const OP_NAO_01 = 1;
@@ -283,7 +279,7 @@ def main {
             }
             OP_AI: {
                 ax = AX_RR;
-                sxop = SX_OP_ADD, ax = AX_S, rrx = 1;
+                sxop = SX_ADD, ax = AX_D, rrx = RRX_S;
                 testa = 1, ende = 1, continue top;
             }
             OP_CI: {
@@ -292,7 +288,7 @@ def main {
             }
             OP_LI: { # 3-215
                 # d has immediate value
-                sxop = SX_OP_ADD, ax = AX_S, rrx = 1;
+                sxop = SX_ADD, ax = AX_D, rrx = RRX_S;
                 testa = 1, ende = 1, continue top;
             }
             OP_MI: {
@@ -492,14 +488,14 @@ def main {
             }
             OP_BDR: {
                 ax = AX_RR, dx = DX_1, px = PX_D, qx = QX_P;
-                sxop = SX_OP_SUB, rrx=1, if COND_S_GT_ZERO {
+                sxop = SX_SUB, rrx = RRX_S, if COND_S_GT_ZERO {
                     ende = 1, continue top; # take branch
                 }
                 px = PX_Q, ende = 1, continue top; # next instruction
             }
             OP_BIR: {
                 ax = AX_RR, dx = DX_1, px = PX_D, qx = QX_P;
-                sxop = SX_OP_ADD, rrx=1, if COND_S_LT_ZERO {
+                sxop = SX_ADD, rrx = RRX_S, if COND_S_LT_ZERO {
                     ende = 1, continue top; # take branch
                 }
                 px = PX_Q, ende = 1, continue top; # next instruction
