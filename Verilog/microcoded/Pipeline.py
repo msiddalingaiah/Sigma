@@ -182,9 +182,8 @@ if __name__ == '__main__':
     constants['SX_D'] = 2
 
     constants['AX_NONE'] = 0
-    constants['AX_D'] = 1
-    constants['AX_S'] = 2
-    constants['AX_RR'] = 3
+    constants['AX_S'] = 1
+    constants['AX_RR'] = 2
 
     constants['DX_NONE'] = 0
     constants['DX_1'] = 1

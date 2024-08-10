@@ -2,7 +2,7 @@
 00000000000000 //    1: sxop=0
 00000000000000 //    2: sxop=0
 00000020000000 //    3: ende=1
-50000000000000 //    4: sxop=0, seq.address_mux=1, seq.op=1; switch address_mux[1]
+50400000000000 //    4: ax=2, seq.address_mux=1, seq.op=1; switch address_mux[1]
 40000000000088 //    5: sxop=0, seq.op=1, seq.address=136; jump 136
 40000000000087 //    6: sxop=0, seq.op=1, seq.address=135; jump 135
 40000000000086 //    7: sxop=0, seq.op=1, seq.address=134; jump 134
@@ -35,9 +35,9 @@
 4000000000006b //   34: sxop=0, seq.op=1, seq.address=107; jump 107
 4000000000006a //   35: sxop=0, seq.op=1, seq.address=106; jump 106
 40000000000069 //   36: sxop=0, seq.op=1, seq.address=105; jump 105
-4060000000005f //   37: ax=3, seq.op=1, seq.address=95; jump 95
+4000040000005f //   37: sxop=0, rrx=1, seq.op=1, seq.address=95; jump 95
 40000000000067 //   38: sxop=0, seq.op=1, seq.address=103; jump 103
-4020040000005f //   39: sxop=0, ax=1, rrx=1, seq.op=1, seq.address=95; jump 95
+4020048000005f //   39: sxop=2, ax=1, rrx=1, seq.op=1, seq.address=95; jump 95
 40000000000065 //   40: sxop=0, seq.op=1, seq.address=101; jump 101
 40000000000064 //   41: sxop=0, seq.op=1, seq.address=100; jump 100
 40000000000063 //   42: sxop=0, seq.op=1, seq.address=99; jump 99
@@ -103,8 +103,8 @@
 40000000000027 //  102: sxop=0, seq.op=1, seq.address=39; jump 39
 40000000000026 //  103: sxop=0, seq.op=1, seq.address=38; jump 38
 40000000000025 //  104: sxop=0, seq.op=1, seq.address=37; jump 37
-4064c00000001e //  105: ax=3, dx=1, px=1, qx=1, seq.op=1, seq.address=30; jump 30
-4064c000000020 //  106: ax=3, dx=1, px=1, qx=1, seq.op=1, seq.address=32; jump 32
+4004c00000001e //  105: dx=1, px=1, qx=1, seq.op=1, seq.address=30; jump 30
+4004c000000020 //  106: dx=1, px=1, qx=1, seq.op=1, seq.address=32; jump 32
 40000000000022 //  107: sxop=0, seq.op=1, seq.address=34; jump 34
 40000000000021 //  108: sxop=0, seq.op=1, seq.address=33; jump 33
 40000000000020 //  109: sxop=0, seq.op=1, seq.address=32; jump 32
@@ -131,7 +131,7 @@
 4000000000000b //  130: sxop=0, seq.op=1, seq.address=11; jump 11
 4000000000000a //  131: sxop=0, seq.op=1, seq.address=10; jump 10
 40000000000009 //  132: sxop=0, seq.op=1, seq.address=9; jump 9
-00200400000000 //  133: sxop=0, ax=1, rrx=1
+00200000000000 //  133: ax=1
 40000030000f7d //  134: testa=1, ende=1, seq.op=1, seq.address=-131; jump -131
 40000030000f7c //  135: testa=1, ende=1, seq.op=1, seq.address=-132; jump -132
 42000440000001 //  136: sxop=1, rrx=1, seq.op=1, seq.condition=1, seq.address=1; if not condition[1] jump 1

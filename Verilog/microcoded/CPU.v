@@ -73,9 +73,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     localparam SX_SUB = 1;
     localparam SX_D = 2;
     localparam AX_NONE = 0;
-    localparam AX_D = 1;
-    localparam AX_S = 2;
-    localparam AX_RR = 3;
+    localparam AX_S = 1;
+    localparam AX_RR = 2;
     localparam DX_NONE = 0;
     localparam DX_1 = 1;
     localparam PX_NONE = 0;
@@ -185,7 +184,6 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             end
             case (ax)
                 AX_NONE: ; // do nothing
-                AX_D: a <= d;
                 AX_S: a <= s;
                 AX_RR: a <= rr[r];
             endcase
