@@ -117,15 +117,15 @@ class MicroWord(object):
         address = self.field_values['seq.address']
         address_mux = self.field_values['seq.address_mux']
         if op == SEQ_OP_JUMP and condition == 0 and address_mux == 0:
-            branch = f'; jump {address}'
+            branch = f'; jump {address} ({self.pc + address + 1})'
         if op == SEQ_OP_JUMP and condition != 0:
-            branch = f'; if not condition[{condition}] jump {address}'
+            branch = f'; if not condition[{condition}] jump {address} ({self.pc + address + 1})'
         if op == SEQ_OP_JUMP and address_mux != 0:
             branch = f'; switch address_mux[{address_mux}]'
         if op == 0 and condition != 0:
-            branch = f'; if condition[{condition}] jump {address}'
+            branch = f'; if condition[{condition}] jump {address} ({self.pc + address + 1})'
         if op == SEQ_OP_CALL:
-            branch = f'; call {address}'
+            branch = f'; call {address} ({self.pc + address + 1})'
         if op == SEQ_OP_RETURN:
             branch = f'; return'
         return f'{assigns}{branch}'

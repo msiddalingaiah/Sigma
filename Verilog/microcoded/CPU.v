@@ -162,6 +162,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
 
     // Guideline #1: When modeling sequential logic, use nonblocking 
     //              assignments.
+    integer i;
     always @(posedge clock, posedge reset) begin
         if (reset == 1) begin
             a <= 0;
@@ -173,12 +174,13 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             p <= 0;
             q <= 0;
             r <= 0;
+            for (i=0; i<16; i=i+1) rr[i] = 32'h00000000;
             e <= 0;
             pipeline <= 0;
         end else begin
             pipeline <= uc_rom_data;
             if (ende == 1) begin
-                c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; p <= p + 1; a <= 0;
+                c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; p <= p + 1;
                 // immediate value
                 if (~c_in[3] & ~c_in[4] & ~c_in[5]) begin d <= { {12{c_in[12]}}, c_in[12:31] }; end
             end
