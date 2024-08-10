@@ -27,7 +27,7 @@ endmodule
 module Memory(input wire clock, input wire [15:31] address, input wire write_en, input wire [0:31] data_in,
     output reg [0:31] data_out);
 
-    parameter ADDRESS_MASK = 17'h1ff;
+    parameter ADDRESS_MASK = 17'h7f;
 
     reg [0:31] ram_cells[0:127];
 

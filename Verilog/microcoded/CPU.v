@@ -112,9 +112,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // opcode register
     reg [1:7] o;
     // p is a counting register, acts as the program counter in conjunction with q
-    reg [15:31] p;
-    // Phase register, one-hot encoded
-    reg [0:7] phase;
+    reg [15:33] p;
     // q holds the next instruction address
     reg [15:31] q;
     // private memory address (register number), pctr counts up, mctr counts down
@@ -157,7 +155,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             2: ; // call
             3: ; // return
         endcase
-        lb = p;
+        lb = p[15:31];
     end
 
     // Guideline #1: When modeling sequential logic, use nonblocking 
@@ -180,7 +178,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
         end else begin
             pipeline <= uc_rom_data;
             if (ende == 1) begin
-                c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; p <= p + 1;
+                c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; p <= p + 4;
                 // immediate value
                 if (~c_in[3] & ~c_in[4] & ~c_in[5]) begin d <= { {12{c_in[12]}}, c_in[12:31] }; end
             end
@@ -199,12 +197,12 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             endcase
             case (px)
                 PX_NONE: ; // do nothing
-                PX_D: p <= d[15:31];
-                PX_Q: p <= q;
+                PX_D: p[15:31] <= d[15:31];
+                PX_Q: p[15:31] <= q;
             endcase
             case (qx)
                 QX_NONE: ; // do nothing
-                QX_P: q <= p;
+                QX_P: q <= p[15:31];
             endcase
             if (testa == 1) begin cc[3] <= (~a[0]) & (a != 0); cc[4] <= a[0]; end
             if (wd_en == 1) begin

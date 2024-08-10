@@ -179,7 +179,7 @@ def main {
     sxop = SX_ADD;
     ende = 1;
     loop {
-        top: ax = AX_RR, switch ADDR_MUX_OPCODE {
+        top: ax = AX_RR, qx = QX_P, px = PX_D, switch ADDR_MUX_OPCODE {
             OP_NAO_00: {
                 sxop = SX_ADD;
             }
@@ -278,7 +278,7 @@ def main {
             }
             OP_AI: {
                 sxop = SX_ADD, rrx = RRX_S;
-                ax = AX_S;
+                px = PX_Q, ax = AX_S;
                 testa = 1, ende = 1, continue top;
             }
             OP_CI: {
@@ -287,7 +287,7 @@ def main {
             }
             OP_LI: { # 3-215
                 # d has immediate value
-                sxop = SX_D, ax = AX_S, rrx = RRX_S;
+                px = PX_Q, sxop = SX_D, ax = AX_S, rrx = RRX_S;
                 testa = 1, ende = 1, continue top;
             }
             OP_MI: {
@@ -486,18 +486,20 @@ def main {
                 sxop = SX_ADD;
             }
             OP_BDR: {
-                dx = DX_1, px = PX_D, qx = QX_P;
+                dx = DX_1;
                 sxop = SX_SUB, rrx = RRX_S, if COND_S_GT_ZERO {
                     ende = 1, continue top; # take branch
                 }
-                px = PX_Q, ende = 1, continue top; # next instruction
+                px = PX_Q;
+                ende = 1, continue top; # next instruction
             }
             OP_BIR: {
-                dx = DX_1, px = PX_D, qx = QX_P;
+                dx = DX_1;
                 sxop = SX_ADD, rrx = RRX_S, if COND_S_LT_ZERO {
                     ende = 1, continue top; # take branch
                 }
-                px = PX_Q, ende = 1, continue top; # next instruction
+                px = PX_Q;
+                ende = 1, continue top; # next instruction
             }
             OP_AWM: {
                 sxop = SX_ADD;
@@ -521,6 +523,7 @@ def main {
                 sxop = SX_ADD;
             }
             OP_WD: {
+                px = PX_Q;
                 sxop = 2, wd_en = 1, ende = 1, continue top;
             }
             OP_AIO: {
