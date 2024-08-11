@@ -26,6 +26,30 @@ Historically, writing microcode was one step below assembly language programming
 * [Icarus Verilog](https://bleyer.org/icarus/)
 * make (winget install ezwinports.make)
 
+## Debugging
+
+* Enable instruction tracing in CPU.v:
+
+```
+`define TRACE_I 1
+```
+
+* Microcode tracing:
+
+```
+, uc_debug = 1;
+```
+
+* Icarus Verilog [interactive mode](https://steveicarus.github.io/iverilog/usage/vvp_debug.html)
+* $stop suspends simulation in interactive mode
+
+```
+$ make run
+> cd CPUTestBench
+> cd cpu
+> $display a
+```
+
 TODO:
 
 * BAL instruction

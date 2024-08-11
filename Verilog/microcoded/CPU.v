@@ -259,6 +259,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             if (uc_debug == 1) begin
                 $display("%4d: d: %x, p: %x, c_in: %x, s: %x, fa_b: %x, indx_offset: %x, x: %x",
                     seq.pc-1, d, p, c_in, s, fa_b, indx_offset, x);
+                $stop;
             end
         end
     end

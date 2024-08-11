@@ -12,5 +12,8 @@ roms/sigma_microcode.txt: roms/sigma.txt roms/*.py
 programs/init.txt: programs/init.asm roms/*.py
 	python roms/Assembler.py programs/init.asm programs/init.txt
 
+run:
+	vvp vcd/CPUTestBench
+
 test:
 	python roms/CompilerTest.py

@@ -52,6 +52,9 @@ module Memory(input wire clock, input wire [15:31] address, input wire write_en,
 endmodule
 
 module CPUTestBench;
+    localparam CYCLE_LIMIT = 500;
+    localparam TIME_LIMIT = 101*CYCLE_LIMIT;
+
     initial begin
         cycle_count = 0;
         instruction_count = 0;
@@ -61,8 +64,10 @@ module CPUTestBench;
         $readmemh("roms/sigma_microcode.txt", cpu.uc_rom.memory);
         $readmemh("programs/init.txt", ram.ram_cells);
         #0 reset = 0; #25 reset = 1; #90 reset = 0;
-        #50000 $display("\nTime limit reached, possible infinite loop.");
-        $display("%4d cycles, %4d instructions.", cycle_count, instruction_count);
+        #TIME_LIMIT $display("\nTime limit reached, possible infinite loop.");
+        cycles_per_inst = 100*cycle_count / instruction_count;
+        $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
+            cycle_count, instruction_count, cycles_per_inst/100);
         $finish;
     end
 
@@ -76,17 +81,22 @@ module CPUTestBench;
     CPU cpu(reset, clock, data_r2c, addressBus);
     reg [0:31] cycle_count;
     reg [0:15] instruction_count;
+    real cycles_per_inst;
 
     always @(posedge clock) begin
         cycle_count <= cycle_count + 1;
-        if (cycle_count >= 500) begin
+        if (cycle_count >= CYCLE_LIMIT) begin
             $display("\nClock limit reached, possible inifinite loop.");
-            $display("%4d cycles, %4d instructions.", cycle_count, instruction_count);
+            cycles_per_inst = 100*cycle_count / instruction_count;
+            $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
+                cycle_count, instruction_count, cycles_per_inst/100);
             $finish;
         end
         if (cpu.o == 46) begin
             $display("\nCPU WAIT: execution terminated normally.");
-            $display("%4d cycles, %4d instructions.", cycle_count, instruction_count);
+            cycles_per_inst = 100*cycle_count / instruction_count;
+            $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
+                cycle_count, instruction_count, cycles_per_inst/100);
             $finish;
         end
         if (cpu.ende) begin
