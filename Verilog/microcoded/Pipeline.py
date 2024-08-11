@@ -187,6 +187,9 @@ if __name__ == '__main__':
 
     constants['DX_NONE'] = 0
     constants['DX_1'] = 1
+    constants['DX_CINB'] = 2
+    constants['DX_CINH'] = 3
+    constants['DX_CIN'] = 4
 
     constants['PX_NONE'] = 0
     constants['PX_D'] = 1

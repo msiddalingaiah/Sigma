@@ -19,14 +19,22 @@
 
         LI,1        '0'
         LI,3        9
-loop    AI,1        1
+lp1     AI,1        1
         WD,1        0
-        BDR,3       loop
+        BDR,3       lp1
 
         LI,1        '\n'
         WD,1        0
 
+        LI,2        0
+        LB,3        msg1,2
+        AI,2        1
+lp2     LB,1        msg1,2
+        AI,2        1
+        WD,1        0
+        BDR,3       lp2
+
         WAIT,0      0
 
-msg1    TEXTC       "Call me Ishmael..."
+msg1    TEXTC       "Call me Ishmael...\n"
 msg2    TEXTC       "Bye"

@@ -28,7 +28,8 @@ Historically, writing microcode was one step below assembly language programming
 
 TODO:
 
-* Load instructions, e.g. LB, LH, LW
+* BAL instruction
+* Load instructions, e.g. LH, LW
 * Fix broken tests
 * Add if continue statement
 * Check for overlapping field assignments (Generator)

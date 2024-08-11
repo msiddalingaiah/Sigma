@@ -29,6 +29,9 @@ const AX_S = 1;
 const AX_RR = 2;
 const DX_NONE = 0;
 const DX_1 = 1;
+const DX_CINB = 2;
+const DX_CINH = 3;
+const DX_CIN = 4;
 const PX_NONE = 0;
 const PX_D = 1;
 const PX_Q = 2;
@@ -539,7 +542,9 @@ def main {
                 sxop = SX_ADD;
             }
             OP_LB: {
-                sxop = SX_ADD;
+                dx = DX_CINB;
+                sxop = SX_D, ax = AX_S, rrx = RRX_S, px = PX_Q, uc_debug=0;
+                testa = 1, ende = 1, continue top;
             }
             OP_MTB: {
                 sxop = SX_ADD;

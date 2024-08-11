@@ -1,6 +1,8 @@
 
 `include "Sequencer.v"
 
+//`define TRACE_I 1
+
 /**
  * This module implements the microcode ROM.
  * Microcode is loaded from a text file, which is synthesizable.
@@ -77,6 +79,9 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     localparam AX_RR = 2;
     localparam DX_NONE = 0;
     localparam DX_1 = 1;
+    localparam DX_CINB = 2;
+    localparam DX_CINH = 3;
+    localparam DX_CIN = 4;
     localparam PX_NONE = 0;
     localparam PX_D = 1;
     localparam PX_Q = 2;
@@ -123,6 +128,15 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     reg [23:27] rp;
     // sum bus
     reg [0:31] s;
+    // private memory index register number
+    reg [0:2] x;
+
+    // Address family decode, see ANLZ instruction
+    wire fa_b = o[1] & o[2] & o[3];
+    wire fa_h = o[1] & ~o[2] & o[3];
+    wire ou3 = (~o[1]) & o[2] & o[3];
+    wire fa_w = ou3 | (~o[3] & ~o[4] & o[5]) | (o[1] & ~o[3] & o[4]) | (o[2] & ~o[3] & o[4]); // pp 3-182
+    wire [0:31] indx_offset = {32{(x[0] | x[1] | x[2])}} & rr[x];
 
     // Signals
 
@@ -174,11 +188,17 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             r <= 0;
             for (i=0; i<16; i=i+1) rr[i] = 32'h00000000;
             e <= 0;
+            x <= 0;
             pipeline <= 0;
         end else begin
             pipeline <= uc_rom_data;
             if (ende == 1) begin
-                c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; p <= p + 4;
+                `ifdef TRACE_I
+                    $display("* Q %x: %x", q, memory_data_in);
+                    $display("  R0 %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
+                    $display("  R8 %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
+                `endif
+                c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; x <= c_in[12:14]; p <= p + 4;
                 // immediate value
                 if (~c_in[3] & ~c_in[4] & ~c_in[5]) begin d <= { {12{c_in[12]}}, c_in[12:31] }; end
             end
@@ -190,6 +210,19 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             case (dx)
                 DX_NONE: ; // do nothing
                 DX_1: d <= 32'h1;
+                DX_CINB:
+                    case (p[32:33])
+                        0: d <= { 24'h0, c_in[0:7] };
+                        1: d <= { 24'h0, c_in[8:15] };
+                        2: d <= { 24'h0, c_in[16:23] };
+                        3: d <= { 24'h0, c_in[24:31] };
+                    endcase
+                DX_CINH:
+                    case (p[32])
+                        0: d <= { {16{c_in[0]}}, c_in[0:15] };
+                        1: d <= { {16{c_in[16]}}, c_in[16:31] };
+                    endcase
+                DX_CIN: d <= c_in;
             endcase
             case (rrx)
                 RRX_NONE: ; // do nothing
@@ -197,8 +230,20 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             endcase
             case (px)
                 PX_NONE: ; // do nothing
-                PX_D: p[15:31] <= d[15:31];
-                PX_Q: p[15:31] <= q;
+                PX_D:
+                    begin
+                        p[15:33] <= { d[15:31], 2'h0 };
+                        if (fa_b) begin
+                            p[15:33] <= { d[15:31], 2'h0 } + indx_offset[13:31];
+                        end
+                        if (fa_h) begin
+                            p[15:33] <= { d[15:31], 2'h0 } + { indx_offset[14:31], 1'h0 };
+                        end
+                        if (fa_w) begin
+                            p[15:33] <= { d[15:31], 2'h0 } + { indx_offset[15:31], 2'h0 };
+                        end
+                    end
+                PX_Q: p[15:33] <= { q, 2'h0 };
             endcase
             case (qx)
                 QX_NONE: ; // do nothing
@@ -212,7 +257,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 end
             end
             if (uc_debug == 1) begin
-                $display("%4d: op %1d, branch: %1d, s %x, rr[r] %x", seq.pc-1, seq.op, branch, s, rr[r]);
+                $display("%4d: d: %x, p: %x, c_in: %x, s: %x, fa_b: %x, indx_offset: %x, x: %x",
+                    seq.pc-1, d, p, c_in, s, fa_b, indx_offset, x);
             end
         end
     end

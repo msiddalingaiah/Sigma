@@ -61,7 +61,7 @@ module CPUTestBench;
         $readmemh("roms/sigma_microcode.txt", cpu.uc_rom.memory);
         $readmemh("programs/init.txt", ram.ram_cells);
         #0 reset = 0; #25 reset = 1; #90 reset = 0;
-        #20000 $display("\nTime limit reached, possible infinite loop.");
+        #50000 $display("\nTime limit reached, possible infinite loop.");
         $display("%4d cycles, %4d instructions.", cycle_count, instruction_count);
         $finish;
     end
@@ -79,7 +79,7 @@ module CPUTestBench;
 
     always @(posedge clock) begin
         cycle_count <= cycle_count + 1;
-        if (cycle_count >= 200) begin
+        if (cycle_count >= 500) begin
             $display("\nClock limit reached, possible inifinite loop.");
             $display("%4d cycles, %4d instructions.", cycle_count, instruction_count);
             $finish;

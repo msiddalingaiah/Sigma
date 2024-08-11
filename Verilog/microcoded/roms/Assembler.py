@@ -229,11 +229,11 @@ class TextC(Directive):
         self.value = tree[2][0].value.value
 
     def getNextPC(self):
+        for label in self.getLabels():
+            self.defs.constants[label] = self.pc
         return self.pc + ((len(self.value) + 4) >> 2)
 
     def getWords(self):
-        for label in self.getLabels():
-            self.defs.constants[label] = self.pc
         length = len(self.value)
         padLen = (4 - ((len(self.value)+1) & 3)) & 3
         value = self.value + (' '*(padLen))
@@ -250,6 +250,7 @@ class Instruction(Directive):
         super().__init__(defs, line, tree, lineNumber, pc)
 
     def getNextPC(self):
+        self.setLabels()
         return self.pc + 1
 
     def setLabels(self):
@@ -257,7 +258,6 @@ class Instruction(Directive):
             self.defs.constants[label] = self.pc
 
     def getWords(self):
-        self.setLabels()
         cf = self.tree[1]
         if len(cf) != 2:
             raise Exception(f'line: {self.lineNumber}: One register is required.')
@@ -288,7 +288,6 @@ class ImmInstruction(Instruction):
         super().__init__(defs, line, tree, lineNumber, pc)
 
     def getWords(self):
-        self.setLabels()
         cf = self.tree[1]
         if len(cf) != 2:
             raise Exception(f'line: {self.lineNumber}: One register is required.')
