@@ -37,4 +37,4 @@ lp2     LB,1        msg1,2
         WAIT,0      0
 
 msg1    TEXTC       "Call me Ishmael...\n"
-msg2    TEXTC       "Bye"
+msg2    TEXTC       "Bye\n"

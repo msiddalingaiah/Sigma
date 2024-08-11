@@ -83,7 +83,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     localparam DX_CINH = 3;
     localparam DX_CIN = 4;
     localparam PX_NONE = 0;
-    localparam PX_D = 1;
+    localparam PX_D_INDX = 1;
     localparam PX_Q = 2;
     localparam QX_NONE = 0;
     localparam QX_P = 1;
@@ -230,7 +230,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             endcase
             case (px)
                 PX_NONE: ; // do nothing
-                PX_D:
+                PX_D_INDX:
                     begin
                         p[15:33] <= { d[15:31], 2'h0 };
                         if (fa_b) begin

@@ -192,7 +192,7 @@ if __name__ == '__main__':
     constants['DX_CIN'] = 4
 
     constants['PX_NONE'] = 0
-    constants['PX_D'] = 1
+    constants['PX_D_INDX'] = 1
     constants['PX_Q'] = 2
 
     constants['QX_NONE'] = 0

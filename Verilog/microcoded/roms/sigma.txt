@@ -33,7 +33,7 @@ const DX_CINB = 2;
 const DX_CINH = 3;
 const DX_CIN = 4;
 const PX_NONE = 0;
-const PX_D = 1;
+const PX_D_INDX = 1;
 const PX_Q = 2;
 const QX_NONE = 0;
 const QX_P = 1;
@@ -182,7 +182,7 @@ def main {
     sxop = SX_ADD;
     ende = 1;
     loop {
-        top: ax = AX_RR, qx = QX_P, px = PX_D, switch ADDR_MUX_OPCODE {
+        top: ax = AX_RR, qx = QX_P, px = PX_D_INDX, switch ADDR_MUX_OPCODE {
             OP_NAO_00: {
                 sxop = SX_ADD;
             }
