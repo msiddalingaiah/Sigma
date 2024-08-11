@@ -208,6 +208,8 @@ class Directive(object):
             return DEF(defs, line, tree, lineNumber, pc)
         if cf0 == 'TEXTC':
             return TextC(defs, line, tree, lineNumber, pc)
+        if cf0 == 'ORG':
+            return ORG(defs, line, tree, lineNumber, pc)
         if cf0 in OPCODE_MAP:
             if (OPCODE_MAP[cf0] & 0x1c) == 0:
                 return ImmInstruction(defs, line, tree, lineNumber, pc)
@@ -300,6 +302,21 @@ class ImmInstruction(Instruction):
         word = (op << 24) | (reg << 20) | (arg & 0xfffff)
         return [f'{word:08x} // {self.pc:04x} {self.line}']
 
+class ORG(Directive):
+    def __init__(self, defs, line, tree, lineNumber, pc):
+        super().__init__(defs, line, tree, lineNumber, pc)
+        self.af = tree[2]
+        if len(self.af) != 1:
+            raise Exception(f'line {lineNumber}: address argument expected')
+
+    def getNextPC(self):
+        self.pc = self.defs.eval(self.af[0])
+        for label in self.getLabels():
+            self.defs.constants[label] = self.pc
+        return self.pc
+
+MAX_WORD_LEN = 128
+
 class Assembler(object):
     def __init__(self):
         self.defs = Defines()
@@ -320,16 +337,14 @@ class Assembler(object):
                     self.genList.append(gen)
 
     def write(self, fout):
-        n = 128
+        outputWords = ['00000000']*MAX_WORD_LEN
+        for gen in self.genList:
+            words = gen.getWords()
+            for i, w in enumerate(words):
+                outputWords[gen.pc + i] = w
         with open(fout, 'wt') as f:
-            for gen in self.genList:
-                words = gen.getWords()
-                for w in words:
-                    f.write(w + '\n')
-                    n -= 1
-            while n > 0:
-                f.write('00000000\n')
-                n -= 1
+            for word in outputWords:
+                f.write(word + '\n')
 
 import sys
 

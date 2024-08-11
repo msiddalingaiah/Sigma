@@ -1,4 +1,6 @@
 
+        ORG         0x25
+
         LI,1        0x1fffff
         LI,2        0
         LI,3        1
@@ -34,7 +36,10 @@ lp2     LB,1        msg1,2
         WD,1        0
         BDR,3       lp2
 
+        LW,0        msg2
+        LW,15       0
+
         WAIT,0      0
 
 msg1    TEXTC       "Call me Ishmael...\n"
-msg2    TEXTC       "Bye\n"
+msg2    TEXTC       "Bye"

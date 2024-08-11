@@ -210,7 +210,9 @@ def main {
                 sxop = SX_ADD;
             }
             OP_LW: {
-                sxop = SX_ADD;
+                dx = DX_CIN;
+                sxop = SX_D, ax = AX_S, rrx = RRX_S, px = PX_Q;
+                testa = 1, ende = 1, continue top;
             }
             OP_MTW: {
                 sxop = SX_ADD;
@@ -414,7 +416,7 @@ def main {
             }
             OP_LB: {
                 dx = DX_CINB;
-                sxop = SX_D, ax = AX_S, rrx = RRX_S, px = PX_Q, uc_debug=0;
+                sxop = SX_D, ax = AX_S, rrx = RRX_S, px = PX_Q;
                 testa = 1, ende = 1, continue top;
             }
             OP_MTB: {

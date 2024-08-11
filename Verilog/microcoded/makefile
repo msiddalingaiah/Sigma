@@ -6,7 +6,7 @@ vcd/CPUTestBench: *.v roms/sigma_microcode.txt programs/init.txt
 CPU.v roms/sigma.txt: Pipeline.py
 	python Pipeline.py CPU.v roms/sigma.txt
 
-roms/sigma_microcode.txt: roms/sigma.txt roms/*.py
+roms/sigma_microcode.txt: roms/sigma.txt roms/*.py Pipeline.py
 	python roms/Compiler.py roms/sigma.txt roms/sigma_microcode.txt
 
 programs/init.txt: programs/init.asm roms/*.py

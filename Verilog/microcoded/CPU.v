@@ -1,7 +1,7 @@
 
 `include "Sequencer.v"
 
-//`define TRACE_I 1
+// `define TRACE_I 1
 
 /**
  * This module implements the microcode ROM.
@@ -103,7 +103,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     reg [0:31] a, b, d;
     // c is a transparent latch, see pp 3-38, receives data from memory
     reg [0:31] c;
-    wire [0:31] c_in = memory_data_in;
+    reg [0:31] c_in;
     // e is a counting register
     reg [0:7] e;
     // Condition code register
@@ -170,6 +170,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             3: ; // return
         endcase
         lb = p[15:31];
+        c_in = memory_data_in;
+        if ((lb & 17'h1fff0) == 0) c_in = rr[lb & 4'hf];
     end
 
     // Guideline #1: When modeling sequential logic, use nonblocking 
@@ -183,7 +185,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             cc <= 0;
             d <= 0;
             o <= 0;
-            p <= 0;
+            p <= { 32'h25, 2'h0 };
             q <= 0;
             r <= 0;
             for (i=0; i<16; i=i+1) rr[i] = 32'h00000000;
@@ -194,7 +196,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             pipeline <= uc_rom_data;
             if (ende == 1) begin
                 `ifdef TRACE_I
-                    $display("* Q %x: %x", q, memory_data_in);
+                    $display("* Q %x: %x", q-1, c);
                     $display("  R0 %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
                     $display("  R8 %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
                 `endif
