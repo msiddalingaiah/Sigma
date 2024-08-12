@@ -270,7 +270,7 @@ class Instruction(Directive):
         af = self.tree[2]
         index = 0
         if index >= len(af):
-            raise Exception(f'line {self.lineNumber}: missing address, index register')
+            raise Exception(f'line {self.lineNumber}: missing address')
         if af[index].value.name == '*':
             word |= 0x80000000
             index += 1

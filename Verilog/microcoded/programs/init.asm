@@ -36,10 +36,16 @@ lp2     LB,1        msg1,2
         WD,1        0
         BDR,3       lp2
 
-        LW,0        msg2
-        LW,15       0
+        LI,0        msg2
+        LI,2        0
+        LB,3        *0,2
+        AI,2        1
+lp3     LB,1        *0,2
+        AI,2        1
+        WD,1        0
+        BDR,3       lp3
 
         WAIT,0      0
 
 msg1    TEXTC       "Call me Ishmael...\n"
-msg2    TEXTC       "Bye"
+msg2    TEXTC       "Bye!\n"

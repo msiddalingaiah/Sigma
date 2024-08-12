@@ -169,9 +169,15 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             2: ; // call
             3: ; // return
         endcase
-        lb = p[15:31];
-        c_in = memory_data_in;
-        if ((lb & 17'h1fff0) == 0) c_in = rr[lb & 4'hf];
+        if (ia == 0) begin
+            lb = p[15:31];
+            c_in = memory_data_in;
+            if (p[15:27] == 0) c_in = rr[p[28:31]];
+        end else begin
+            lb = c[15:31];
+            c_in = memory_data_in;
+            if (c[15:27] == 0) c_in = rr[c[28:31]];
+        end
     end
 
     // Guideline #1: When modeling sequential logic, use nonblocking 
@@ -184,6 +190,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             c <= 0;
             cc <= 0;
             d <= 0;
+            ia <= 0;
             o <= 0;
             p <= { 32'h25, 2'h0 };
             q <= 0;
@@ -194,6 +201,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             pipeline <= 0;
         end else begin
             pipeline <= uc_rom_data;
+            ia <= 0;
             if (ende == 1) begin
                 `ifdef TRACE_I
                     $display("* Q %x: %x", q-1, c);
@@ -203,6 +211,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; x <= c_in[12:14]; p <= p + 4;
                 // immediate value
                 if (~c_in[3] & ~c_in[4] & ~c_in[5]) begin d <= { {12{c_in[12]}}, c_in[12:31] }; end
+                if (c_in[0] == 1) ia <= 1;
+            end
+            if (ia == 1) begin
+                c <= c_in; d <= c_in;
             end
             case (ax)
                 AX_NONE: ; // do nothing

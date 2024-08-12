@@ -52,7 +52,7 @@ module Memory(input wire clock, input wire [15:31] address, input wire write_en,
 endmodule
 
 module CPUTestBench;
-    localparam CYCLE_LIMIT = 500;
+    localparam CYCLE_LIMIT = 1000;
     localparam TIME_LIMIT = 101*CYCLE_LIMIT;
 
     initial begin

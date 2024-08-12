@@ -53,7 +53,8 @@ def main {
     sxop = SX_ADD;
     ende = 1;
     loop {
-        top: ax = AX_RR, qx = QX_P, px = PX_D_INDX, switch ADDR_MUX_OPCODE {
+        top: sxop = SX_ADD, "Empty slot for indirect";
+        ax = AX_RR, qx = QX_P, px = PX_D_INDX, switch ADDR_MUX_OPCODE {
             OP_NAO_00: {
                 sxop = SX_ADD;
             }
