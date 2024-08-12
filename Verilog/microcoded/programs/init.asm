@@ -37,15 +37,21 @@ lp2     LB,1        msg1,2
         BDR,3       lp2
 
         LI,0        msg2
-        LI,2        0
-        LB,3        *0,2
-        AI,2        1
-lp3     LB,1        *0,2
-        AI,2        1
-        WD,1        0
-        BDR,3       lp3
+        BAL,15      prnt
+        LI,0        msg3
+        BAL,15      prnt
 
         WAIT,0      0
 
+prnt    LI,2        0
+        LB,3        *0,2
+        AI,2        1
+p0      LB,1        *0,2
+        AI,2        1
+        WD,1        0
+        BDR,3       p0
+        BCR,0       *15
+
 msg1    TEXTC       "Call me Ishmael...\n"
-msg2    TEXTC       "Bye!\n"
+msg2    TEXTC       "OK...\n"
+msg3    TEXTC       "Bye!\n"

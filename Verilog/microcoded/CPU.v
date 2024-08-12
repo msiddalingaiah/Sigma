@@ -89,9 +89,11 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     localparam QX_P = 1;
     localparam RRX_NONE = 0;
     localparam RRX_S = 1;
+    localparam RRX_Q = 2;
     localparam COND_NONE = 0;
     localparam COND_S_GT_ZERO = 1;
     localparam COND_S_LT_ZERO = 2;
+    localparam COND_CC_AND_R_ZERO = 3;
     localparam ADDR_MUX_SEQ = 0;
     localparam ADDR_MUX_OPCODE = 1;
 
@@ -161,6 +163,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             COND_NONE: branch = 0; // branch unconditionally
             COND_S_GT_ZERO: branch = ~(s[0] | (s == 0));
             COND_S_LT_ZERO: branch = s[0];
+            COND_CC_AND_R_ZERO: branch = (cc & r) == 0;
         endcase
         uc_op = seq_op;
         case (seq_op)
@@ -241,6 +244,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             case (rrx)
                 RRX_NONE: ; // do nothing
                 RRX_S: rr[r] <= s;
+                RRX_Q: rr[r] <= q;
             endcase
             case (px)
                 PX_NONE: ; // do nothing

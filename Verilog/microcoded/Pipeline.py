@@ -200,10 +200,12 @@ if __name__ == '__main__':
 
     constants['RRX_NONE'] = 0
     constants['RRX_S'] = 1
+    constants['RRX_Q'] = 2
 
     constants['COND_NONE'] = 0
     constants['COND_S_GT_ZERO'] = 1
     constants['COND_S_LT_ZERO'] = 2
+    constants['COND_CC_AND_R_ZERO'] = 3
 
     constants['ADDR_MUX_SEQ'] = 0
     constants['ADDR_MUX_OPCODE'] = 1

@@ -39,9 +39,11 @@ const QX_NONE = 0;
 const QX_P = 1;
 const RRX_NONE = 0;
 const RRX_S = 1;
+const RRX_Q = 2;
 const COND_NONE = 0;
 const COND_S_GT_ZERO = 1;
 const COND_S_LT_ZERO = 2;
+const COND_CC_AND_R_ZERO = 3;
 const ADDR_MUX_SEQ = 0;
 const ADDR_MUX_OPCODE = 1;
 
@@ -385,13 +387,23 @@ def main {
                 sxop = SX_ADD;
             }
             OP_BCR: {
-                sxop = SX_ADD;
+                sxop = SX_ADD, "Empty slot for if branch";
+                if COND_CC_AND_R_ZERO {
+                    ende = 1, continue top; # take branch
+                }
+                px = PX_Q;
+                ende = 1, continue top; # next instruction
             }
             OP_BCS: {
-                sxop = SX_ADD;
+                sxop = SX_ADD, "Empty slot for if branch";
+                if not COND_CC_AND_R_ZERO {
+                    ende = 1, continue top; # take branch
+                }
+                px = PX_Q;
+                ende = 1, continue top; # next instruction
             }
             OP_BAL: {
-                sxop = SX_ADD;
+                rrx = RRX_Q, ende = 1, continue top; # take branch
             }
             OP_INT: {
                 sxop = SX_ADD;
