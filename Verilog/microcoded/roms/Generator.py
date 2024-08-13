@@ -240,7 +240,6 @@ class MicroWordBlock(object):
                 tree = stat[op_index]
                 n = len(tree)
                 multi_blocks = []
-                patch_tail = []
                 for i in range(0, n, 2):
                     label = self.globals.eval(tree[i])
                     if i>>1 != label:
@@ -249,26 +248,14 @@ class MicroWordBlock(object):
                     block = MicroWordBlock(self.globals, tree[i+1])
                     head = block.outputWords[0]
                     self.outputWords.append(head)
-                    if len(block) == 1:
-                        if head.field_values['seq.op'] == SEQ_OP_NEXT:
-                            patch_tail.append((len(self.outputWords), head))
-                    else:
+                    if len(block) > 1:
                         multi_blocks.append((len(self.outputWords), block))
                 for pc, block in multi_blocks:
                     top = len(self.outputWords)
                     head = block.outputWords[0]
                     head.update('seq.op', SEQ_OP_JUMP)
                     head.update('seq.address', top-pc)
-                    tail = block.outputWords[-1]
                     self.outputWords.extend(block.outputWords[1:])
-                    if tail.field_values['seq.op'] == SEQ_OP_NEXT:
-                        patch_tail.append((len(self.outputWords), tail))
-                next = len(self.outputWords)
-                for pc, tail in patch_tail:
-                    offset = next - pc
-                    if offset != 0:
-                        tail.update('seq.op', SEQ_OP_JUMP)
-                        tail.update('seq.address', offset)
                 return
         self.outputWords.append(word)
 

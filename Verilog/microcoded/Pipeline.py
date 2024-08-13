@@ -169,8 +169,9 @@ if __name__ == '__main__':
     fields['ende'] = 1
     fields['testa'] = 1
     fields['wd_en'] = 1
+    fields['trap'] = 1
     fields['uc_debug'] = 1
-    fields['__unused'] = 14
+    fields['__unused'] = 13
     fields['seq_address'] = 12
 
     overlaps = {}
@@ -206,6 +207,7 @@ if __name__ == '__main__':
     constants['COND_S_GT_ZERO'] = 1
     constants['COND_S_LT_ZERO'] = 2
     constants['COND_CC_AND_R_ZERO'] = 3
+    constants['COND_C0_EQ_1'] = 4
 
     constants['ADDR_MUX_SEQ'] = 0
     constants['ADDR_MUX_OPCODE'] = 1

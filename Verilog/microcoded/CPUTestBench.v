@@ -99,6 +99,13 @@ module CPUTestBench;
                 cycle_count, instruction_count, cycles_per_inst/100);
             $finish;
         end
+        if (cpu.trap) begin
+            $display("\nTrap encountered at %x, opcode %x.", cpu.q - 1, cpu.o);
+            cycles_per_inst = 100*cycle_count / instruction_count;
+            $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
+                cycle_count, instruction_count, cycles_per_inst/100);
+            $finish;
+        end
         if (cpu.ende) begin
             instruction_count <= instruction_count + 1;
         end

@@ -48,8 +48,9 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     //                            | - testa[27]
     //                             | - wd_en[28]
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                              | - uc_debug[29]
-    //                               |____________| - __unused[30:43] 14 bits
+    //                              | - trap[29]
+    //                               | - uc_debug[30]
+    //                                |___________| - __unused[31:43] 13 bits
     //                                             |__________| - seq_address[44:55] 12 bits
     //                                                 |______| - _const8[48:55] 8 bits
 
@@ -66,8 +67,9 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire ende = pipeline[26];
     wire testa = pipeline[27];
     wire wd_en = pipeline[28];
-    wire uc_debug = pipeline[29];
-    wire [0:13] __unused = pipeline[30:43];
+    wire trap = pipeline[29];
+    wire uc_debug = pipeline[30];
+    wire [0:12] __unused = pipeline[31:43];
     wire [0:11] seq_address = pipeline[44:55];
     wire [0:7] _const8 = pipeline[48:55];
     
@@ -94,6 +96,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     localparam COND_S_GT_ZERO = 1;
     localparam COND_S_LT_ZERO = 2;
     localparam COND_CC_AND_R_ZERO = 3;
+    localparam COND_C0_EQ_1 = 4;
     localparam ADDR_MUX_SEQ = 0;
     localparam ADDR_MUX_OPCODE = 1;
 
@@ -164,6 +167,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             COND_S_GT_ZERO: branch = ~(s[0] | (s == 0));
             COND_S_LT_ZERO: branch = s[0];
             COND_CC_AND_R_ZERO: branch = (cc & r) == 0;
+            COND_C0_EQ_1: branch = c[0];
         endcase
         uc_op = seq_op;
         case (seq_op)

@@ -209,7 +209,7 @@ class Parser(object):
         if stat[0].value.name in ('loop', 'do'):
             return stat[0].value.name
         for op in stat:
-            if op.value.name in ('call', 'return', 'while', 'if', 'switch', 'continue'):
+            if op.value.name in ('call', 'return', 'while', 'if', 'continue'):
                 return op.value.name
         return ''
 
@@ -217,7 +217,7 @@ class Parser(object):
         if stat[0].value.name in ('loop', 'do'):
             return stat[0].value.lineNumber
         for op in stat:
-            if op.value.name in ('call', 'return', 'while', 'if', 'switch', 'continue'):
+            if op.value.name in ('call', 'return', 'while', 'if', 'continue'):
                 return op.value.lineNumber
         return ''
 
@@ -225,7 +225,7 @@ class Parser(object):
         return self.getBranch(stat) in ('call', 'return', 'while', 'if', 'switch', 'continue')
 
     def isTailBranch(self, stat):
-        return self.getBranch(stat) in ('loop', 'do', 'call', 'return', 'while', 'switch', 'continue')
+        return self.getBranch(stat) in ('loop', 'do', 'call', 'return', 'while', 'continue')
 
     def parseStatList(self, noHeadBranch=True, noTailBranch=True, stat_name=''):
         tree = Tree(self.sc.expect('{'))

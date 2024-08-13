@@ -16,8 +16,9 @@ field sxop = 22:25;
 field ende = 26:26;
 field testa = 27:27;
 field wd_en = 28:28;
-field uc_debug = 29:29;
-field __unused = 30:43;
+field trap = 29:29;
+field uc_debug = 30:30;
+field __unused = 31:43;
 field seq.address = 44:55;
 field _const8 = 48:55;
 
@@ -44,6 +45,7 @@ const COND_NONE = 0;
 const COND_S_GT_ZERO = 1;
 const COND_S_LT_ZERO = 2;
 const COND_CC_AND_R_ZERO = 3;
+const COND_C0_EQ_1 = 4;
 const ADDR_MUX_SEQ = 0;
 const ADDR_MUX_OPCODE = 1;
 
@@ -58,100 +60,100 @@ def main {
         top: sxop = SX_ADD, "Empty slot for indirect";
         ax = AX_RR, qx = QX_P, px = PX_D_INDX, switch ADDR_MUX_OPCODE {
             OP_NAO_00: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_01: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LCFI: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_03: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_CAL1: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_CAL2: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_CAL3: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_CAL4: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_PLW: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_PSW: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_PLM: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_PSM: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_0c: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_0d: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LPSD: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_XPSD: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_AD: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_CD: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LD: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_MSP: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_14: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_STD: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_16: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_17: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_SD: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_CLM: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LCD: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LAD: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_FSL: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_FAL: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_FDL: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_FML: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_AI: {
                 sxop = SX_ADD, rrx = RRX_S;
@@ -160,7 +162,7 @@ def main {
             }
             OP_CI: {
                 # d has immediate value
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LI: { # 3-215
                 # d has immediate value
@@ -168,49 +170,49 @@ def main {
                 testa = 1, ende = 1, continue top;
             }
             OP_MI: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_SF: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_S: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_26: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_27: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_CVS: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_CVA: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LM: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_STM: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_2c: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_2d: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_WAIT: {
                 forever: sxop = SX_ADD, continue forever;
             }
             OP_LRP: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_AW: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_CW: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LW: {
                 dx = DX_CIN;
@@ -218,151 +220,151 @@ def main {
                 testa = 1, ende = 1, continue top;
             }
             OP_MTW: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_34: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_STW: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_DW: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_MW: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_SW: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_CLR: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LCW: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LAW: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_FSS: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_FAS: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_FDS: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_FMS: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_TTBS: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_TBS: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_42: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_43: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_ANLZ: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_CS: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_XW: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_STS: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_EOR: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_OR: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LS: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_AND: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_SIO: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_TIO: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_TDV: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_HIO: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_AH: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_CH: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LH: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_MTH: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_54: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_STH: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_DH: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_MH: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_SH: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_59: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LCH: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LAH: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_5c: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_5d: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_5e: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_5f: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_CBS: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_MBS: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_NAO_62: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_EBS: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_BDR: {
                 dx = DX_1;
@@ -381,10 +383,10 @@ def main {
                 ende = 1, continue top; # next instruction
             }
             OP_AWM: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_EXU: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_BCR: {
                 sxop = SX_ADD, "Empty slot for if branch";
@@ -406,26 +408,26 @@ def main {
                 rrx = RRX_Q, ende = 1, continue top; # take branch
             }
             OP_INT: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_RD: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_WD: {
                 px = PX_Q;
                 sxop = 2, wd_en = 1, ende = 1, continue top;
             }
             OP_AIO: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_MMC: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LCF: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_CB: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_LB: {
                 dx = DX_CINB;
@@ -433,47 +435,49 @@ def main {
                 testa = 1, ende = 1, continue top;
             }
             OP_MTB: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_STFC: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_STB: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_PACK: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_UNPK: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_DS: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_DA: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_DD: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_DM: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_DSA: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_DC: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_DL: {
-                sxop = SX_ADD;
+                continue _trap;
             }
             OP_DST: {
-                sxop = SX_ADD;
+                continue _trap;
             }
         }
         sxop = SX_ADD;
     }
+
+    _trap: trap = 1, continue _trap;
 }
 
 
