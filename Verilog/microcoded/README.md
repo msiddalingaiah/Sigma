@@ -52,8 +52,10 @@ $ make run
 
 TODO:
 
-* BAL instruction
-* Load instructions, e.g. LH, LW
-* Fix broken tests
+* Add switchn(o, N), where N is the number of statements per block, no block branches
+* Remove tail branch from switch blocks
+* Trap NAO instructions, LI with indirect
 * Add if continue statement
+* More instructions, e.g. STB, STW, CAL, XPSD
+* Fix broken tests
 * Check for overlapping field assignments (Generator)

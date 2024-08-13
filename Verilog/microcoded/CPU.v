@@ -150,7 +150,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
         uc_din = seq_address;
         case (seq_address_mux)
             ADDR_MUX_SEQ: uc_din = seq_address; // jump or call
-            ADDR_MUX_OPCODE: uc_din = o; // instruction op code
+            ADDR_MUX_OPCODE: uc_din = { 5'h0, o }; // instruction op code
         endcase
         s = 0;
         case (sxop)
@@ -213,8 +213,11 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 `endif
                 c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; x <= c_in[12:14]; p <= p + 4;
                 // immediate value
-                if (~c_in[3] & ~c_in[4] & ~c_in[5]) begin d <= { {12{c_in[12]}}, c_in[12:31] }; end
-                if (c_in[0] == 1) ia <= 1;
+                if (~c_in[3] & ~c_in[4] & ~c_in[5]) begin
+                    d <= { {12{c_in[12]}}, c_in[12:31] };
+                end else if (c_in[0] == 1) begin
+                    ia <= 1;
+                end
             end
             if (ia == 1) begin
                 c <= c_in; d <= c_in;
