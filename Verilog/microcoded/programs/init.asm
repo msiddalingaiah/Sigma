@@ -8,7 +8,7 @@
         LI,0        msg0
         BAL,15      prnt
 
-        LI,1        '0'
+        GEN,1,7,4,20      0, 0x22, 1, '0'
         LI,3        9
 lp1     AI,1        1
         WD,1        0

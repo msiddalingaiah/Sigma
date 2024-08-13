@@ -209,13 +209,24 @@ class MicroWordBlock(object):
                 self.outputWords.append(word)
                 return
             if op.value.name == 'if':
+                invert_condition = False
                 if stat[op_index].value.name == 'not':
                     op_index += 1
-                else:
-                    word.update('seq.op', SEQ_OP_JUMP)
+                    invert_condition = True
                 condition = self.globals.eval(stat[op_index])
                 word.update('seq.condition', condition)
                 op_index += 1
+                if stat[op_index].value.name == 'continue':
+                    op_index += 1
+                    label = stat[op_index].value.value
+                    op_index += 1
+                    self.globals.labelReferenceWords[label].append(word)
+                    if invert_condition:
+                        word.update('seq.op', SEQ_OP_JUMP)
+                    self.outputWords.append(word)
+                    return
+                if not invert_condition:
+                    word.update('seq.op', SEQ_OP_JUMP)
                 self.outputWords.append(word)
                 stat_list = stat[op_index]
                 op_index += 1

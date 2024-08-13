@@ -186,6 +186,10 @@ class Directive(object):
         self.lineNumber = lineNumber
         self.pc = pc
 
+    def setLabels(self):
+        for label in self.getLabels():
+            self.defs.constants[label] = self.pc
+
     def getLabels(self):
         labels = []
         for t in self.tree[0]:
@@ -210,6 +214,8 @@ class Directive(object):
             return TextC(defs, line, tree, lineNumber, pc)
         if cf0 == 'ORG':
             return ORG(defs, line, tree, lineNumber, pc)
+        if cf0 == 'GEN':
+            return GEN(defs, line, tree, lineNumber, pc)
         if cf0 in OPCODE_MAP:
             if (OPCODE_MAP[cf0] & 0x1c) == 0:
                 return ImmInstruction(defs, line, tree, lineNumber, pc)
@@ -231,8 +237,7 @@ class TextC(Directive):
         self.value = tree[2][0].value.value
 
     def getNextPC(self):
-        for label in self.getLabels():
-            self.defs.constants[label] = self.pc
+        self.setLabels()
         return self.pc + ((len(self.value) + 4) >> 2)
 
     def getWords(self):
@@ -247,7 +252,7 @@ class TextC(Directive):
             i += 4
         return words
 
-class Instruction(Directive):
+class GEN(Directive):
     def __init__(self, defs, line, tree, lineNumber, pc):
         super().__init__(defs, line, tree, lineNumber, pc)
 
@@ -255,9 +260,37 @@ class Instruction(Directive):
         self.setLabels()
         return self.pc + 1
 
-    def setLabels(self):
-        for label in self.getLabels():
-            self.defs.constants[label] = self.pc
+    def getWords(self):
+        cf = self.tree[1]
+        af = self.tree[2]
+        if len(cf) < 2:
+            raise Exception(f'line: {self.lineNumber}: Missing field widths.')
+        widths = []
+        totalWidth = 0
+        for c in cf[1:]:
+            w = self.defs.eval(c)
+            widths.append(w)
+            totalWidth += w
+        values = []
+        for a in af:
+            values.append(self.defs.eval(a))
+        if len(widths) != len(values):
+            raise Exception(f"line: {self.lineNumber}: Number of fields is {len(widths)}, but number of values is {len(values)}.")
+        if totalWidth != 32:
+            raise Exception(f"line: {self.lineNumber}: Total width is {totalWidth} bits, expected 32 bits.")
+        word = 0
+        for w, v in zip(widths, values):
+            word <<= w
+            word |= v & ~(-1 << w)
+        return [f'{word:08x} // {self.pc:04x} {self.line}']
+
+class Instruction(Directive):
+    def __init__(self, defs, line, tree, lineNumber, pc):
+        super().__init__(defs, line, tree, lineNumber, pc)
+
+    def getNextPC(self):
+        self.setLabels()
+        return self.pc + 1
 
     def getWords(self):
         cf = self.tree[1]

@@ -167,6 +167,7 @@ def main {
             OP_LI: { # 3-215
                 # d has immediate value
                 px = PX_Q, sxop = SX_D, ax = AX_S, rrx = RRX_S;
+                if COND_C0_EQ_1 continue _trap;
                 testa = 1, ende = 1, continue top;
             }
             OP_MI: {

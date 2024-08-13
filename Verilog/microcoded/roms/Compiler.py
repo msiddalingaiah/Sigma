@@ -292,6 +292,11 @@ class Parser(object):
             if self.sc.matches('not'):
                 tree.add(self.sc.terminal)
             tree.add(self.parseExp())
+            if self.sc.matches('continue'):
+                tree.add(self.sc.terminal)
+                tree.add(self.sc.expect('ID'))
+                self.sc.expect(';')
+                return tree
             tree.add(self.parseStatList(stat_name='if'))
             if self.sc.matches('else'):
                 tree.add(self.parseStatList(noTailBranch=False, stat_name='else'))
