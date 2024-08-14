@@ -61,7 +61,7 @@ module CPUTestBench;
         $dumpfile("vcd/CPUTestBench.vcd");
         $dumpvars(0, CPUTestBench);
 
-        $readmemh("roms/sigma_microcode.txt", cpu.uc_rom.memory);
+        $readmemh("roms/microcode.txt", cpu.uc_rom.memory);
         $readmemh("programs/init.txt", ram.ram_cells);
         $readmemh("roms/op_switch.txt", cpu.op_switch);
         #0 reset = 0; #25 reset = 1; #90 reset = 0;

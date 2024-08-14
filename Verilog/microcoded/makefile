@@ -1,13 +1,13 @@
 
-vcd/CPUTestBench: *.v roms/sigma_microcode.txt programs/init.txt
+vcd/CPUTestBench: *.v roms/microcode.txt programs/init.txt
 	iverilog -o vcd/CPUTestBench CPUTestBench.v
 	vvp vcd/CPUTestBench
 
 CPU.v roms/sigma.txt: Pipeline.py
-	python Pipeline.py CPU.v roms/sigma.txt
+	python Pipeline.py CPU.v roms/microcode.asm
 
-roms/sigma_microcode.txt: roms/sigma.txt roms/Compiler.py roms/Generator.py
-	python roms/Compiler.py roms/sigma.txt roms/sigma_microcode.txt
+roms/microcode.txt: roms/microcode.asm roms/Compiler.py roms/Generator.py
+	python roms/Compiler.py roms/microcode.asm roms/microcode.txt
 
 programs/init.txt: programs/init.asm roms/Assembler.py
 	python roms/Assembler.py programs/init.asm programs/init.txt
