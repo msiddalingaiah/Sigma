@@ -153,7 +153,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
         uc_din = seq_address;
         case (seq_address_mux)
             ADDR_MUX_SEQ: uc_din = seq_address; // jump or call
-            ADDR_MUX_OPCODE: uc_din = { 5'h0, o }; // instruction op code
+            ADDR_MUX_OPCODE: uc_din = { 3'h0, o, 2'h0 } + { 4'h0, o, 1'h0 }; // instruction op code
         endcase
         s = 0;
         case (sxop)

@@ -133,6 +133,7 @@ class Parser(object):
         patterns.append(Pattern('return', r'return'))
         patterns.append(Pattern('not', r'not'))
         patterns.append(Pattern('switch', r'switch'))
+        patterns.append(Pattern('nswitch', r'nswitch'))
         patterns.append(Pattern('continue', r'continue'))
         patterns.append(Pattern('ID', r'[a-zA-Z_][a-zA-Z0-9_\.]*'))
         patterns.append(Pattern('INT', r'(0x)?[0-9a-fA-F]+'))
@@ -311,7 +312,13 @@ class Parser(object):
         if self.sc.matches('switch'):
             tree.add(self.sc.terminal)
             tree.add(self.parseExp())
-            tree.add(self.parseSwitchBlock())
+            tree.add(self.parseSwitchBlock('switch'))
+            return tree
+        if self.sc.matches('nswitch'):
+            tree.add(self.sc.terminal)
+            tree.add(self.parseExp())
+            tree.add(self.parseExp())
+            tree.add(self.parseSwitchBlock('nswitch'))
             return tree
         if self.sc.matches('call'):
             tree.add(self.sc.terminal)
@@ -329,12 +336,12 @@ class Parser(object):
             return tree
         self.sc.expect('if', 'do', 'while', 'loop', 'switch', 'call', 'return', 'continue')
 
-    def parseSwitchBlock(self):
+    def parseSwitchBlock(self, stat_name):
         tree = Tree(self.sc.expect('{'))
         while not self.sc.matches('}'):
             tree.add(self.parseExp())
             self.sc.expect(':')
-            tree.add(self.parseStatList(stat_name='switch'))
+            tree.add(self.parseStatList(stat_name))
         return tree
 
     def parseExp(self, index=0):

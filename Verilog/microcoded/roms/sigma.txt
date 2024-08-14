@@ -58,7 +58,7 @@ def main {
     ende = 1;
     loop {
         top: sxop = SX_ADD, "Empty slot for indirect";
-        ax = AX_RR, qx = QX_P, px = PX_D_INDX, switch ADDR_MUX_OPCODE {
+        ax = AX_RR, qx = QX_P, px = PX_D_INDX, nswitch ADDR_MUX_OPCODE 6 {
             OP_NAO_00: {
                 continue _trap;
             }
@@ -166,8 +166,7 @@ def main {
             }
             OP_LI: { # 3-215
                 # d has immediate value
-                px = PX_Q, sxop = SX_D, ax = AX_S, rrx = RRX_S;
-                if COND_C0_EQ_1 continue _trap;
+                px = PX_Q, sxop = SX_D, ax = AX_S, rrx = RRX_S, if COND_C0_EQ_1 continue _trap;
                 testa = 1, ende = 1, continue top;
             }
             OP_MI: {

@@ -268,6 +268,30 @@ class MicroWordBlock(object):
                     head.update('seq.address', top-pc)
                     self.outputWords.extend(block.outputWords[1:])
                 return
+            if op.value.name == 'nswitch':
+                addr_mux = self.globals.eval(stat[op_index])
+                op_index += 1
+                inst_count = self.globals.eval(stat[op_index])
+                op_index += 1
+                word.update('seq.address_mux', addr_mux)
+                word.update('seq.op', SEQ_OP_JUMP)
+                self.outputWords.append(word)
+                tree = stat[op_index]
+                n = len(tree)
+                for i in range(0, n, 2):
+                    label = self.globals.eval(tree[i])
+                    lineNumber = tree[i].value.lineNumber
+                    if i>>1 != label:
+                        raise Exception(f'line: {lineNumber}, label out of order ({label} != {i>>1})')
+                    block = MicroWordBlock(self.globals, tree[i+1])
+                    if len(block) > inst_count:
+                        raise Exception(f'line: {lineNumber}, block length of {len(block)} is greater than {inst_count}')
+                    self.outputWords.extend(block.outputWords)
+                    count = inst_count - len(block)
+                    while count > 0:
+                        self.outputWords.append(MicroWord(self.globals, lineNumber))
+                        count -= 1
+                return
         self.outputWords.append(word)
 
     def updatePC(self, startAddress):
