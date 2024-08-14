@@ -211,6 +211,7 @@ if __name__ == '__main__':
 
     constants['ADDR_MUX_SEQ'] = 0
     constants['ADDR_MUX_OPCODE'] = 1
+    constants['ADDR_MUX_OPROM'] = 2
 
     p = Pipeline(width, fields, overlaps, constants)
     p.writeVerilog(sys.argv[1])

@@ -99,6 +99,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     localparam COND_C0_EQ_1 = 4;
     localparam ADDR_MUX_SEQ = 0;
     localparam ADDR_MUX_OPCODE = 1;
+    localparam ADDR_MUX_OPROM = 2;
 
     // ---- END Pipeline definitions DO NOT EDIT
 
@@ -143,6 +144,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire fa_w = ou3 | (~o[3] & ~o[4] & o[5]) | (o[1] & ~o[3] & o[4]) | (o[2] & ~o[3] & o[4]); // pp 3-182
     wire [0:31] indx_offset = {32{(x[0] | x[1] | x[2])}} & rr[x];
 
+    reg [11:0] op_switch[0:127];
+
     // Signals
 
     // Guideline #3: When modeling combinational logic with an "always" 
@@ -154,6 +157,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
         case (seq_address_mux)
             ADDR_MUX_SEQ: uc_din = seq_address; // jump or call
             ADDR_MUX_OPCODE: uc_din = { 3'h0, o, 2'h0 } + { 4'h0, o, 1'h0 }; // instruction op code
+            ADDR_MUX_OPROM: uc_din = op_switch[o]; // instruction op code
         endcase
         s = 0;
         case (sxop)

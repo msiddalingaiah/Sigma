@@ -52,7 +52,6 @@ $ make run
 
 TODO:
 
-* Add romswitch cond "rom.txt"
 * More instructions, e.g. STB, STW, CAL, XPSD
 * Fix broken tests
 * Check for overlapping field assignments (Generator)

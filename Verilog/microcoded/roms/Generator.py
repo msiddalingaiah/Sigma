@@ -17,6 +17,7 @@ class Globals(object):
         self.procStartWords = {}
         self.procReferenceWords = defaultdict(list)
         self.labelReferenceWords = defaultdict(list)
+        self.switchFiles = []
 
     def pass1(self, tree):
         procedureTrees = {}
@@ -292,6 +293,30 @@ class MicroWordBlock(object):
                         self.outputWords.append(MicroWord(self.globals, lineNumber))
                         count -= 1
                 return
+            if op.value.name == 'romswitch':
+                addr_mux = self.globals.eval(stat[op_index])
+                op_index += 1
+                filename = stat[op_index].value.value
+                sf = SwitchFile(filename)
+                op_index += 1
+                word.update('seq.address_mux', addr_mux)
+                word.update('seq.op', SEQ_OP_JUMP)
+                self.outputWords.append(word)
+                tree = stat[op_index]
+                n = len(tree)
+                offset = 0
+                for i in range(0, n, 2):
+                    label = self.globals.eval(tree[i])
+                    lineNumber = tree[i].value.lineNumber
+                    if i>>1 != label:
+                        raise Exception(f'line: {lineNumber}, label out of order ({label} != {i>>1})')
+                    block = MicroWordBlock(self.globals, tree[i+1])
+                    self.outputWords.extend(block.outputWords)
+                    sf.romvalues.append(offset)
+                    sf.headwords.append(block.outputWords[0])
+                    offset += len(block)
+                self.globals.switchFiles.append(sf)
+                return
         self.outputWords.append(word)
 
     def updatePC(self, startAddress):
@@ -312,6 +337,18 @@ class MicroWordBlock(object):
     
     def __len__(self):
         return len(self.outputWords)
+
+class SwitchFile(object):
+    def __init__(self, filename):
+        self.filename = filename
+        self.romvalues = []
+        self.headwords = []
+
+    def write(self):
+        with open(self.filename, 'wt') as f:
+            for word, mc in zip(self.romvalues, self.headwords):
+                f.write(f'{word:03x} // {mc.pc:4d}: {mc.genComment()}\n')
+
 
 class Generator(object):
     def __init__(self, tree):
@@ -350,3 +387,6 @@ class Generator(object):
             format = f'{{0:0{self.globals.seq_width >> 2}x}}'
             for i in range(word_count-address):
                 f.write(format.format(0) + '\n')
+
+        for sf in self.globals.switchFiles:
+            sf.write()

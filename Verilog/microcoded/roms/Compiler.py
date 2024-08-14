@@ -134,6 +134,7 @@ class Parser(object):
         patterns.append(Pattern('not', r'not'))
         patterns.append(Pattern('switch', r'switch'))
         patterns.append(Pattern('nswitch', r'nswitch'))
+        patterns.append(Pattern('romswitch', r'romswitch'))
         patterns.append(Pattern('continue', r'continue'))
         patterns.append(Pattern('ID', r'[a-zA-Z_][a-zA-Z0-9_\.]*'))
         patterns.append(Pattern('INT', r'(0x)?[0-9a-fA-F]+'))
@@ -320,6 +321,14 @@ class Parser(object):
             tree.add(self.parseExp())
             tree.add(self.parseSwitchBlock('nswitch'))
             return tree
+        if self.sc.matches('romswitch'):
+            tree.add(self.sc.terminal)
+            tree.add(self.parseExp())
+            t = self.sc.expect('"')
+            t.value = self.escape(t.value[1:-1])
+            tree.add(t)            
+            tree.add(self.parseSwitchBlock('romswitch'))
+            return tree
         if self.sc.matches('call'):
             tree.add(self.sc.terminal)
             tree.add(self.sc.expect('ID'))
@@ -391,12 +400,8 @@ class Parser(object):
             return Tree(t)
         if self.sc.matches('"'):
             t = self.sc.terminal
-            string = self.escape(t.value[1:-1])
-            t.value = ''
-            result = Tree(t)
-            for c in string:
-                result.add(ord(c))
-            return result
+            t.value = self.escape(t.value[1:-1])
+            return Tree(t)
         return Tree(self.sc.expect('ID'))
 
 import sys

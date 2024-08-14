@@ -48,6 +48,7 @@ const COND_CC_AND_R_ZERO = 3;
 const COND_C0_EQ_1 = 4;
 const ADDR_MUX_SEQ = 0;
 const ADDR_MUX_OPCODE = 1;
+const ADDR_MUX_OPROM = 2;
 
 # ---- END Pipeline definitions DO NOT EDIT
 
@@ -58,7 +59,7 @@ def main {
     ende = 1;
     loop {
         top: sxop = SX_ADD, "Empty slot for indirect";
-        ax = AX_RR, qx = QX_P, px = PX_D_INDX, nswitch ADDR_MUX_OPCODE 6 {
+        ax = AX_RR, qx = QX_P, px = PX_D_INDX, romswitch ADDR_MUX_OPROM "roms/op_switch.txt" {
             OP_NAO_00: {
                 continue _trap;
             }
@@ -389,7 +390,6 @@ def main {
                 continue _trap;
             }
             OP_BCR: {
-                sxop = SX_ADD, "Empty slot for if branch";
                 if COND_CC_AND_R_ZERO {
                     ende = 1, continue top; # take branch
                 }
@@ -397,7 +397,6 @@ def main {
                 ende = 1, continue top; # next instruction
             }
             OP_BCS: {
-                sxop = SX_ADD, "Empty slot for if branch";
                 if not COND_CC_AND_R_ZERO {
                     ende = 1, continue top; # take branch
                 }
