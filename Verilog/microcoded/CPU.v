@@ -97,6 +97,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     localparam COND_S_LT_ZERO = 2;
     localparam COND_CC_AND_R_ZERO = 3;
     localparam COND_C0_EQ_1 = 4;
+    localparam COND_CIN0_EQ_0 = 5;
     localparam ADDR_MUX_SEQ = 0;
     localparam ADDR_MUX_OPCODE = 1;
     localparam ADDR_MUX_OPROM = 2;
@@ -165,21 +166,6 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             SX_SUB: s = a-d;
             SX_D: s = d;
         endcase
-        branch = 0;
-        case (seq_condition)
-            COND_NONE: branch = 0; // branch unconditionally
-            COND_S_GT_ZERO: branch = ~(s[0] | (s == 0));
-            COND_S_LT_ZERO: branch = s[0];
-            COND_CC_AND_R_ZERO: branch = (cc & r) == 0;
-            COND_C0_EQ_1: branch = c[0];
-        endcase
-        uc_op = seq_op;
-        case (seq_op)
-            0: uc_op = { 1'h0, branch }; // next, invert selected branch condition
-            1: uc_op = { 1'h0, ~branch }; // jump
-            2: ; // call
-            3: ; // return
-        endcase
         if (ia == 0) begin
             lb = p[15:31];
             c_in = memory_data_in;
@@ -189,6 +175,23 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             c_in = memory_data_in;
             if (c[15:27] == 0) c_in = rr[c[28:31]];
         end
+        // These cases must be at the end, as they depend on signals above!
+        branch = 0;
+        case (seq_condition)
+            COND_NONE: branch = 0; // branch unconditionally
+            COND_S_GT_ZERO: branch = ~(s[0] | (s == 0));
+            COND_S_LT_ZERO: branch = s[0];
+            COND_CC_AND_R_ZERO: branch = (cc & r) == 0;
+            COND_C0_EQ_1: branch = c[0];
+            COND_CIN0_EQ_0: branch = ~c_in[0];
+        endcase
+        uc_op = seq_op;
+        case (seq_op)
+            0: uc_op = { 1'h0, branch }; // next, invert selected branch condition
+            1: uc_op = { 1'h0, ~branch }; // jump
+            2: ; // call
+            3: ; // return
+        endcase
     end
 
     // Guideline #1: When modeling sequential logic, use nonblocking 
@@ -286,9 +289,9 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 end
             end
             if (uc_debug == 1) begin
-                $display("%4d: d: %x, p: %x, c_in: %x, s: %x, fa_b: %x, indx_offset: %x, x: %x",
-                    seq.pc-1, d, p, c_in, s, fa_b, indx_offset, x);
-                $stop;
+                $display("%4d: q: %x, p[15:31]: %x, c_in: %x, s: %x, fa_b: %x, indx_offset: %x, x: %x, ia: %x, branch: %x",
+                    seq.pc-1, q, p[15:31], c_in, s, fa_b, indx_offset, x, ia, branch);
+                //$stop;
             end
         end
     end

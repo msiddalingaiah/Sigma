@@ -208,6 +208,7 @@ if __name__ == '__main__':
     constants['COND_S_LT_ZERO'] = 2
     constants['COND_CC_AND_R_ZERO'] = 3
     constants['COND_C0_EQ_1'] = 4
+    constants['COND_CIN0_EQ_0'] = 5
 
     constants['ADDR_MUX_SEQ'] = 0
     constants['ADDR_MUX_OPCODE'] = 1

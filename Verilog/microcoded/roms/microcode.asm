@@ -46,6 +46,7 @@ const COND_S_GT_ZERO = 1;
 const COND_S_LT_ZERO = 2;
 const COND_CC_AND_R_ZERO = 3;
 const COND_C0_EQ_1 = 4;
+const COND_CIN0_EQ_0 = 5;
 const ADDR_MUX_SEQ = 0;
 const ADDR_MUX_OPCODE = 1;
 const ADDR_MUX_OPROM = 2;
@@ -58,8 +59,8 @@ def main {
     sxop = SX_ADD;
     ende = 1;
     loop {
-        top: sxop = SX_ADD, "Empty slot for indirect";
-        ax = AX_RR, qx = QX_P, px = PX_D_INDX, romswitch ADDR_MUX_OPROM "roms/op_switch.txt" {
+        sxop = SX_ADD; # Empty slot for indirect
+        direct: ax = AX_RR, qx = QX_P, px = PX_D_INDX, romswitch ADDR_MUX_OPROM "roms/op_switch.txt" {
             OP_NAO_00: {
                 continue _trap;
             }
@@ -159,7 +160,8 @@ def main {
             OP_AI: {
                 sxop = SX_ADD, rrx = RRX_S;
                 px = PX_Q, ax = AX_S;
-                testa = 1, ende = 1, continue top;
+                testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_CI: {
                 # d has immediate value
@@ -168,7 +170,8 @@ def main {
             OP_LI: { # 3-215
                 # d has immediate value
                 px = PX_Q, sxop = SX_D, ax = AX_S, rrx = RRX_S, if COND_C0_EQ_1 continue _trap;
-                testa = 1, ende = 1, continue top;
+                testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_MI: {
                 continue _trap;
@@ -218,7 +221,8 @@ def main {
             OP_LW: {
                 dx = DX_CIN;
                 sxop = SX_D, ax = AX_S, rrx = RRX_S, px = PX_Q;
-                testa = 1, ende = 1, continue top;
+                testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_MTW: {
                 continue _trap;
@@ -370,18 +374,26 @@ def main {
             OP_BDR: {
                 dx = DX_1;
                 sxop = SX_SUB, rrx = RRX_S, if COND_S_GT_ZERO {
-                    ende = 1, continue top; # take branch
+                    # take branch
+                    ende = 1, if COND_CIN0_EQ_0 continue direct;
+                    continue direct;
                 }
+                # next instruction
                 px = PX_Q;
-                ende = 1, continue top; # next instruction
+                ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_BIR: {
                 dx = DX_1;
                 sxop = SX_ADD, rrx = RRX_S, if COND_S_LT_ZERO {
-                    ende = 1, continue top; # take branch
+                    # take branch
+                    ende = 1, if COND_CIN0_EQ_0 continue direct;
+                    continue direct;
                 }
+                # next instruction
                 px = PX_Q;
-                ende = 1, continue top; # next instruction
+                ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_AWM: {
                 continue _trap;
@@ -391,20 +403,29 @@ def main {
             }
             OP_BCR: {
                 if COND_CC_AND_R_ZERO {
-                    ende = 1, continue top; # take branch
+                    # take branch
+                    ende = 1, if COND_CIN0_EQ_0 continue direct;
+                    continue direct;
                 }
+                # next instruction
                 px = PX_Q;
-                ende = 1, continue top; # next instruction
+                ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_BCS: {
                 if not COND_CC_AND_R_ZERO {
-                    ende = 1, continue top; # take branch
+                    # take branch
+                    ende = 1, if COND_CIN0_EQ_0 continue direct;
+                    continue direct;
                 }
+                # next instruction
                 px = PX_Q;
-                ende = 1, continue top; # next instruction
+                ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_BAL: {
-                rrx = RRX_Q, ende = 1, continue top; # take branch
+                rrx = RRX_Q, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_INT: {
                 continue _trap;
@@ -414,7 +435,8 @@ def main {
             }
             OP_WD: {
                 px = PX_Q;
-                sxop = 2, wd_en = 1, ende = 1, continue top;
+                sxop = 2, wd_en = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_AIO: {
                 continue _trap;
@@ -431,7 +453,8 @@ def main {
             OP_LB: {
                 dx = DX_CINB;
                 sxop = SX_D, ax = AX_S, rrx = RRX_S, px = PX_Q;
-                testa = 1, ende = 1, continue top;
+                testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_MTB: {
                 continue _trap;
