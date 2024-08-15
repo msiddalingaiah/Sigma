@@ -20,6 +20,39 @@ Hardwired control units execute efficiently, but their design, implementation, a
 
 Historically, writing microcode was one step below assembly language programming. High level flow control structures, such as if/else, do/while loops, switch statements, and procedures would simplify the process. To this end, a compiler translates these flow control structures into microcode.
 
+Below is a snippet of the instruction loop with the Branch on Decrementing Register (BDR) instruction:
+
+```
+    ende = 1; # fetch next instruction
+    loop {
+        sxop = SX_ADD; # Empty slot for indirect address
+        direct: ax = AX_RR, qx = QX_P, px = PX_D_INDX, romswitch ADDR_MUX_OPROM "roms/op_switch.txt" {
+            ...
+            OP_BDR: {
+                dx = DX_1;
+                sxop = SX_SUB, rrx = RRX_S, if COND_S_GT_ZERO {
+                    # take branch
+                    ende = 1, if COND_CIN0_EQ_0 continue direct;
+                    continue direct;
+                }
+                # next instruction
+                px = PX_Q;
+                ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct; # microcode branch delay if next instruction is indirect addressed
+            }
+            ...
+        }
+        ...
+    }
+```
+
+Notes
+* ax, bx, cx, dx, px, qx etc. control multiplexors to assign respective registers, e.g. qx = QX_P loads q register with p
+* loop { ... } is an infinite loop
+* romswitch generates a ROM lookup table with branch addresses, each case label must be sequential, starting from zero
+* continue label; unconditionally branches to label
+* The last cycle of every instruction fetches the next instruction, with a 16.5% improvement for direct addressing
+
 # Tools
 
 * Python 3
