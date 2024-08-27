@@ -49,8 +49,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     //                             | - wd_en[28]
     // |-------|-------|-------|-------|-------|-------|-------|
     //                              | - trap[29]
-    //                               | - uc_debug[30]
-    //                                |___________| - __unused[31:43] 13 bits
+    //                               |_| - divide[30:32] 3 bits
+    //                                  | - uc_debug[33]
+    //                                   |________| - __unused[34:43] 10 bits
+    // |-------|-------|-------|-------|-------|-------|-------|
     //                                             |__________| - seq_address[44:55] 12 bits
     //                                                 |______| - _const8[48:55] 8 bits
 
@@ -68,8 +70,9 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire testa = pipeline[27];
     wire wd_en = pipeline[28];
     wire trap = pipeline[29];
-    wire uc_debug = pipeline[30];
-    wire [0:12] __unused = pipeline[31:43];
+    wire [0:2] divide = pipeline[30:32];
+    wire uc_debug = pipeline[33];
+    wire [0:9] __unused = pipeline[34:43];
     wire [0:11] seq_address = pipeline[44:55];
     wire [0:7] _const8 = pipeline[48:55];
     
@@ -98,9 +101,15 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     localparam COND_CC_AND_R_ZERO = 3;
     localparam COND_C0_EQ_1 = 4;
     localparam COND_CIN0_EQ_0 = 5;
+    localparam COND_E_NEQ_0 = 6;
     localparam ADDR_MUX_SEQ = 0;
     localparam ADDR_MUX_OPCODE = 1;
     localparam ADDR_MUX_OPROM = 2;
+    localparam DIV_NONE = 0;
+    localparam DIV_PREP = 1;
+    localparam DIV_LOOP = 2;
+    localparam DIV_POST = 3;
+    localparam DIV_SAVE = 4;
 
     // ---- END Pipeline definitions DO NOT EDIT
 
@@ -116,7 +125,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // Condition code register
     reg [1:4] cc;
     // Carry save register
-    reg [0:33] cs;
+    reg [0:31] cs;
     // Indirect addressing flip flop
     reg ia;
 
@@ -137,6 +146,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     reg [0:31] s;
     // private memory index register number
     reg [0:2] x;
+    // Divide LSB
+    reg dw_lsb;
 
     // Address family decode, see ANLZ instruction
     wire fa_b = o[1] & o[2] & o[3];
@@ -162,7 +173,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
         endcase
         s = 0;
         case (sxop)
-            SX_ADD: s = a+d;
+            SX_ADD: s = a+d+cs;
             SX_SUB: s = a-d;
             SX_D: s = d;
         endcase
@@ -184,6 +195,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             COND_CC_AND_R_ZERO: branch = (cc & r) == 0;
             COND_C0_EQ_1: branch = c[0];
             COND_CIN0_EQ_0: branch = ~c_in[0];
+            COND_E_NEQ_0: branch = e != 0;
         endcase
         uc_op = seq_op;
         case (seq_op)
@@ -203,6 +215,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             b <= 0;
             c <= 0;
             cc <= 0;
+            cs <= 0;
             d <= 0;
             ia <= 0;
             o <= 0;
@@ -212,6 +225,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             for (i=0; i<16; i=i+1) rr[i] = 32'h00000000;
             e <= 0;
             x <= 0;
+            dw_lsb <= 0;
             pipeline <= 0;
         end else begin
             pipeline <= uc_rom_data;
@@ -280,6 +294,52 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             case (qx)
                 QX_NONE: ; // do nothing
                 QX_P: q <= p[15:31];
+            endcase
+            case (divide)
+                DIV_NONE: ; // do nothing
+                DIV_PREP: begin
+                    // a:b - 64 bit numerator
+                    a <= { rr[r][1:31], 1'b0 };
+                    b <= { rr[r|1][1:31], 1'b0 };
+                    // c - 32 bit denominator
+                    c <= c_in;
+                    // $display("%d:%d/%d", rr[r], rr[r|1], c_in);
+                    // Start with sign == 0
+                    d <= ~c_in;
+                    cs <= 32'h1;
+                    dw_lsb <= 1;
+                    e <= 32-2;
+                end
+                DIV_LOOP: begin
+                    //$display("count: %d, a:b %x:%x, d: %x, cs: %x", e, a, b, d, cs);
+                    a <= { s[1:31], b[0] };
+                    b <= { b[1:31], dw_lsb };
+                    if (s[0] == 0) begin
+                        d <= ~c;
+                        cs <= 32'h1;
+                        dw_lsb <= 1;
+                    end else begin
+                        d <= c;
+                        cs <= 0;
+                        dw_lsb <= 0;
+                    end
+                    e <= e - 1;
+                end
+                DIV_POST: begin
+                    //$display("count: %d, a:b %x:%x, d: %x, cs: %x", e, a, b, d, cs);
+                    a <= { s[0:31] };
+                    b <= { b[2:31], dw_lsb, ~s[0] };
+                    d <= 0;
+                    cs <= 0;
+                    if (s[0] == 1) begin
+                        d <= c;
+                    end
+                end
+                DIV_SAVE: begin
+                    rr[r] <= s; // remainder
+                    rr[r|1] <= b; // quotient
+                    //$display("quotient: %d, rem: %d", b, s);
+                end
             endcase
             if (testa == 1) begin cc[3] <= (~a[0]) & (a != 0); cc[4] <= a[0]; end
             if (wd_en == 1) begin

@@ -170,8 +170,9 @@ if __name__ == '__main__':
     fields['testa'] = 1
     fields['wd_en'] = 1
     fields['trap'] = 1
+    fields['divide'] = 3
     fields['uc_debug'] = 1
-    fields['__unused'] = 13
+    fields['__unused'] = 10
     fields['seq_address'] = 12
 
     overlaps = {}
@@ -209,10 +210,17 @@ if __name__ == '__main__':
     constants['COND_CC_AND_R_ZERO'] = 3
     constants['COND_C0_EQ_1'] = 4
     constants['COND_CIN0_EQ_0'] = 5
+    constants['COND_E_NEQ_0'] = 6
 
     constants['ADDR_MUX_SEQ'] = 0
     constants['ADDR_MUX_OPCODE'] = 1
     constants['ADDR_MUX_OPROM'] = 2
+
+    constants['DIV_NONE'] = 0
+    constants['DIV_PREP'] = 1
+    constants['DIV_LOOP'] = 2
+    constants['DIV_POST'] = 3
+    constants['DIV_SAVE'] = 4
 
     p = Pipeline(width, fields, overlaps, constants)
     p.writeVerilog(sys.argv[1])

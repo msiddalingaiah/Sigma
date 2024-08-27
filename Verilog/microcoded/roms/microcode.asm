@@ -17,8 +17,9 @@ field ende = 26:26;
 field testa = 27:27;
 field wd_en = 28:28;
 field trap = 29:29;
-field uc_debug = 30:30;
-field __unused = 31:43;
+field divide = 30:32;
+field uc_debug = 33:33;
+field __unused = 34:43;
 field seq.address = 44:55;
 field _const8 = 48:55;
 
@@ -47,9 +48,15 @@ const COND_S_LT_ZERO = 2;
 const COND_CC_AND_R_ZERO = 3;
 const COND_C0_EQ_1 = 4;
 const COND_CIN0_EQ_0 = 5;
+const COND_E_NEQ_0 = 6;
 const ADDR_MUX_SEQ = 0;
 const ADDR_MUX_OPCODE = 1;
 const ADDR_MUX_OPROM = 2;
+const DIV_NONE = 0;
+const DIV_PREP = 1;
+const DIV_LOOP = 2;
+const DIV_POST = 3;
+const DIV_SAVE = 4;
 
 # ---- END Pipeline definitions DO NOT EDIT
 
@@ -234,7 +241,12 @@ def main {
                 continue _trap;
             }
             OP_DW: {
-                continue _trap;
+                divide = DIV_PREP, px = PX_Q;
+                do {
+                    sxop = SX_ADD, divide = DIV_LOOP;
+                } while COND_E_NEQ_0;
+                divide = DIV_POST;
+                divide = DIV_SAVE, ende = 1;
             }
             OP_MW: {
                 continue _trap;

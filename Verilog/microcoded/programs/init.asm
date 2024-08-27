@@ -25,6 +25,10 @@ lp1     AI,1        1
         LI,0        msg3
         BAL,15      prnt
 
+        LI,8        0
+        LW,9        pi_num
+        DW,8        pi_den
+
         WAIT,0      0
 
 prnt    LI,2        0
@@ -40,3 +44,5 @@ msg0    TEXTC       "Hello!\n"
 msg1    TEXTC       "Call me Ishmael...\n"
 msg2    TEXTC       "OK...\n"
 msg3    TEXTC       "Bye!\n"
+pi_num    GEN,32      355000000
+pi_den    GEN,32      113
