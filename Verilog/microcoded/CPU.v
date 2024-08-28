@@ -50,9 +50,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // |-------|-------|-------|-------|-------|-------|-------|
     //                              | - trap[29]
     //                               |_| - divide[30:32] 3 bits
-    //                                  | - uc_debug[33]
-    //                                   |________| - __unused[34:43] 10 bits
+    //                                  || - multiply[33:34] 2 bits
+    //                                    | - uc_debug[35]
     // |-------|-------|-------|-------|-------|-------|-------|
+    //                                     |______| - __unused[36:43] 8 bits
     //                                             |__________| - seq_address[44:55] 12 bits
     //                                                 |______| - _const8[48:55] 8 bits
 
@@ -71,8 +72,9 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire wd_en = pipeline[28];
     wire trap = pipeline[29];
     wire [0:2] divide = pipeline[30:32];
-    wire uc_debug = pipeline[33];
-    wire [0:9] __unused = pipeline[34:43];
+    wire [0:1] multiply = pipeline[33:34];
+    wire uc_debug = pipeline[35];
+    wire [0:7] __unused = pipeline[36:43];
     wire [0:11] seq_address = pipeline[44:55];
     wire [0:7] _const8 = pipeline[48:55];
     
@@ -110,6 +112,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     localparam DIV_LOOP = 2;
     localparam DIV_POST = 3;
     localparam DIV_SAVE = 4;
+    localparam MUL_NONE = 0;
+    localparam MUL_PREP = 1;
+    localparam MUL_LOOP = 2;
+    localparam MUL_SAVE = 3;
 
     // ---- END Pipeline definitions DO NOT EDIT
 
@@ -158,6 +164,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
 
     reg [11:0] op_switch[0:127];
 
+    // Multiply logic
+    reg bc31;
+    reg [0:2] bpair;
+
     // Signals
 
     // Guideline #3: When modeling combinational logic with an "always" 
@@ -186,6 +196,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             c_in = memory_data_in;
             if (c[15:27] == 0) c_in = rr[c[28:31]];
         end
+        // Multiply logic
+        bpair = { 1'b0, b[32-4:32-3] } + { 2'b00, bc31 };
         // These cases must be at the end, as they depend on signals above!
         branch = 0;
         case (seq_condition)
@@ -226,6 +238,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             e <= 0;
             x <= 0;
             dw_lsb <= 0;
+            bc31 <= 0;
             pipeline <= 0;
         end else begin
             pipeline <= uc_rom_data;
@@ -339,6 +352,40 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                     rr[r] <= s; // remainder
                     rr[r|1] <= b; // quotient
                     //$display("quotient: %d, rem: %d", b, s);
+                end
+            endcase
+            case (multiply)
+                MUL_NONE: ; // do nothing
+                MUL_PREP: begin
+                    $display("%d x %d", rr[r], d);
+                    a <= 0;
+                    b <= rr[r];
+                    c <= d;
+                    case (rr[r] & 3)
+                        0: begin d <= 0; cs <= 0; bc31 <= 0; end
+                        1: begin d <= d; cs <= 0; bc31 <= 0; end
+                        2: begin d <= { d[1:32-1], 1'b0 }; cs <= 0; bc31 <= 0; end
+                        3: begin d <= ~d;  cs <= 1; bc31 <= 1; end
+                    endcase
+                    e <= (32 >> 1) - 1;
+                end
+                MUL_LOOP: begin
+                    //$display("count: %d, a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", count, a, b, d, cs, s, bpair, bc31);
+                    a <= { {2{s[0]}}, s[0:32-3] };
+                    b <= { s[32-2:32-1], b[0:32-3] };
+                    bc31 <= bpair[0];
+                    case (bpair & 3)
+                        0: begin d <= 0; cs <= 0; end
+                        1: begin d <= c; cs <= 0; end
+                        2: begin d <= { c[1:32-1], 1'b0 }; cs <= 0; end
+                        3: begin d <= ~c;  cs <= 1; end
+                    endcase
+                    e <= e - 1;
+                end
+                MUL_SAVE: begin
+                    $display("a:b %d:%d, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", a, b, d, cs, s, bpair, bc31);
+                    rr[r] <= a;
+                    rr[r | 1] <= b;
                 end
             endcase
             if (testa == 1) begin cc[3] <= (~a[0]) & (a != 0); cc[4] <= a[0]; end

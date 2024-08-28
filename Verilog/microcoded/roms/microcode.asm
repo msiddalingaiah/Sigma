@@ -18,8 +18,9 @@ field testa = 27:27;
 field wd_en = 28:28;
 field trap = 29:29;
 field divide = 30:32;
-field uc_debug = 33:33;
-field __unused = 34:43;
+field multiply = 33:34;
+field uc_debug = 35:35;
+field __unused = 36:43;
 field seq.address = 44:55;
 field _const8 = 48:55;
 
@@ -57,6 +58,10 @@ const DIV_PREP = 1;
 const DIV_LOOP = 2;
 const DIV_POST = 3;
 const DIV_SAVE = 4;
+const MUL_NONE = 0;
+const MUL_PREP = 1;
+const MUL_LOOP = 2;
+const MUL_SAVE = 3;
 
 # ---- END Pipeline definitions DO NOT EDIT
 
@@ -181,7 +186,11 @@ def main {
                 continue direct;
             }
             OP_MI: {
-                continue _trap;
+                # d has immediate value
+                multiply = MUL_PREP, px = PX_Q, if COND_C0_EQ_1 continue _trap;
+                do { multiply = MUL_LOOP; } while COND_E_NEQ_0;
+                multiply = MUL_SAVE, testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_SF: {
                 continue _trap;
@@ -246,7 +255,8 @@ def main {
                     sxop = SX_ADD, divide = DIV_LOOP;
                 } while COND_E_NEQ_0;
                 divide = DIV_POST;
-                divide = DIV_SAVE, ende = 1;
+                divide = DIV_SAVE, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_MW: {
                 continue _trap;

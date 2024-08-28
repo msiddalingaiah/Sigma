@@ -29,6 +29,9 @@ lp1     AI,1        1
         LW,9        pi_num
         DW,8        pi_den
 
+        LI,10       314
+        MI,10       113
+
         WAIT,0      0
 
 prnt    LI,2        0

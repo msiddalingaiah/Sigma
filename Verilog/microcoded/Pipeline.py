@@ -171,8 +171,9 @@ if __name__ == '__main__':
     fields['wd_en'] = 1
     fields['trap'] = 1
     fields['divide'] = 3
+    fields['multiply'] = 2
     fields['uc_debug'] = 1
-    fields['__unused'] = 10
+    fields['__unused'] = 8
     fields['seq_address'] = 12
 
     overlaps = {}
@@ -221,6 +222,11 @@ if __name__ == '__main__':
     constants['DIV_LOOP'] = 2
     constants['DIV_POST'] = 3
     constants['DIV_SAVE'] = 4
+
+    constants['MUL_NONE'] = 0
+    constants['MUL_PREP'] = 1
+    constants['MUL_LOOP'] = 2
+    constants['MUL_SAVE'] = 3
 
     p = Pipeline(width, fields, overlaps, constants)
     p.writeVerilog(sys.argv[1])
