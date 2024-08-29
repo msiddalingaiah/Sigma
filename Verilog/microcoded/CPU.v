@@ -244,21 +244,24 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             pipeline <= uc_rom_data;
             ia <= 0;
             if (ende == 1) begin
+                // ende entry: p contains next instruction byte address
                 `ifdef TRACE_I
                     $display("* Q %x: %x", q-1, c);
                     $display("  R0 %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
                     $display("  R8 %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
                 `endif
                 c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; x <= c_in[12:14]; p <= p + 4;
-                // immediate value
+                // immediate value is sign extended and stored in d
                 if (~c_in[3] & ~c_in[4] & ~c_in[5]) begin
                     d <= { {12{c_in[12]}}, c_in[12:31] };
                 end else if (c_in[0] == 1) begin
                     ia <= 1;
                 end
+                // ende exit: c: instruction word, d: instruction word or immediate value, r: register number,
+                // x: index register, p: next instruction byte address, ia: indirect flag
             end
             if (ia == 1) begin
-                c <= c_in; d <= c_in;
+                c <= c_in; d <= c_in; // indirect addressing mode: c, d contain indirect word, e.g. *c
             end
             case (ax)
                 AX_NONE: ; // do nothing

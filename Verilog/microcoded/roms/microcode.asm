@@ -73,6 +73,14 @@ def main {
     loop {
         sxop = SX_ADD; # Empty slot for indirect
         direct: ax = AX_RR, qx = QX_P, px = PX_D_INDX, romswitch ADDR_MUX_OPROM "roms/op_switch.txt" {
+            # a: contents of register r
+            # c: instruction word
+            # d: instruction word or immediate value
+            # o: opcode
+            # p: operand byte address
+            # q: next instruction word address
+            # r: register number
+            # x: index register number
             OP_NAO_00: {
                 continue _trap;
             }
@@ -170,23 +178,26 @@ def main {
                 continue _trap;
             }
             OP_AI: {
+                # a contains register value, d contains immediate value
                 sxop = SX_ADD, rrx = RRX_S;
                 px = PX_Q, ax = AX_S;
                 testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
                 continue direct;
             }
             OP_CI: {
-                # d has immediate value
-                continue _trap;
+                # a contains register value, d contains immediate value
+                px = PX_Q, sxop = SX_SUB, ax = AX_S;
+                testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_LI: { # 3-215
-                # d has immediate value
+                # a contains register value, d contains immediate value
                 px = PX_Q, sxop = SX_D, ax = AX_S, rrx = RRX_S, if COND_C0_EQ_1 continue _trap;
                 testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
                 continue direct;
             }
             OP_MI: {
-                # d has immediate value
+                # a contains register value, d contains immediate value
                 multiply = MUL_PREP, px = PX_Q, if COND_C0_EQ_1 continue _trap;
                 do { multiply = MUL_LOOP; } while COND_E_NEQ_0;
                 multiply = MUL_SAVE, testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
@@ -232,10 +243,13 @@ def main {
                 continue _trap;
             }
             OP_CW: {
-                continue _trap;
+                dx = DX_CIN; # p contains operand byte address, load operand value from memory into d
+                sxop = SX_SUB, ax = AX_S, px = PX_Q;
+                testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_LW: {
-                dx = DX_CIN;
+                dx = DX_CIN; # p contains operand byte address, load operand value from memory into d
                 sxop = SX_D, ax = AX_S, rrx = RRX_S, px = PX_Q;
                 testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
                 continue direct;

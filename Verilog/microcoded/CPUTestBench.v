@@ -52,7 +52,7 @@ module Memory(input wire clock, input wire [15:31] address, input wire write_en,
 endmodule
 
 module CPUTestBench;
-    localparam CYCLE_LIMIT = 1000;
+    localparam CYCLE_LIMIT = 1500;
     localparam TIME_LIMIT = 101*CYCLE_LIMIT;
 
     initial begin
@@ -65,7 +65,7 @@ module CPUTestBench;
         $readmemh("programs/init.txt", ram.ram_cells);
         $readmemh("roms/op_switch.txt", cpu.op_switch);
         #0 reset = 0; #25 reset = 1; #90 reset = 0;
-        #TIME_LIMIT $display("\nTime limit reached, possible infinite loop.");
+        #TIME_LIMIT $display("\Time limit reached, possible inifinite loop at 0x%4x", (cpu.p >> 2) - 1);
         cycles_per_inst = 100*cycle_count / instruction_count;
         $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
             cycle_count, instruction_count, cycles_per_inst/100);
@@ -87,14 +87,14 @@ module CPUTestBench;
     always @(posedge clock) begin
         cycle_count <= cycle_count + 1;
         if (cycle_count >= CYCLE_LIMIT) begin
-            $display("\nClock limit reached, possible inifinite loop.");
+            $display("\nClock limit reached, possible inifinite loop at 0x%4x", (cpu.p >> 2) - 1);
             cycles_per_inst = 100*cycle_count / instruction_count;
             $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
                 cycle_count, instruction_count, cycles_per_inst/100);
             $finish;
         end
         if (cpu.o == 46) begin
-            $display("\nCPU WAIT: execution terminated normally.");
+            $display("\nCPU WAIT: execution terminated normally at 0x%4x", (cpu.p >> 2) - 1);
             cycles_per_inst = 100*cycle_count / instruction_count;
             $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
                 cycle_count, instruction_count, cycles_per_inst/100);
