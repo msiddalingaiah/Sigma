@@ -33,7 +33,7 @@
 020 //   38: sxop=0, rrx=1, seq.op=0, seq.condition=0, seq.address=0, seq.address_mux=0
 024 //   42: px=2, sxop=1, ax=1, seq.op=0, seq.condition=0, seq.address=0, seq.address_mux=0
 027 //   45: px=2, sxop=2, ax=1, rrx=1, seq.condition=4, seq.address=137, seq.op=0, seq.address_mux=0; if condition[4] jump 137 (183)
-02a //   48: multiply=1, px=2, seq.condition=4, seq.address=134, seq.op=0, seq.address_mux=0; if condition[4] jump 134 (183)
+02a //   48: sxop=0, multiply=1, px=2, seq.condition=4, seq.address=134, seq.op=0, seq.address_mux=0; if condition[4] jump 134 (183)
 02e //   52: seq.op=1, seq.address=130, seq.condition=0, seq.address_mux=0; jump 130 (183)
 02f //   53: seq.op=1, seq.address=129, seq.condition=0, seq.address_mux=0; jump 129 (183)
 030 //   54: seq.op=1, seq.address=128, seq.condition=0, seq.address_mux=0; jump 128 (183)

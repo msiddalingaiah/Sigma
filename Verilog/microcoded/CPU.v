@@ -250,7 +250,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                     $display("  R0 %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
                     $display("  R8 %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
                 `endif
-                c <= c_in; d <= c_in; o <= c_in[1:7]; r <= c_in[8:11]; x <= c_in[12:14]; p <= p + 4;
+                c <= c_in; d <= c_in; o <= c_in[1:7]; cs <= 0;
+                r <= c_in[8:11]; x <= c_in[12:14]; p <= p + 4;
                 // immediate value is sign extended and stored in d
                 if (~c_in[3] & ~c_in[4] & ~c_in[5]) begin
                     d <= { {12{c_in[12]}}, c_in[12:31] };
@@ -360,7 +361,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             case (multiply)
                 MUL_NONE: ; // do nothing
                 MUL_PREP: begin
-                    $display("%d x %d", rr[r], d);
+                    //$display("%d x %d", rr[r], d);
                     a <= 0;
                     b <= rr[r];
                     c <= d;
@@ -373,7 +374,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                     e <= (32 >> 1) - 1;
                 end
                 MUL_LOOP: begin
-                    //$display("count: %d, a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", count, a, b, d, cs, s, bpair, bc31);
+                    //$display("e: %d, a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", e, a, b, d, cs, s, bpair, bc31);
                     a <= { {2{s[0]}}, s[0:32-3] };
                     b <= { s[32-2:32-1], b[0:32-3] };
                     bc31 <= bpair[0];
@@ -386,7 +387,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                     e <= e - 1;
                 end
                 MUL_SAVE: begin
-                    $display("a:b %d:%d, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", a, b, d, cs, s, bpair, bc31);
+                    //$display("a:b %d:%d, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", a, b, d, cs, s, bpair, bc31);
                     rr[r] <= a;
                     rr[r | 1] <= b;
                 end

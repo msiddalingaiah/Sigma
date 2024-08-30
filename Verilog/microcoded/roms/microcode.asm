@@ -198,8 +198,8 @@ def main {
             }
             OP_MI: {
                 # a contains register value, d contains immediate value
-                multiply = MUL_PREP, px = PX_Q, if COND_C0_EQ_1 continue _trap;
-                do { multiply = MUL_LOOP; } while COND_E_NEQ_0;
+                sxop = SX_ADD, multiply = MUL_PREP, px = PX_Q, if COND_C0_EQ_1 continue _trap;
+                do { sxop = SX_ADD, multiply = MUL_LOOP; } while COND_E_NEQ_0;
                 multiply = MUL_SAVE, testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
                 continue direct;
             }
