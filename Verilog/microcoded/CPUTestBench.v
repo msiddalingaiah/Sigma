@@ -94,7 +94,7 @@ module CPUTestBench;
             $finish;
         end
         if (cpu.o == 46) begin
-            $display("\nCPU WAIT: execution terminated normally at 0x%4x", (cpu.p >> 2) - 1);
+            $display("\nCPU WAIT: execution terminated at 0x%4x", (cpu.p >> 2) - 1);
             cycles_per_inst = 100*cycle_count / instruction_count;
             $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
                 cycle_count, instruction_count, cycles_per_inst/100);

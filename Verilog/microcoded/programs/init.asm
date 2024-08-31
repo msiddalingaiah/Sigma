@@ -35,6 +35,14 @@ lp1     AI,1        1
         LI,10       113
         MI,10       31415
         CW,11       mi_1
+        BCR,3       test_mw
+        LI,0        test_fail_msg
+        BAL,15      prnt
+        WAIT,0      0
+
+test_mw    LI,10       113
+        MW,10       pi
+        CW,11       mi_1
         BCR,3       end1
         LI,0        test_fail_msg
         BAL,15      prnt
@@ -63,3 +71,4 @@ pi_num    GEN,32      355000000
 pi_den    GEN,32      113
 cw_1      GEN,32      0x1ffff
 mi_1      GEN,32      113*31415
+pi        GEN,32      31415

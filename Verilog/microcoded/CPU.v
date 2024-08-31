@@ -369,20 +369,20 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                     case (rr[r] & 3)
                         0: begin d <= 0; cs <= 0; end
                         1: begin d <= d; cs <= 0; end
-                        2: begin d <= { d[1:32-1], 1'b0 }; cs <= 0; end
+                        2: begin d <= { d[1:31], 1'b0 }; cs <= 0; end
                         3: begin d <= ~d;  cs <= 1; bc31 <= 1; end
                     endcase
                     e <= (32 >> 1) - 1;
                 end
                 MUL_LOOP: begin
                     // $display("e: %d, a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", e, a, b, d, cs, s, bpair, bc31);
-                    a <= { {2{s[0]}}, s[0:32-3] };
-                    b <= { s[32-2:32-1], b[0:32-3] };
+                    a <= { {2{s[0]}}, s[0:29] };
+                    b <= { s[30:31], b[0:29] };
                     bc31 <= bpair[0] | (bpair[1] & bpair[2]);
                     case (bpair & 3)
                         0: begin d <= 0; cs <= 0; end
                         1: begin d <= c; cs <= 0; end
-                        2: begin d <= { c[1:32-1], 1'b0 }; cs <= 0; end
+                        2: begin d <= { c[1:31], 1'b0 }; cs <= 0; end
                         3: begin d <= ~c;  cs <= 1; end
                     endcase
                     e <= e - 1;

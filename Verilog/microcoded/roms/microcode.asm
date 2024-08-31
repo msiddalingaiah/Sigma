@@ -273,7 +273,11 @@ def main {
                 continue direct;
             }
             OP_MW: {
-                continue _trap;
+                dx = DX_CIN; # p contains operand byte address, load operand value from memory into d
+                sxop = SX_ADD, multiply = MUL_PREP, px = PX_Q;
+                do { sxop = SX_ADD, multiply = MUL_LOOP; } while COND_E_NEQ_0;
+                multiply = MUL_SAVE, testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_SW: {
                 continue _trap;
