@@ -173,7 +173,8 @@ if __name__ == '__main__':
     fields['divide'] = 3
     fields['multiply'] = 2
     fields['uc_debug'] = 1
-    fields['__unused'] = 8
+    fields['write_size'] = 2
+    fields['__unused'] = 6
     fields['seq_address'] = 12
 
     overlaps = {}
@@ -182,17 +183,19 @@ if __name__ == '__main__':
     constants = {}
     constants['SX_ADD'] = 0
     constants['SX_SUB'] = 1
-    constants['SX_D'] = 2
+    constants['SX_A'] = 2
+    constants['SX_D'] = 3
 
     constants['AX_NONE'] = 0
     constants['AX_S'] = 1
     constants['AX_RR'] = 2
 
     constants['DX_NONE'] = 0
-    constants['DX_1'] = 1
-    constants['DX_CINB'] = 2
-    constants['DX_CINH'] = 3
-    constants['DX_CIN'] = 4
+    constants['DX_0'] = 1
+    constants['DX_1'] = 2
+    constants['DX_CINB'] = 3
+    constants['DX_CINH'] = 4
+    constants['DX_CIN'] = 5
 
     constants['PX_NONE'] = 0
     constants['PX_D_INDX'] = 1
@@ -227,6 +230,11 @@ if __name__ == '__main__':
     constants['MUL_PREP'] = 1
     constants['MUL_LOOP'] = 2
     constants['MUL_SAVE'] = 3
+
+    constants['WR_NONE'] = 0
+    constants['WR_BYTE'] = 1
+    constants['WR_HALF'] = 2
+    constants['WR_WORD'] = 3
 
     p = Pipeline(width, fields, overlaps, constants)
     p.writeVerilog(sys.argv[1])

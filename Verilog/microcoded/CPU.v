@@ -16,7 +16,8 @@ endmodule
 /*
 Memory is word addressed, 17 bits
 */
-module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in, output wire [15:31] memory_address);
+module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
+    output wire [15:31] memory_address, output reg [0:31] memory_data_out, output reg [0:3] wr_enables);
     assign memory_address = lb;
 
     // Microcode sequencer
@@ -53,7 +54,8 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     //                                  || - multiply[33:34] 2 bits
     //                                    | - uc_debug[35]
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                                     |______| - __unused[36:43] 8 bits
+    //                                     || - write_size[36:37] 2 bits
+    //                                       |____| - __unused[38:43] 6 bits
     //                                             |__________| - seq_address[44:55] 12 bits
     //                                                 |______| - _const8[48:55] 8 bits
 
@@ -74,21 +76,24 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     wire [0:2] divide = pipeline[30:32];
     wire [0:1] multiply = pipeline[33:34];
     wire uc_debug = pipeline[35];
-    wire [0:7] __unused = pipeline[36:43];
+    wire [0:1] write_size = pipeline[36:37];
+    wire [0:5] __unused = pipeline[38:43];
     wire [0:11] seq_address = pipeline[44:55];
     wire [0:7] _const8 = pipeline[48:55];
     
     localparam SX_ADD = 0;
     localparam SX_SUB = 1;
-    localparam SX_D = 2;
+    localparam SX_A = 2;
+    localparam SX_D = 3;
     localparam AX_NONE = 0;
     localparam AX_S = 1;
     localparam AX_RR = 2;
     localparam DX_NONE = 0;
-    localparam DX_1 = 1;
-    localparam DX_CINB = 2;
-    localparam DX_CINH = 3;
-    localparam DX_CIN = 4;
+    localparam DX_0 = 1;
+    localparam DX_1 = 2;
+    localparam DX_CINB = 3;
+    localparam DX_CINH = 4;
+    localparam DX_CIN = 5;
     localparam PX_NONE = 0;
     localparam PX_D_INDX = 1;
     localparam PX_Q = 2;
@@ -116,6 +121,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     localparam MUL_PREP = 1;
     localparam MUL_LOOP = 2;
     localparam MUL_SAVE = 3;
+    localparam WR_NONE = 0;
+    localparam WR_BYTE = 1;
+    localparam WR_HALF = 2;
+    localparam WR_WORD = 3;
 
     // ---- END Pipeline definitions DO NOT EDIT
 
@@ -185,6 +194,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
         case (sxop)
             SX_ADD: s = a+d+cs;
             SX_SUB: s = a-d;
+            SX_A: s = a;
             SX_D: s = d;
         endcase
         if (ia == 0) begin
@@ -240,8 +250,10 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             dw_lsb <= 0;
             bc31 <= 0;
             pipeline <= 0;
+            wr_enables <= 0;
         end else begin
             pipeline <= uc_rom_data;
+            wr_enables <= 0;
             ia <= 0;
             if (ende == 1) begin
                 // ende entry: p contains next instruction byte address
@@ -271,6 +283,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             endcase
             case (dx)
                 DX_NONE: ; // do nothing
+                DX_0: d <= 32'h0;
                 DX_1: d <= 32'h1;
                 DX_CINB:
                     case (p[32:33])
@@ -311,6 +324,22 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             case (qx)
                 QX_NONE: ; // do nothing
                 QX_P: q <= p[15:31];
+            endcase
+            case (write_size)
+                WR_NONE: ;
+                WR_BYTE:
+                    case (p[32:33])
+                        0: begin memory_data_out <= { s[24:31], 24'd0 }; wr_enables <= 4'b1000; end
+                        1: begin memory_data_out <= { 8'd0, s[24:31], 16'd0 }; wr_enables <= 4'b0100; end
+                        2: begin memory_data_out <= { 16'd0, s[24:31], 8'd0 }; wr_enables <= 4'b0010; end
+                        3: begin memory_data_out <= { 24'd0, s[24:31] }; wr_enables <= 4'b0001; end
+                    endcase
+                WR_HALF: ;
+                WR_WORD:
+                    begin
+                        memory_data_out <= s;
+                        wr_enables <= 4'b1111;
+                    end
             endcase
             case (divide)
                 DIV_NONE: ; // do nothing

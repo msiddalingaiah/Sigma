@@ -20,21 +20,24 @@ field trap = 29:29;
 field divide = 30:32;
 field multiply = 33:34;
 field uc_debug = 35:35;
-field __unused = 36:43;
+field write_size = 36:37;
+field __unused = 38:43;
 field seq.address = 44:55;
 field _const8 = 48:55;
 
 const SX_ADD = 0;
 const SX_SUB = 1;
-const SX_D = 2;
+const SX_A = 2;
+const SX_D = 3;
 const AX_NONE = 0;
 const AX_S = 1;
 const AX_RR = 2;
 const DX_NONE = 0;
-const DX_1 = 1;
-const DX_CINB = 2;
-const DX_CINH = 3;
-const DX_CIN = 4;
+const DX_0 = 1;
+const DX_1 = 2;
+const DX_CINB = 3;
+const DX_CINH = 4;
+const DX_CIN = 5;
 const PX_NONE = 0;
 const PX_D_INDX = 1;
 const PX_Q = 2;
@@ -62,6 +65,10 @@ const MUL_NONE = 0;
 const MUL_PREP = 1;
 const MUL_LOOP = 2;
 const MUL_SAVE = 3;
+const WR_NONE = 0;
+const WR_BYTE = 1;
+const WR_HALF = 2;
+const WR_WORD = 3;
 
 # ---- END Pipeline definitions DO NOT EDIT
 
@@ -261,7 +268,11 @@ def main {
                 continue _trap;
             }
             OP_STW: {
-                continue _trap;
+                # p contains operand word address, a contains rr[r]
+                sxop = SX_A, write_size = WR_WORD;
+                px = PX_Q;
+                ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_DW: {
                 divide = DIV_PREP, px = PX_Q;
@@ -503,7 +514,11 @@ def main {
                 continue _trap;
             }
             OP_STB: {
-                continue _trap;
+                # p contains operand byte address, a contains rr[r]
+                sxop = SX_A, write_size = WR_BYTE;
+                px = PX_Q;
+                ende = 1, if COND_CIN0_EQ_0 continue direct;
+                continue direct;
             }
             OP_PACK: {
                 continue _trap;

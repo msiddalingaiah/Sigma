@@ -45,12 +45,43 @@ test_mi    LI,10       113
 test_mw    LI,10       113
         MW,10       GEN32(31415)
         CW,11       GEN32(113*31415)
-        BCR,3       end1
+        BCR,3       test_stw1
         LI,0        TEXTC("MW Failed.\n")
         BAL,15      puts
         WAIT,0      0
 
-end1    LI,0        TEXTC("All tests pass!\n")
+test_stw1:    LI,0    0
+        CW,0        temp
+        BCR,3       test_stw2
+        LI,0        TEXTC("STW1 Failed.\n")
+        BAL,15      puts
+        WAIT,0      0
+
+test_stw2:    LI,0    0x1234
+        STW,0       temp
+        CW,0        temp
+        BCR,3       test_stb1
+        LI,0        TEXTC("STW2 Failed.\n")
+        BAL,15      puts
+        WAIT,0      0
+
+test_stb1:    LI,1        1
+        LI,0        'A'
+        STB,0       pass,1
+        LI,0        0xff
+        LI,1        0
+        STB,0       temp,1
+        AI,1        1
+        LI,0        0xfe
+        STB,0       temp,1
+        LI,0        0xe1234
+        CW,0        temp
+        BCR,3       end1
+        LI,0        TEXTC("STB Failed.\n")
+        BAL,15      puts
+        WAIT,0      0
+
+end1    LI,0        pass
         BAL,15      puts
         WAIT,0      0
 
@@ -62,3 +93,6 @@ p0      LB,1        *0,2
         WD,1        0
         BDR,3       p0
         BCR,0       *15
+
+temp    GEN,32      0
+pass    TEXTC       " ll tests pass!\n"
