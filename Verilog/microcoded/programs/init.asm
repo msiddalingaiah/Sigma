@@ -32,8 +32,8 @@ lp1     AI,1        1
         LW,9        pi_num
         DW,8        pi_den
 
-        LI,10       1000
-        MI,10       1
+        LI,10       113
+        MI,10       31415
         CW,11       mi_1
         BCR,3       end1
         LI,0        test_fail_msg
@@ -62,4 +62,4 @@ pass_msg    TEXTC    "All tests pass!\n"
 pi_num    GEN,32      355000000
 pi_den    GEN,32      113
 cw_1      GEN,32      0x1ffff
-mi_1      GEN,32      1*1000
+mi_1      GEN,32      113*31415

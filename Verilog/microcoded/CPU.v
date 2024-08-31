@@ -197,7 +197,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             if (c[15:27] == 0) c_in = rr[c[28:31]];
         end
         // Multiply logic
-        bpair = { 1'b0, b[32-4:32-3] } + { 2'b00, bc31 };
+        bpair = { 1'b0, b[28:29] } + { 2'b00, bc31 };
         // These cases must be at the end, as they depend on signals above!
         branch = 0;
         case (seq_condition)
@@ -361,23 +361,24 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             case (multiply)
                 MUL_NONE: ; // do nothing
                 MUL_PREP: begin
-                    //$display("%d x %d", rr[r], d);
+                    // $display("%d x %d", rr[r], d);
                     a <= 0;
                     b <= rr[r];
                     c <= d;
+                    bc31 <= 0;
                     case (rr[r] & 3)
-                        0: begin d <= 0; cs <= 0; bc31 <= 0; end
-                        1: begin d <= d; cs <= 0; bc31 <= 0; end
-                        2: begin d <= { d[1:32-1], 1'b0 }; cs <= 0; bc31 <= 0; end
+                        0: begin d <= 0; cs <= 0; end
+                        1: begin d <= d; cs <= 0; end
+                        2: begin d <= { d[1:32-1], 1'b0 }; cs <= 0; end
                         3: begin d <= ~d;  cs <= 1; bc31 <= 1; end
                     endcase
                     e <= (32 >> 1) - 1;
                 end
                 MUL_LOOP: begin
-                    //$display("e: %d, a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", e, a, b, d, cs, s, bpair, bc31);
+                    // $display("e: %d, a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", e, a, b, d, cs, s, bpair, bc31);
                     a <= { {2{s[0]}}, s[0:32-3] };
                     b <= { s[32-2:32-1], b[0:32-3] };
-                    bc31 <= bpair[0];
+                    bc31 <= bpair[0] | (bpair[1] & bpair[2]);
                     case (bpair & 3)
                         0: begin d <= 0; cs <= 0; end
                         1: begin d <= c; cs <= 0; end
@@ -387,7 +388,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                     e <= e - 1;
                 end
                 MUL_SAVE: begin
-                    //$display("a:b %d:%d, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", a, b, d, cs, s, bpair, bc31);
+                    // $display("a:b %d:%d, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", a, b, d, cs, s, bpair, bc31);
                     rr[r] <= a;
                     rr[r | 1] <= b;
                 end
