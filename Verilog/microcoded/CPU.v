@@ -366,7 +366,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                     b <= rr[r];
                     c <= d;
                     bc31 <= 0;
-                    case (rr[r] & 3)
+                    case (rr[r][30:31])
                         0: begin d <= 0; cs <= 0; end
                         1: begin d <= d; cs <= 0; end
                         2: begin d <= { d[1:31], 1'b0 }; cs <= 0; end

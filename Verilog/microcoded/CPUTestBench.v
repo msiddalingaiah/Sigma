@@ -27,13 +27,15 @@ endmodule
 module Memory(input wire clock, input wire [15:31] address, input wire write_en, input wire [0:31] data_in,
     output reg [0:31] data_out);
 
-    parameter ADDRESS_MASK = 17'h7f;
+    localparam MAX_WORD_LEN = 17'd1024;
+    // This only works if MAX_WORD_LEN is one less than a power of two
+    localparam ADDRESS_MASK = MAX_WORD_LEN-1;
 
-    reg [0:31] ram_cells[0:127];
+    reg [0:31] ram_cells[0:MAX_WORD_LEN-1];
 
     integer i;
     initial begin
-        for (i=0; i<128; i=i+1) ram_cells[i] = 32'h00000000;
+        for (i=0; i<MAX_WORD_LEN-1; i=i+1) ram_cells[i] = 32'h00000000;
     end
 
     always @(*) begin

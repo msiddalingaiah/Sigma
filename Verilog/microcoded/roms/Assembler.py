@@ -149,20 +149,92 @@ class AParser(object):
             t = self.sc.terminal
             t.value = self.escape(t.value[1:-1])
             return Tree(t)
-        return Tree(self.sc.expect('ID'))
+        tree = Tree(self.sc.expect('ID'))
+        if self.sc.matches('('):
+            if self.sc.matches(')'):
+                return tree
+            tree.add(self.parseExp())
+            while self.sc.matches(','):
+                tree.add(self.parseExp())
+            self.sc.expect(')')
+        return tree
 
+class TextCLiteral(object):
+    def __init__(self, value, line):
+        self.value = value
+        self.line = line
+        self.pc = 0
+
+    def getNextPC(self, pc):
+        self.pc = pc
+        return pc + ((len(self.value) + 4) >> 2)
+
+    def getWords(self):
+        length = len(self.value)
+        padLen = (4 - ((len(self.value)+1) & 3)) & 3
+        value = self.value + (' '*(padLen))
+        words = []
+        words.append(f'{length:02x}{ord(value[0]):02x}{ord(value[1]):02x}{ord(value[2]):02x} // {self.pc:04x} {self.line}')
+        i = 3
+        while i < length:
+            words.append(f'{ord(value[i+0]):02x}{ord(value[i+1]):02x}{ord(value[i+2]):02x}{ord(value[i+3]):02x}')
+            i += 4
+        return words
+    
+    def __len__(self):
+        return len(self.value)
+
+class GEN32Literal(object):
+    def __init__(self, value, line):
+        self.value = value
+        self.line = line
+        self.pc = 0
+
+    def getNextPC(self, pc):
+        self.pc = pc
+        return pc + 1
+
+    def getWords(self):
+        return [f'{self.value:08x} // {self.pc:04x} {self.line}']
+    
 class Defines(object):
     def __init__(self):
         self.constants = {}
+        self.literals = {}
+        self.unescape_chars = {}
+        for key, value in ESCAPE_CHARS.items():
+            self.unescape_chars[value] = key
 
-    def eval(self, tree):
+    def eval(self, tree, ignore_constants=False):
         if tree.value.name == 'INT':
             return tree.value.value
         if tree.value.name == 'ID':
             name = tree.value.value
+            if name.upper() == 'TEXTC':
+                if len(tree) != 1 or tree[0].value.name != '"':
+                    raise Exception(f"line {tree.value.lineNumber}, exactly one string argument expected")
+                text = tree[0].value.value
+                if text in self.literals:
+                    return self.literals[text].pc
+                utext = self.unescape(text)
+                self.literals[text] = TextCLiteral(text, f'    TEXTC    "{utext}" ; Generated constant')
+                return 0
+            if name.upper() == 'GEN32':
+                if len(tree) != 1:
+                    raise Exception(f"line {tree.value.lineNumber}, exactly one integer argument expected")
+                value = self.eval(tree[0])
+                if value in self.literals:
+                    return self.literals[value].pc
+                self.literals[value] = GEN32Literal(value, f'    GEN,32    {value} ; Generated constant')
+                return 0
+            if ignore_constants:
+                return
+            if len(tree) != 0:
+                raise Exception(f"line {tree.value.lineNumber}, No such function '{name}'")
             if name not in self.constants:
                 raise Exception(f"line {tree.value.lineNumber}, No such constant '{name}'")
             return self.constants[name]
+
         op = tree.value.name
         a = self.eval(tree.children[0])
         if op == 'NEG':
@@ -177,6 +249,15 @@ class Defines(object):
         if op == '/':
             return a / b
         raise Exception(f"line {tree.value.lineNumber}, Unknown operator '{op}'")
+
+    def unescape(self, string):
+        result = ''
+        for c in string:
+            if c in self.unescape_chars:
+                result += '\\' + self.unescape_chars[c]
+            else:
+                result += c
+        return result
 
 class Directive(object):
     def __init__(self, defs, line, tree, lineNumber, pc):
@@ -234,23 +315,14 @@ class TextC(Directive):
         af = tree[2]
         if len(af) != 1 or af[0].value.name != '"':
             raise Exception(f'line {lineNumber}: one string argument expected')
-        self.value = tree[2][0].value.value
+        self.literal = TextCLiteral(tree[2][0].value.value, line)
 
     def getNextPC(self):
         self.setLabels()
-        return self.pc + ((len(self.value) + 4) >> 2)
+        return self.literal.getNextPC(self.pc)
 
     def getWords(self):
-        length = len(self.value)
-        padLen = (4 - ((len(self.value)+1) & 3)) & 3
-        value = self.value + (' '*(padLen))
-        words = []
-        words.append(f'{length:02x}{ord(value[0]):02x}{ord(value[1]):02x}{ord(value[2]):02x} // {self.pc:04x} {self.line}')
-        i = 3
-        while i < length:
-            words.append(f'{ord(value[i+0]):02x}{ord(value[i+1]):02x}{ord(value[i+2]):02x}{ord(value[i+3]):02x}')
-            i += 4
-        return words
+        return self.literal.getWords()
 
 class GEN(Directive):
     def __init__(self, defs, line, tree, lineNumber, pc):
@@ -287,6 +359,16 @@ class GEN(Directive):
 class Instruction(Directive):
     def __init__(self, defs, line, tree, lineNumber, pc):
         super().__init__(defs, line, tree, lineNumber, pc)
+        af = self.tree[2]
+        index = 0
+        if index >= len(af):
+            raise Exception(f'line {self.lineNumber}: missing address')
+        if af[index].value.name == '*':
+            index += 1
+        if index >= len(af):
+            raise Exception(f'line {self.lineNumber}: missing address')
+        # Define implicit literal if it exists
+        self.defs.eval(af[index], ignore_constants=True)
 
     def getNextPC(self):
         self.setLabels()
@@ -302,13 +384,9 @@ class Instruction(Directive):
 
         af = self.tree[2]
         index = 0
-        if index >= len(af):
-            raise Exception(f'line {self.lineNumber}: missing address')
         if af[index].value.name == '*':
             word |= 0x80000000
             index += 1
-        if index >= len(af):
-            raise Exception(f'line {self.lineNumber}: missing address')
         addr = self.defs.eval(af[index])
         index += 1
         word |= addr & 0x1ffff
@@ -321,14 +399,18 @@ class Instruction(Directive):
 class ImmInstruction(Instruction):
     def __init__(self, defs, line, tree, lineNumber, pc):
         super().__init__(defs, line, tree, lineNumber, pc)
-
-    def getWords(self):
         cf = self.tree[1]
         if len(cf) != 2:
             raise Exception(f'line: {self.lineNumber}: One register is required.')
         af = self.tree[2]
         if len(af) != 1:
             raise Exception(f'line: {self.lineNumber}: One operand is required.')
+        # Define implicit literal if it exists
+        self.defs.eval(af[0], ignore_constants=True)
+
+    def getWords(self):
+        cf = self.tree[1]
+        af = self.tree[2]
         op = OPCODE_MAP[cf[0].value.value]
         reg = self.defs.eval(cf[1])
         arg = self.defs.eval(af[0])
@@ -348,26 +430,28 @@ class ORG(Directive):
             self.defs.constants[label] = self.pc
         return self.pc
 
-MAX_WORD_LEN = 128
+MAX_WORD_LEN = 1024
 
 class Assembler(object):
     def __init__(self):
         self.defs = Defines()
+        self.genList = []
+        self.parser = AParser()
     
     def parse(self, fasm):
-        p = AParser()
-        self.genList = []
         pc = 0
         with open(fasm) as f:
             lines = f.readlines()
             for lineNumber, line in enumerate(lines):
                 lineNumber += 1
                 line = line.replace('\n', '')
-                tree = p.parse(line, lineNumber)
+                tree = self.parser.parse(line, lineNumber)
                 if len(tree) >= 3:
                     gen = Directive.new(self.defs, line, tree, lineNumber, pc)
                     pc = gen.getNextPC()
                     self.genList.append(gen)
+        for key, literal in self.defs.literals.items():
+            pc = literal.getNextPC(pc)
 
     def write(self, fout):
         outputWords = ['00000000']*MAX_WORD_LEN
@@ -375,6 +459,10 @@ class Assembler(object):
             words = gen.getWords()
             for i, w in enumerate(words):
                 outputWords[gen.pc + i] = w
+        for key, literal in self.defs.literals.items():
+            words = literal.getWords()
+            for i, w in enumerate(words):
+                outputWords[literal.pc + i] = w
         with open(fout, 'wt') as f:
             for word in outputWords:
                 f.write(word + '\n')
