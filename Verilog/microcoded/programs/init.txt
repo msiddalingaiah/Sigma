@@ -35,13 +35,13 @@
 00000000
 00000000
 00000000
-22000050 // 0025         LI,0        TEXTC("Call me Ishmael...\n")
-6af00048 // 0026         BAL,15      prnt
+2200005a // 0025         LI,0        TEXTC("Call me Ishmael...\n")
+6af00052 // 0026         BAL,15      puts
 2211ffff // 0027         LI,1        0x1ffff
-31100055 // 0028         CW,1        GEN32(0x1ffff)
+3110005f // 0028         CW,1        GEN32(0x1ffff)
 6830002d // 0029         BCR,3       ci_pass
-22000056 // 002a         LI,0        TEXTC("CW failed.\n")
-6af00048 // 002b         BAL,15      prnt
+22000060 // 002a         LI,0        TEXTC("CW failed.\n")
+6af00052 // 002b         BAL,15      puts
 2e000000 // 002c         WAIT,0      0
 22100030 // 002d ci_pass    GEN,1,7,4,20      0, 0x22, 1, '0'
 22300009 // 002e         LI,3        9
@@ -51,80 +51,80 @@
 2210000a // 0032         LI,1        '\n'
 6d100000 // 0033         WD,1        0
 22800000 // 0034         LI,8        0
-32900059 // 0035         LW,9        GEN32(355000000)
-3680005a // 0036         DW,8        GEN32(113)
-22a00071 // 0037         LI,10       113
-23a07ab7 // 0038         MI,10       31415
-31b0005b // 0039         CW,11       GEN32(113*31415)
-6830003e // 003a         BCR,3       test_mw
-2200005c // 003b         LI,0        TEXTC("MI Failed.\n")
-6af00048 // 003c         BAL,15      prnt
-2e000000 // 003d         WAIT,0      0
-22a00071 // 003e test_mw    LI,10       113
-37a0005f // 003f         MW,10       GEN32(31415)
-31b0005b // 0040         CW,11       GEN32(113*31415)
-68300045 // 0041         BCR,3       end1
-2200005c // 0042         LI,0        TEXTC("MI Failed.\n")
-6af00048 // 0043         BAL,15      prnt
-2e000000 // 0044         WAIT,0      0
-22000060 // 0045 end1    LI,0        TEXTC("All tests pass!\n")
-6af00048 // 0046         BAL,15      prnt
+32900063 // 0035         LW,9        GEN32(355000000)
+36800064 // 0036         DW,8        GEN32(113)
+21800068 // 0037         CI,8        104
+6830003c // 0038         BCR,3       test_q
+22000065 // 0039         LI,0        TEXTC("DW Remainder failed.\n")
+6af00052 // 003a         BAL,15      puts
+2e000000 // 003b         WAIT,0      0
+3190006b // 003c test_q    CW,9        GEN32(3141592)
+68300041 // 003d         BCR,3       test_mi
+2200006c // 003e         LI,0        TEXTC("DW quotient failed.\n")
+6af00052 // 003f         BAL,15      puts
+2e000000 // 0040         WAIT,0      0
+22a00071 // 0041 test_mi    LI,10       113
+23a07ab7 // 0042         MI,10       31415
+31b00072 // 0043         CW,11       GEN32(113*31415)
+68300048 // 0044         BCR,3       test_mw
+22000073 // 0045         LI,0        TEXTC("MI Failed.\n")
+6af00052 // 0046         BAL,15      puts
 2e000000 // 0047         WAIT,0      0
-22200000 // 0048 prnt    LI,2        0
-f2340000 // 0049         LB,3        *0,2
-20200001 // 004a         AI,2        1
-f2140000 // 004b p0      LB,1        *0,2
-20200001 // 004c         AI,2        1
-6d100000 // 004d         WD,1        0
-6430004b // 004e         BDR,3       p0
-e800000f // 004f         BCR,0       *15
-1343616c // 0050     TEXTC    "Call me Ishmael...\n" ; Generated constant
+22a00071 // 0048 test_mw    LI,10       113
+37a00076 // 0049         MW,10       GEN32(31415)
+31b00072 // 004a         CW,11       GEN32(113*31415)
+6830004f // 004b         BCR,3       end1
+22000077 // 004c         LI,0        TEXTC("MW Failed.\n")
+6af00052 // 004d         BAL,15      puts
+2e000000 // 004e         WAIT,0      0
+2200007a // 004f end1    LI,0        TEXTC("All tests pass!\n")
+6af00052 // 0050         BAL,15      puts
+2e000000 // 0051         WAIT,0      0
+22200000 // 0052 puts    LI,2        0
+f2340000 // 0053         LB,3        *0,2
+20200001 // 0054         AI,2        1
+f2140000 // 0055 p0      LB,1        *0,2
+20200001 // 0056         AI,2        1
+6d100000 // 0057         WD,1        0
+64300055 // 0058         BDR,3       p0
+e800000f // 0059         BCR,0       *15
+1343616c // 005a     TEXTC    "Call me Ishmael...\n" ; Generated constant
 6c206d65
 20497368
 6d61656c
 2e2e2e0a
-0001ffff // 0055     GEN,32    131071 ; Generated constant
-0b435720 // 0056     TEXTC    "CW failed.\n" ; Generated constant
+0001ffff // 005f     GEN,32    131071 ; Generated constant
+0b435720 // 0060     TEXTC    "CW failed.\n" ; Generated constant
 6661696c
 65642e0a
-1528dec0 // 0059     GEN,32    355000000 ; Generated constant
-00000071 // 005a     GEN,32    113 ; Generated constant
-00362ac7 // 005b     GEN,32    3549895 ; Generated constant
-0b4d4920 // 005c     TEXTC    "MI Failed.\n" ; Generated constant
+1528dec0 // 0063     GEN,32    355000000 ; Generated constant
+00000071 // 0064     GEN,32    113 ; Generated constant
+15445720 // 0065     TEXTC    "DW Remainder failed.\n" ; Generated constant
+52656d61
+696e6465
+72206661
+696c6564
+2e0a2020
+002fefd8 // 006b     GEN,32    3141592 ; Generated constant
+14445720 // 006c     TEXTC    "DW quotient failed.\n" ; Generated constant
+71756f74
+69656e74
+20666169
+6c65642e
+0a202020
+00362ac7 // 0072     GEN,32    3549895 ; Generated constant
+0b4d4920 // 0073     TEXTC    "MI Failed.\n" ; Generated constant
 4661696c
 65642e0a
-00007ab7 // 005f     GEN,32    31415 ; Generated constant
-10416c6c // 0060     TEXTC    "All tests pass!\n" ; Generated constant
+00007ab7 // 0076     GEN,32    31415 ; Generated constant
+0b4d5720 // 0077     TEXTC    "MW Failed.\n" ; Generated constant
+4661696c
+65642e0a
+10416c6c // 007a     TEXTC    "All tests pass!\n" ; Generated constant
 20746573
 74732070
 61737321
 0a202020
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
 00000000
 00000000
 00000000

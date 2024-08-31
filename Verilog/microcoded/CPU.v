@@ -355,7 +355,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 DIV_SAVE: begin
                     rr[r] <= s; // remainder
                     rr[r|1] <= b; // quotient
-                    //$display("quotient: %d, rem: %d", b, s);
+                    // $display("quotient: %d, rem: %d", b, s);
                 end
             endcase
             case (multiply)
