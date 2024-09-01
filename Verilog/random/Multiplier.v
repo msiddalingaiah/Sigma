@@ -11,24 +11,32 @@ $ vvp vcd/Multiplier
 This is the equivalent algorithm in Python:
 
 def bit_pair_multiply(x, y, num_bits=8):
-  C_map = [0, x << num_bits, x << (num_bits+1), (~x) << num_bits]
-  CS_map = [0, 0, 0, 1 << num_bits]
-  A_B = y
-  a_mask = ~(-1 << (num_bits+num_bits))
-  n = num_bits >> 1
-  bc31 = 0
-  if y & 3 == 3:
-    bc31 = 1
+  C_map = [0, x, x << 1, ~x]
+  CS_map = [0, 0, 0, 1]
+  A = 0
+  B = y
+  bc31 = int(y & 3 == 3)
   D = C_map[y & 3]
   CS = CS_map[y & 3]
-  for i in range(n):
-    S = A_B + D + CS
-    A_B = S >> 2
-    bpair = ((S >> 2) & 0x3) + bc31
-    bc31 = bpair >> 2
+  S = A + D + CS
+  for i in range(num_bits >> 1):
+    S = A + D + CS
+    bpair = ((B >> 2) & 0x3) + bc31
+    # print intermediate values here for debugging
+    A = S >> 2
+    B = ((S & 3) << num_bits-2) | (B >> 2)
     D = C_map[bpair & 3]
     CS = CS_map[bpair & 3]
-  return A_B & a_mask
+    bc31 = (bpair >> 2) | ((bpair & 3) == 3)
+  return (A << num_bits) | B
+
+Intermediate values for bit_pair_multiply(x, y, 8):
+
+ E  A  B  D CS  S bpair bc31
+15  0  b fe  1 ff     3    1
+14 ff c2 fe  1 fe     1    1
+13 ff b0  1  0  0     0    0
+12  0 2c  0  0  0     3    0
 
  */
 
