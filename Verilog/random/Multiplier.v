@@ -8,35 +8,38 @@ It compiles and simulates in Icarus Verilog:
 $ iverilog -o vcd/Multiplier Multiplier.v
 $ vvp vcd/Multiplier
 
-This is the equivalent algorithm in Python:
+Below is the equivalent algorithm in Python.
+* A, B form a double word containing the partial product, B initially contains the multiplicand
+* For each iteration of half the number of bits:
+** Add 0, x, 2x, -x to A, depending on the LSB bit pair of B
+** Propagate bit pair carry (bc31) to to the next bit pair
+** Shift A:B two bits to the right
+* Product is is A:B
 
 def bit_pair_multiply(x, y, num_bits=8):
-  C_map = [0, x, x << 1, ~x]
-  CS_map = [0, 0, 0, 1]
-  A = 0
-  B = y
+  C_map = [0, x, x << 1, -x]
+  A, B, D = 0, y, C_map[y & 3]
   bc31 = int(y & 3 == 3)
-  D = C_map[y & 3]
-  CS = CS_map[y & 3]
-  S = A + D + CS
   for i in range(num_bits >> 1):
-    S = A + D + CS
+    S = A + D
     bpair = ((B >> 2) & 0x3) + bc31
     # print intermediate values here for debugging
-    A = S >> 2
-    B = ((S & 3) << num_bits-2) | (B >> 2)
-    D = C_map[bpair & 3]
-    CS = CS_map[bpair & 3]
+    A, B, D = S >> 2, ((S & 3) << num_bits-2) | (B >> 2), C_map[bpair & 3]
     bc31 = (bpair >> 2) | ((bpair & 3) == 3)
   return (A << num_bits) | B
 
-Intermediate values for bit_pair_multiply(x, y, 8):
+Intermediate hex values for bit_pair_multiply(3, 11, 8):
 
  E  A  B  D CS  S bpair bc31
-15  0  b fe  1 ff     3    1
-14 ff c2 fe  1 fe     1    1
-13 ff b0  1  0  0     0    0
-12  0 2c  0  0  0     3    0
+ 3  0  b fc  1 fd     3    1
+ 2 ff 42 fc  1 fc     1    1
+ 1 ff 10  3  0  2     0    0
+ 0  0 84  0  0  0     1    0
+
+The final result:
+
+    A  B  D CS  S bpair bc31
+    0 21  3  0  0     1    0
 
  */
 
