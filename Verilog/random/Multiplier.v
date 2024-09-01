@@ -88,7 +88,7 @@ module Multiplier (
                     //$display("count: %d, a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", count, a, b, d, cs, s, bpair, bc31);
                     a <= { {2{s[0]}}, s[0:`WIDTH-3] };
                     b <= { s[`WIDTH-2:`WIDTH-1], b[0:`WIDTH-3] };
-                    bc31 <= bpair[0];
+                    bc31 <= bpair[0] | (bpair[1] & bpair[2]);
                     case (bpair & 3)
                         0: begin d <= 0; cs <= 0; end
                         1: begin d <= c; cs <= 0; end
@@ -149,11 +149,17 @@ module tb_multiplier;
         multiplier = 1; multiplicand = 3; start = 1; #200 start = 0; #2000;
         $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
 
+        multiplier = 1; multiplicand = 11; start = 1; #200 start = 0; #2000;
+        $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
         multiplier = 35; multiplicand = 17; start = 1; #200 start = 0; #2000;
         $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
         multiplier = 17; multiplicand = 35; start = 1; #200 start = 0; #2000;
         $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
         multiplier = 35; multiplicand = 63; start = 1; #200 start = 0; #2000;
+        $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
+        multiplier = 113; multiplicand = 31415; start = 1; #200 start = 0; #2000;
+        $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
+        multiplier = 31415; multiplicand = 113; start = 1; #200 start = 0; #2000;
         $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
 
         $finish;
