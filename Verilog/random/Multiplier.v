@@ -43,7 +43,17 @@ module Multiplier (
     output reg [0:2*`WIDTH-1] result,
     output reg done);
 
-    reg [0:3] phase;
+    reg [0:7] phase;
+    assign ph1 = phase[0];
+    assign ph2 = phase[1];
+    assign ph3 = phase[2];
+    assign ph4 = phase[3];
+    assign ph5 = phase[4];
+    assign ph6 = phase[5];
+    assign ph7 = phase[6];
+    assign ph8 = phase[7];
+    parameter PH1 = 1<<7, PH2 = 1<<6, PH3 = 1<<5, PH4 = 1<<4, PH5 = 1<<3, PH6 = 1<<2, PH7 = 1<<1, PH8 = 1<<0;
+
     reg [0:7] count;
     reg [0:`WIDTH-1] a, b, c, d;
     reg [0:`WIDTH-1] cs;
@@ -58,7 +68,7 @@ module Multiplier (
 
     always @(posedge clock, posedge reset) begin
         if (reset) begin
-            phase <= 0;
+            phase <= PH1;
             count <= 0;
             a <= 0;
             b <= 0;
@@ -69,43 +79,40 @@ module Multiplier (
             result <= 0;
             done <= 1;
         end else begin
-            case (phase)
-                0: if (start == 1) begin
-                    a <= 0;
-                    b <= multiplicand;
-                    c <= multiplier;
-                    case (multiplicand & 3)
-                        0: begin d <= 0; cs <= 0; bc31 <= 0; end
-                        1: begin d <= multiplier; cs <= 0; bc31 <= 0; end
-                        2: begin d <= { multiplier[1:`WIDTH-1], 1'b0 }; cs <= 0; bc31 <= 0; end
-                        3: begin d <= ~multiplier;  cs <= 1; bc31 <= 1; end
-                    endcase
-                    count <= (`WIDTH >> 1) - 1;
-                    done <= 0;
-                    phase <= 1;
-                end
-                1: begin // multiplication iteration loop
-                    //$display("count: %d, a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", count, a, b, d, cs, s, bpair, bc31);
-                    a <= { {2{s[0]}}, s[0:`WIDTH-3] };
-                    b <= { s[`WIDTH-2:`WIDTH-1], b[0:`WIDTH-3] };
-                    bc31 <= bpair[0] | (bpair[1] & bpair[2]);
-                    case (bpair & 3)
-                        0: begin d <= 0; cs <= 0; end
-                        1: begin d <= c; cs <= 0; end
-                        2: begin d <= { c[1:`WIDTH-1], 1'b0 }; cs <= 0; end
-                        3: begin d <= ~c;  cs <= 1; end
-                    endcase
-                    count <= count - 1;
-                    if (count == 0) phase <= 2;
-                end
-                2: begin // result
-                    //$display("a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", count, a, b, d, cs, s, bpair, bc31);
-                    result <= { a, b };
-                    done <= 1;
-                    phase <= 0;
-                end
-                default: phase <= 0;
-            endcase
+            if (start & ph1) begin
+                a <= 0;
+                b <= multiplicand;
+                c <= multiplier;
+                case (multiplicand[`WIDTH-2:`WIDTH-1])
+                    0: begin d <= 0; cs <= 0; bc31 <= 0; end
+                    1: begin d <= multiplier; cs <= 0; bc31 <= 0; end
+                    2: begin d <= { multiplier[1:`WIDTH-1], 1'b0 }; cs <= 0; bc31 <= 0; end
+                    3: begin d <= ~multiplier;  cs <= 1; bc31 <= 1; end
+                endcase
+                count <= (`WIDTH >> 1) - 1;
+                done <= 0;
+                phase <= PH2;
+            end
+            if (ph2) begin // multiplication iteration loop
+                //$display("count: %d, a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", count, a, b, d, cs, s, bpair, bc31);
+                a <= { {2{s[0]}}, s[0:`WIDTH-3] };
+                b <= { s[`WIDTH-2:`WIDTH-1], b[0:`WIDTH-3] };
+                bc31 <= bpair[0] | (bpair[1] & bpair[2]);
+                case (bpair[1:2])
+                    0: begin d <= 0; cs <= 0; end
+                    1: begin d <= c; cs <= 0; end
+                    2: begin d <= { c[1:`WIDTH-1], 1'b0 }; cs <= 0; end
+                    3: begin d <= ~c;  cs <= 1; end
+                endcase
+                count <= count - 1;
+                if (count == 0) phase <= PH3;
+            end
+            if (ph3) begin // result
+                //$display("a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", count, a, b, d, cs, s, bpair, bc31);
+                result <= { a, b };
+                done <= 1;
+                phase <= PH1;
+            end
         end
     end
 endmodule
@@ -156,8 +163,6 @@ module tb_multiplier;
         multiplier = 17; multiplicand = 35; start = 1; #200 start = 0; #2000;
         $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
         multiplier = 35; multiplicand = 63; start = 1; #200 start = 0; #2000;
-        $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
-        multiplier = 113; multiplicand = 31415; start = 1; #200 start = 0; #2000;
         $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
         multiplier = 31415; multiplicand = 113; start = 1; #200 start = 0; #2000;
         $display("%d*%d, => %d, %d==0", multiplier, multiplicand, result, result-(multiplier*multiplicand));
