@@ -170,6 +170,12 @@ def main {
                 continue _trap;
             }
             OP_LAD: {
+                # a, contains rr[r], p contains word address
+                # 3-235: load low word into d, low word twos-compliment into a
+                # Hi word loaded into c, if negative rr[r|1] = a else rr[r|1] = d
+                # bwz = low word != 0
+                # load c or ~c into d, a, and rr[r]
+                # load bwz into a[31], testa, ende, cc2 if orginal doubleword == 0x8000000000000000
                 continue _trap;
             }
             OP_FSL: {

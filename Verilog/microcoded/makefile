@@ -17,3 +17,7 @@ run:
 
 test:
 	python roms/CompilerTest.py
+
+hw: *.v programs/init.txt
+	iverilog -DCPU_HW=1 -o vcd/CPUTestBench CPUTestBench.v
+	vvp vcd/CPUTestBench

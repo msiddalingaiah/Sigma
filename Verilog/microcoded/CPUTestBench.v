@@ -1,6 +1,12 @@
 
 `timescale 1 ns/10 ps  // time-unit = 1 ns, precision = 10 ps
-`include "CPU.v"
+
+`ifdef CPU_HW
+    `include "CPUhw.v"
+`else
+    `include "CPU.v"
+`endif
+
 // `define TRACE_WR 1
 
 /**
@@ -98,7 +104,6 @@ module CPUTestBench;
         $dumpfile("vcd/CPUTestBench.vcd");
         $dumpvars(0, CPUTestBench);
 
-        $readmemh("roms/microcode.txt", cpu.uc_rom.memory);
         $readmemh("programs/init.txt", ram.temp);
         for (i=0; i<ram.MAX_WORD_LEN; i=i+1) begin
             temp = ram.temp[i];
@@ -108,7 +113,12 @@ module CPUTestBench;
             ram.cells3[i] = temp[24:31];
         end
 
-        $readmemh("roms/op_switch.txt", cpu.op_switch);
+        `ifdef CPU_HW
+        `else
+            $readmemh("roms/microcode.txt", cpu.uc_rom.memory);
+            $readmemh("roms/op_switch.txt", cpu.op_switch);
+        `endif
+
         #0 reset = 0; #25 reset = 1; #90 reset = 0;
         #TIME_LIMIT $display("\Time limit reached, possible inifinite loop at 0x%4x", (cpu.p >> 2) - 1);
         cycles_per_inst = 100*cycle_count / instruction_count;
