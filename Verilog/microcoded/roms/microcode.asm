@@ -6,22 +6,22 @@ const seq.width = 56;
 
 field seq.op = 0:1;
 field seq.address_mux = 2:3;
-field seq.condition = 4:6;
-field ax = 7:10;
-field dx = 11:13;
-field px = 14:16;
-field qx = 17:17;
-field rrx = 18:21;
-field sxop = 22:25;
-field ende = 26:26;
-field testa = 27:27;
-field wd_en = 28:28;
-field trap = 29:29;
-field divide = 30:32;
-field multiply = 33:34;
-field uc_debug = 35:35;
-field write_size = 36:37;
-field __unused = 38:43;
+field seq.condition = 4:7;
+field ax = 8:11;
+field dx = 12:14;
+field px = 15:17;
+field qx = 18:18;
+field rrx = 19:22;
+field sxop = 23:26;
+field ende = 27:27;
+field testa = 28:28;
+field wd_en = 29:29;
+field trap = 30:30;
+field divide = 31:33;
+field multiply = 34:35;
+field uc_debug = 36:36;
+field write_size = 37:38;
+field __unused = 39:43;
 field seq.address = 44:55;
 field _const8 = 48:55;
 
@@ -32,6 +32,7 @@ const SX_D = 3;
 const AX_NONE = 0;
 const AX_S = 1;
 const AX_RR = 2;
+const AX_0 = 3;
 const DX_NONE = 0;
 const DX_0 = 1;
 const DX_1 = 2;
@@ -51,7 +52,7 @@ const COND_S_GT_ZERO = 1;
 const COND_S_LT_ZERO = 2;
 const COND_CC_AND_R_ZERO = 3;
 const COND_C0_EQ_1 = 4;
-const COND_CIN0_EQ_0 = 5;
+const COND_CIN0_EQ_1 = 5;
 const COND_E_NEQ_0 = 6;
 const ADDR_MUX_SEQ = 0;
 const ADDR_MUX_OPCODE = 1;
@@ -194,26 +195,26 @@ def main {
                 # a contains register value, d contains immediate value
                 sxop = SX_ADD, rrx = RRX_S;
                 px = PX_Q, ax = AX_S;
-                testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                testa = 1, ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_CI: {
                 # a contains register value, d contains immediate value
                 px = PX_Q, sxop = SX_SUB, ax = AX_S;
-                testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                testa = 1, ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_LI: { # 3-215
                 # a contains register value, d contains immediate value
                 px = PX_Q, sxop = SX_D, ax = AX_S, rrx = RRX_S, if COND_C0_EQ_1 continue _trap;
-                testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                testa = 1, ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_MI: {
                 # a contains register value, d contains immediate value
                 sxop = SX_ADD, multiply = MUL_PREP, px = PX_Q, if COND_C0_EQ_1 continue _trap;
                 do { sxop = SX_ADD, multiply = MUL_LOOP; } while COND_E_NEQ_0;
-                multiply = MUL_SAVE, testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                multiply = MUL_SAVE, testa = 1, ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_SF: {
@@ -258,13 +259,13 @@ def main {
             OP_CW: {
                 dx = DX_CIN; # p contains operand byte address, load operand value from memory into d
                 sxop = SX_SUB, ax = AX_S, px = PX_Q;
-                testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                testa = 1, ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_LW: {
                 dx = DX_CIN; # p contains operand byte address, load operand value from memory into d
                 sxop = SX_D, ax = AX_S, rrx = RRX_S, px = PX_Q;
-                testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                testa = 1, ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_MTW: {
@@ -277,7 +278,7 @@ def main {
                 # p contains operand word address, a contains rr[r]
                 sxop = SX_A, write_size = WR_WORD;
                 px = PX_Q;
-                ende = 1, if COND_CIN0_EQ_0 continue direct;
+                ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_DW: {
@@ -286,14 +287,14 @@ def main {
                     sxop = SX_ADD, divide = DIV_LOOP;
                 } while COND_E_NEQ_0;
                 divide = DIV_POST;
-                divide = DIV_SAVE, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                divide = DIV_SAVE, ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_MW: {
                 dx = DX_CIN; # p contains operand byte address, load operand value from memory into d
                 sxop = SX_ADD, multiply = MUL_PREP, px = PX_Q;
                 do { sxop = SX_ADD, multiply = MUL_LOOP; } while COND_E_NEQ_0;
-                multiply = MUL_SAVE, testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                multiply = MUL_SAVE, testa = 1, ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_SW: {
@@ -357,10 +358,16 @@ def main {
                 continue _trap;
             }
             OP_SIO: {
-                continue _trap;
+                # No-op for now.
+                px = PX_Q;
+                ende = 1, if not COND_CIN0_EQ_1 continue direct;
+                continue direct;
             }
             OP_TIO: {
-                continue _trap;
+                # No-op for now.
+                ax = AX_0, px = PX_Q;
+                testa = 1, ende = 1, if not COND_CIN0_EQ_1 continue direct;
+                continue direct;
             }
             OP_TDV: {
                 continue _trap;
@@ -432,24 +439,24 @@ def main {
                 dx = DX_1;
                 sxop = SX_SUB, rrx = RRX_S, if COND_S_GT_ZERO {
                     # take branch
-                    ende = 1, if COND_CIN0_EQ_0 continue direct;
+                    ende = 1, if not COND_CIN0_EQ_1 continue direct;
                     continue direct;
                 }
                 # next instruction
                 px = PX_Q;
-                ende = 1, if COND_CIN0_EQ_0 continue direct;
+                ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_BIR: {
                 dx = DX_1;
                 sxop = SX_ADD, rrx = RRX_S, if COND_S_LT_ZERO {
                     # take branch
-                    ende = 1, if COND_CIN0_EQ_0 continue direct;
+                    ende = 1, if not COND_CIN0_EQ_1 continue direct;
                     continue direct;
                 }
                 # next instruction
                 px = PX_Q;
-                ende = 1, if COND_CIN0_EQ_0 continue direct;
+                ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_AWM: {
@@ -461,27 +468,27 @@ def main {
             OP_BCR: {
                 if COND_CC_AND_R_ZERO {
                     # take branch
-                    ende = 1, if COND_CIN0_EQ_0 continue direct;
+                    ende = 1, if not COND_CIN0_EQ_1 continue direct;
                     continue direct;
                 }
                 # next instruction
                 px = PX_Q;
-                ende = 1, if COND_CIN0_EQ_0 continue direct;
+                ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_BCS: {
                 if not COND_CC_AND_R_ZERO {
                     # take branch
-                    ende = 1, if COND_CIN0_EQ_0 continue direct;
+                    ende = 1, if not COND_CIN0_EQ_1 continue direct;
                     continue direct;
                 }
                 # next instruction
                 px = PX_Q;
-                ende = 1, if COND_CIN0_EQ_0 continue direct;
+                ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_BAL: {
-                rrx = RRX_Q, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                rrx = RRX_Q, ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_INT: {
@@ -492,7 +499,7 @@ def main {
             }
             OP_WD: {
                 px = PX_Q;
-                sxop = 2, wd_en = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                sxop = 2, wd_en = 1, ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_AIO: {
@@ -510,7 +517,7 @@ def main {
             OP_LB: {
                 dx = DX_CINB;
                 sxop = SX_D, ax = AX_S, rrx = RRX_S, px = PX_Q;
-                testa = 1, ende = 1, if COND_CIN0_EQ_0 continue direct;
+                testa = 1, ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_MTB: {
@@ -523,7 +530,7 @@ def main {
                 # p contains operand byte address, a contains rr[r]
                 sxop = SX_A, write_size = WR_BYTE;
                 px = PX_Q;
-                ende = 1, if COND_CIN0_EQ_0 continue direct;
+                ende = 1, if not COND_CIN0_EQ_1 continue direct;
                 continue direct;
             }
             OP_PACK: {

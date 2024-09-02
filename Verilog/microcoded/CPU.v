@@ -36,48 +36,48 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     // |-------|-------|-------|-------|-------|-------|-------|
     // || - seq_op[0:1] 2 bits
     //   || - seq_address_mux[2:3] 2 bits
-    //     |_| - seq_condition[4:6] 3 bits
-    //        |__| - ax[7:10] 4 bits
+    //     |__| - seq_condition[4:7] 4 bits
+    //         |__| - ax[8:11] 4 bits
     // |-------|-------|-------|-------|-------|-------|-------|
-    //            |_| - dx[11:13] 3 bits
-    //               |_| - px[14:16] 3 bits
-    //                  | - qx[17]
-    //                   |__| - rrx[18:21] 4 bits
+    //             |_| - dx[12:14] 3 bits
+    //                |_| - px[15:17] 3 bits
+    //                   | - qx[18]
+    //                    |__| - rrx[19:22] 4 bits
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                       |__| - sxop[22:25] 4 bits
-    //                           | - ende[26]
-    //                            | - testa[27]
-    //                             | - wd_en[28]
+    //                        |__| - sxop[23:26] 4 bits
+    //                            | - ende[27]
+    //                             | - testa[28]
+    //                              | - wd_en[29]
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                              | - trap[29]
-    //                               |_| - divide[30:32] 3 bits
-    //                                  || - multiply[33:34] 2 bits
-    //                                    | - uc_debug[35]
+    //                               | - trap[30]
+    //                                |_| - divide[31:33] 3 bits
+    //                                   || - multiply[34:35] 2 bits
+    //                                     | - uc_debug[36]
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                                     || - write_size[36:37] 2 bits
-    //                                       |____| - __unused[38:43] 6 bits
+    //                                      || - write_size[37:38] 2 bits
+    //                                        |___| - __unused[39:43] 5 bits
     //                                             |__________| - seq_address[44:55] 12 bits
     //                                                 |______| - _const8[48:55] 8 bits
 
     reg [0:55] pipeline;
     wire [0:1] seq_op = pipeline[0:1];
     wire [0:1] seq_address_mux = pipeline[2:3];
-    wire [0:2] seq_condition = pipeline[4:6];
-    wire [0:3] ax = pipeline[7:10];
-    wire [0:2] dx = pipeline[11:13];
-    wire [0:2] px = pipeline[14:16];
-    wire qx = pipeline[17];
-    wire [0:3] rrx = pipeline[18:21];
-    wire [0:3] sxop = pipeline[22:25];
-    wire ende = pipeline[26];
-    wire testa = pipeline[27];
-    wire wd_en = pipeline[28];
-    wire trap = pipeline[29];
-    wire [0:2] divide = pipeline[30:32];
-    wire [0:1] multiply = pipeline[33:34];
-    wire uc_debug = pipeline[35];
-    wire [0:1] write_size = pipeline[36:37];
-    wire [0:5] __unused = pipeline[38:43];
+    wire [0:3] seq_condition = pipeline[4:7];
+    wire [0:3] ax = pipeline[8:11];
+    wire [0:2] dx = pipeline[12:14];
+    wire [0:2] px = pipeline[15:17];
+    wire qx = pipeline[18];
+    wire [0:3] rrx = pipeline[19:22];
+    wire [0:3] sxop = pipeline[23:26];
+    wire ende = pipeline[27];
+    wire testa = pipeline[28];
+    wire wd_en = pipeline[29];
+    wire trap = pipeline[30];
+    wire [0:2] divide = pipeline[31:33];
+    wire [0:1] multiply = pipeline[34:35];
+    wire uc_debug = pipeline[36];
+    wire [0:1] write_size = pipeline[37:38];
+    wire [0:4] __unused = pipeline[39:43];
     wire [0:11] seq_address = pipeline[44:55];
     wire [0:7] _const8 = pipeline[48:55];
     
@@ -88,6 +88,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     localparam AX_NONE = 0;
     localparam AX_S = 1;
     localparam AX_RR = 2;
+    localparam AX_0 = 3;
     localparam DX_NONE = 0;
     localparam DX_0 = 1;
     localparam DX_1 = 2;
@@ -107,7 +108,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
     localparam COND_S_LT_ZERO = 2;
     localparam COND_CC_AND_R_ZERO = 3;
     localparam COND_C0_EQ_1 = 4;
-    localparam COND_CIN0_EQ_0 = 5;
+    localparam COND_CIN0_EQ_1 = 5;
     localparam COND_E_NEQ_0 = 6;
     localparam ADDR_MUX_SEQ = 0;
     localparam ADDR_MUX_OPCODE = 1;
@@ -216,7 +217,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             COND_S_LT_ZERO: branch = s[0];
             COND_CC_AND_R_ZERO: branch = (cc & r) == 0;
             COND_C0_EQ_1: branch = c[0];
-            COND_CIN0_EQ_0: branch = ~c_in[0];
+            COND_CIN0_EQ_1: branch = c_in[0];
             COND_E_NEQ_0: branch = e != 0;
         endcase
         uc_op = seq_op;
@@ -241,7 +242,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             d <= 0;
             ia <= 0;
             o <= 0;
-            p <= { 32'h25, 2'h0 };
+            p <= { 32'h26, 2'h0 }; // Boot location + 1, see 3-510 Bootstrap program
             q <= 0;
             r <= 0;
             for (i=0; i<16; i=i+1) rr[i] = 32'h00000000;
@@ -280,6 +281,7 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
                 AX_NONE: ; // do nothing
                 AX_S: a <= s;
                 AX_RR: a <= rr[r];
+                AX_0: a <= 32'h0;
             endcase
             case (dx)
                 DX_NONE: ; // do nothing

@@ -1,9 +1,9 @@
 
-vcd/CPUTestBench: *.v roms/microcode.txt programs/init.txt
+vcd/CPUTestBench: CPU.v CPUTestBench.v Sequencer.v roms/microcode.txt programs/init.txt
 	iverilog -o vcd/CPUTestBench CPUTestBench.v
 	vvp vcd/CPUTestBench
 
-CPU.v roms/sigma.txt: Pipeline.py
+CPU.v roms/microcode.asm: Pipeline.py
 	python Pipeline.py CPU.v roms/microcode.asm
 
 roms/microcode.txt: roms/microcode.asm roms/Compiler.py roms/Generator.py

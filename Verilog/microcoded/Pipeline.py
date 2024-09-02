@@ -159,7 +159,7 @@ if __name__ == '__main__':
     fields = {}
     fields['seq_op'] = 2
     fields['seq_address_mux'] = 2
-    fields['seq_condition'] = 3
+    fields['seq_condition'] = 4
     fields['ax'] = 4
     fields['dx'] = 3
     fields['px'] = 3
@@ -174,7 +174,7 @@ if __name__ == '__main__':
     fields['multiply'] = 2
     fields['uc_debug'] = 1
     fields['write_size'] = 2
-    fields['__unused'] = 6
+    fields['__unused'] = 5
     fields['seq_address'] = 12
 
     overlaps = {}
@@ -189,6 +189,7 @@ if __name__ == '__main__':
     constants['AX_NONE'] = 0
     constants['AX_S'] = 1
     constants['AX_RR'] = 2
+    constants['AX_0'] = 3
 
     constants['DX_NONE'] = 0
     constants['DX_0'] = 1
@@ -213,7 +214,7 @@ if __name__ == '__main__':
     constants['COND_S_LT_ZERO'] = 2
     constants['COND_CC_AND_R_ZERO'] = 3
     constants['COND_C0_EQ_1'] = 4
-    constants['COND_CIN0_EQ_0'] = 5
+    constants['COND_CIN0_EQ_1'] = 5
     constants['COND_E_NEQ_0'] = 6
 
     constants['ADDR_MUX_SEQ'] = 0
