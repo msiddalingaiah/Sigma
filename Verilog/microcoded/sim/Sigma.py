@@ -42,6 +42,7 @@ class Memory(object):
 
 class CardReader(object):
     def __init__(self, memory, filename):
+        self.card = 0
         self.memory = memory
         with open(filename, 'rb') as f:
             self.bytes = f.read()
@@ -55,12 +56,15 @@ class CardReader(object):
         if c0 >> 24 == 2:
             ba = c0 & 0xffffff
             n = c1 & 0xffff
-            print(f'CardReader: command addr 0x{addr:x} read {n} bytes to word address 0x{ba>>2:x} + {ba&3} bytes, flags: 0x{c1>>24:02x}')
-            while n > 0:
-                self.memory.writeB(ba >> 2, ba & 3, self.bytes[self.index])
-                ba += 1
+            self.card += 1
+            print(f'CardReader: reading {n} bytes into WA 0x{ba>>2:x} + {ba&3} bytes, CARD {self.card}, flags: 0x{c1>>24:02x}')
+            # Binary cards are 120 bytes long
+            for i in range(120):
+                if n > 0:
+                    self.memory.writeB(ba >> 2, ba & 3, self.bytes[self.index])
+                    ba += 1
+                    n -= 1
                 self.index += 1
-                n -= 1
         else:
             raise Exception(f'Unexpected IOP command: 0x{c0:08x}')
 
@@ -111,6 +115,8 @@ class CPU(object):
             if self.c & 0x80000000:
                 self.trap(0x40)
             self.d = self.c & 0xfffff
+            if self.d & 0x80000:
+                self.d = self.d - 0xfffff - 1
             return
         self.x = (self.c >> 17) & 7
         if self.c & 0x80000000:
@@ -130,7 +136,8 @@ class CPU(object):
         elif self.o == 0x01: # ?.01
             self.trap(0x40)
         elif self.o == 0x02: # LCFI
-            self.trap(0x40)
+            if self.d & 0x00200000:
+                self.cc = (self.d >> 4) & 0xf
         elif self.o == 0x03: # ?.03
             self.trap(0x40)
         elif self.o == 0x04: # CAL1
@@ -154,7 +161,14 @@ class CPU(object):
         elif self.o == 0x0d: # ?.0D
             self.trap(0x40)
         elif self.o == 0x0e: # LPSD
-            self.trap(0x40)
+            # TODO Flags
+            dw0 = self.readW(self.p >> 2)
+            dw1 = self.readW((self.p >> 2) + 1)
+            print(f'LPSD dw0: 0x{dw0:08x}')
+            print(f'LPSD dw1: 0x{dw1:08x}')
+            self.cc = (dw0 >> 28) & 0xf
+            self.q = dw0 & 0x1ffff
+            self.p = self.q << 2
         elif self.o == 0x0f: # XPSD
             dw0 = self.readW(self.p >> 2)
             dw1 = self.readW((self.p >> 2) + 1)
@@ -194,7 +208,7 @@ class CPU(object):
         elif self.o == 0x1f: # FML
             self.trap(0x40)
         elif self.o == 0x20: # AI
-            self.trap(0x40)
+            self.rr[self.r] += self.d
         elif self.o == 0x21: # CI
             self.trap(0x40)
         elif self.o == 0x22: # LI
@@ -361,7 +375,11 @@ class CPU(object):
         elif self.o == 0x6b: # INT
             self.trap(0x40)
         elif self.o == 0x6c: # RD
-            self.trap(0x40)
+            if self.p & 0xffff == 0: # Read sense switches
+                self.cc = 0
+                self.p = self.q << 2
+            else:
+                self.trap(0x40)
         elif self.o == 0x6d: # WD
             self.trap(0x40)
         elif self.o == 0x6e: # AIO
