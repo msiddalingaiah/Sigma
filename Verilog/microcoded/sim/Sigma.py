@@ -231,11 +231,17 @@ class CPU(object):
         elif self.o == 0x1f: # FML
             self.trap(0x40)
         elif self.o == 0x20: # AI
-            self.a += self.d
+            self.a = (self.a + self.d) & 0xffffffff
             self.rr[self.r] = self.a
             self.testa()
         elif self.o == 0x21: # CI
-            self.trap(0x40)
+            s = self.a & self.d
+            if s:
+                self.cc |= 4
+            else:
+                self.cc &= 0xb
+            self.a = self.a - self.d
+            self.testa()
         elif self.o == 0x22: # LI
             self.a = self.d
             self.rr[self.r] = self.a
@@ -267,9 +273,25 @@ class CPU(object):
         elif self.o == 0x2f: # LRP
             self.trap(0x40)
         elif self.o == 0x30: # AW
-            self.trap(0x40)
+            s = self.a + self.readW(self.p >> 2)
+            self.a = s & 0xffffffff
+            self.rr[self.r] = self.a
+            self.p = self.q << 2
+            self.testa()
+            if s & 0xf00000000:
+                self.cc |= 8
+            else:
+                self.cc &= 0x7
         elif self.o == 0x31: # CW
-            self.trap(0x40)
+            self.d = self.readW(self.p >> 2)
+            s = self.a & self.d
+            if s:
+                self.cc |= 4
+            else:
+                self.cc &= 0xb
+            self.a = self.a - self.d
+            self.p = self.q << 2
+            self.testa()
         elif self.o == 0x32: # LW
             self.a = self.readW(self.p >> 2)
             self.rr[self.r] = self.a
@@ -323,7 +345,6 @@ class CPU(object):
             self.rr[self.r] = self.a
             self.p = self.q << 2
             self.testa()
-            self.debug()
         elif self.o == 0x49: # OR
             self.trap(0x40)
         elif self.o == 0x4a: # LS
@@ -390,8 +411,9 @@ class CPU(object):
             if self.rr[self.r] <= 0:
                 self.p = self.q << 2
         elif self.o == 0x65: # BIR
-            self.rr[self.r] += 1
-            if self.rr[self.r] >= 0:
+            self.a += 1
+            self.rr[self.r] = self.a
+            if self.a >= 0 and self.a & 0x80000000 == 0:
                 self.p = self.q << 2
         elif self.o == 0x66: # AWM
             self.trap(0x40)
@@ -404,7 +426,7 @@ class CPU(object):
             if (self.cc & self.r) == 0:
                 self.p = self.q << 2
         elif self.o == 0x6a: # BAL
-            self.trap(0x40)
+            self.rr[self.r] = self.q
         elif self.o == 0x6b: # INT
             self.trap(0x40)
         elif self.o == 0x6c: # RD
