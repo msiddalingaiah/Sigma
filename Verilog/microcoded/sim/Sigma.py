@@ -1,4 +1,6 @@
 
+import time
+
 OPCODES = ['?.00', '?.01', 'LCFI', '?.03', 'CAL1', 'CAL2', 'CAL3', 'CAL4', 'PLW', 'PSW', 'PLM', 'PSM', '?.0C',
            '?.0D', 'LPSD', 'XPSD', 'AD', 'CD', 'LD', 'MSP', '?.14', 'STD', '?.16', '?.17', 'SD', 'CLM', 'LCD',
            'LAD', 'FSL', 'FAL', 'FDL', 'FML', 'AI', 'CI', 'LI', 'MI', 'SF', 'S', '?.26', '?.27', 'CVS', 'CVA',
@@ -95,6 +97,9 @@ class CPU(object):
         self.memory = memory
         self.iops = iops
         self.ia_trace = []
+        self.armed = [False]*128
+        self.enabled = [False]*128
+        self.active = [False]*128
 
     def readB(self, addr, offset):
         if addr < 16:
@@ -124,12 +129,27 @@ class CPU(object):
     def run(self):
         self.ende()
         opcount = 0
+        start_ns = time.time_ns()
         while True:
             if opcount % 1000000 == 0:
                 self.debug()
             self.execOne()
+            dt_ns = time.time_ns() - start_ns
+            if dt_ns > 2e6:
+                start_ns = time.time_ns()
+                self.interrupt(0x54)
+                self.interrupt(0x55)
             self.ende()
             opcount += 1
+
+    def interrupt(self, loc):
+        if self.enabled[loc] and not self.active[loc]:
+            # print(f'Interrupt 0x{loc:x}')
+            p, q = self.p, self.q
+            self.p = loc << 2
+            self.ende()
+            self.p, self.q = p, q
+            self.execOne()
 
     def testa(self):
         self.cc &= 0xc
@@ -498,8 +518,29 @@ class CPU(object):
             else:
                 self.trap(0x40)
         elif self.o == 0x6d: # WD
-            self.debug()
-            # TODO interrupts etc.
+            # TODO more interrupts
+            wa = self.p >> 2
+            code, group = (wa >> 8) & 7, wa & 0xf
+            if code == 1 and group == 0:
+                base = 0x52
+                mask = 0x8000
+                for i in range(12):
+                    if self.a & mask:
+                        # print(f'Disarm 0x{base+i:x}')
+                        self.armed[base + i] = False
+                        self.enabled[base + i] = False
+                        self.active[base + i] = False
+                    mask >>= 1
+            if code == 2 and group == 0:
+                base = 0x52
+                mask = 0x8000
+                for i in range(12):
+                    if self.a & mask:
+                        # print(f'Arm 0x{base+i:x}')
+                        self.armed[base + i] = True
+                        self.enabled[base + i] = True
+                        self.active[base + i] = False
+                    mask >>= 1
             self.p = self.q << 2
         elif self.o == 0x6e: # AIO
             self.trap(0x40)
