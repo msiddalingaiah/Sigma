@@ -237,8 +237,7 @@ class CPU(object):
             self.q = dw0 & 0x1ffff
             self.p = self.q << 2
         elif self.o == 0x0f: # XPSD
-            # print(f'XPSD dw0: 0x{dw0:08x}')
-            # print(f'XPSD dw1: 0x{dw1:08x}')
+            # print(f'0x{(self.q-1):x}: XPSD 0x{self.p>>2:08x}')
             self.writeW(self.p >> 2, (self.cc << 28) | (self.ff << 24) | (self.mask5 << 19) | (self.q & 0x1ffff))
             self.writeW((self.p >> 2) + 1, self.psd1)
             dw0 = self.readW((self.p >> 2) + 2)
@@ -518,6 +517,7 @@ class CPU(object):
             else:
                 self.trap(0x40)
         elif self.o == 0x6d: # WD
+            # self.debug()
             # TODO more interrupts
             wa = self.p >> 2
             code, group = (wa >> 8) & 7, wa & 0xf
@@ -542,6 +542,44 @@ class CPU(object):
                         self.active[base + i] = False
                     mask >>= 1
             self.p = self.q << 2
+            if code == 3 and group == 0:
+                base = 0x52
+                mask = 0x8000
+                for i in range(12):
+                    if self.a & mask:
+                        # print(f'Disarm 0x{base+i:x}')
+                        self.armed[base + i] = False
+                        self.enabled[base + i] = False
+                        self.active[base + i] = False
+                    mask >>= 1
+            if code == 4 and group == 0:
+                base = 0x52
+                mask = 0x8000
+                for i in range(12):
+                    if self.a & mask:
+                        # print(f'Arm 0x{base+i:x}')
+                        self.armed[base + i] = True
+                        self.enabled[base + i] = True
+                        self.active[base + i] = False
+                    mask >>= 1
+            if wa & 0xfff8 == 0x0030:
+                print(f'0x{(self.q-1):x} Set int. inhibits')
+                mask = 4
+                psd_bit = 1 << 26
+                while mask:
+                    if wa & mask:
+                        self.psd1 |= psd_bit
+                    mask >>= 1
+                    psd_bit >>= 1
+            if wa & 0xfff8 == 0x0020:
+                print('Reset int. inhibits')
+                mask = 4
+                psd_bit = 1 << 26
+                while mask:
+                    if wa & mask:
+                        self.psd1 &= ~psd_bit
+                    mask >>= 1
+                    psd_bit >>= 1
         elif self.o == 0x6e: # AIO
             self.trap(0x40)
         elif self.o == 0x6f: # MMC
