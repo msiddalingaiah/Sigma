@@ -84,8 +84,10 @@ class CPU(object):
         self.cc = 0
         self.d = 0
         self.ff = 0
+        self.mask5 = 0
         self.o = 0
         self.p = 0x26 << 2
+        self.psd1 = 0
         self.q = 0
         self.r = 0
         self.x = 0
@@ -121,9 +123,13 @@ class CPU(object):
 
     def run(self):
         self.ende()
+        opcount = 0
         while True:
+            if opcount % 1000000 == 0:
+                self.debug()
             self.execOne()
             self.ende()
+            opcount += 1
 
     def testa(self):
         self.cc &= 0xc
@@ -143,6 +149,7 @@ class CPU(object):
         self.r = (self.c >> 20) & 0xf
         self.a = self.rr[self.r]
         if (self.o & 0x1c) == 0:
+            # Immediate instruction
             if self.c & 0x80000000:
                 self.trap(0x40)
             self.d = self.c & 0xfffff
@@ -155,10 +162,16 @@ class CPU(object):
         self.p = (self.c & 0x1ffff) << 2
         # p contains effective BYTE address
         if self.o >> 4 == 7 and self.x:
+            # Byte indexed
             self.p += self.rr[self.x]
         elif self.o >> 4 == 5 and self.x:
+            # Halfword indexed
             self.p += self.rr[self.x] << 1
+        elif self.o >= 0x08 and self.o <= 0x1f and self.x:
+            # Doubleword indexed
+            self.p += self.rr[self.x] << 3
         elif self.x:
+            # Word indexed
             self.p += self.rr[self.x] << 2
         self.p &= 0x7ffff
 
@@ -197,17 +210,25 @@ class CPU(object):
             # TODO Flags
             dw0 = self.readW(self.p >> 2)
             dw1 = self.readW((self.p >> 2) + 1)
-            # print(f'LPSD 0x{self.iword:08x} dw0: 0x{dw0:08x}')
-            # print(f'LPSD dw1: 0x{dw1:08x}')
             self.cc = (dw0 >> 28) & 0xf
+            self.ff = (dw0 >> 24) & 0x7
+            self.mask5 = (dw0 >> 19) & 0x1f
+            self.psd1 = dw1
             self.q = dw0 & 0x1ffff
             self.p = self.q << 2
         elif self.o == 0x0f: # XPSD
-            dw0 = self.readW(self.p >> 2)
-            dw1 = self.readW((self.p >> 2) + 1)
-            print(f'XPSD dw0: 0x{dw0:08x}')
-            print(f'XPSD dw1: 0x{dw1:08x}')
-            self.trap(0x40)
+            # print(f'XPSD dw0: 0x{dw0:08x}')
+            # print(f'XPSD dw1: 0x{dw1:08x}')
+            self.writeW(self.p >> 2, (self.cc << 28) | (self.ff << 24) | (self.mask5 << 19) | (self.q & 0x1ffff))
+            self.writeW((self.p >> 2) + 1, self.psd1)
+            dw0 = self.readW((self.p >> 2) + 2)
+            dw1 = self.readW((self.p >> 2) + 3)
+            self.cc = (dw0 >> 28) & 0xf
+            self.ff = (dw0 >> 24) & 0x7
+            self.mask5 = (dw0 >> 19) & 0x1f
+            self.psd1 = dw1
+            self.q = dw0 & 0x1ffff
+            self.p = self.q << 2
         elif self.o == 0x10: # AD
             self.trap(0x40)
         elif self.o == 0x11: # CD
@@ -306,7 +327,8 @@ class CPU(object):
             self.cc &= 0xb
             if s:
                 self.cc |= 4
-            self.a = self.a - self.d
+            s = (self.a - self.d) & 0xffffffff
+            self.a = s
             self.testa()
             self.p = self.q << 2
         elif self.o == 0x32: # LW
@@ -317,18 +339,19 @@ class CPU(object):
         elif self.o == 0x33: # MTW
             self.a = self.r
             if self.a & 0x8:
-                self.a |= 0xf0
+                self.a |= 0xfffffff0
             self.d = self.readW(self.p >> 2)
             s = self.a + self.d
+            su = (self.a & 0x7fffffff) + (self.d & 0x7fffffff)
             self.cc &= 3
             a0 = self.a & 0x80000000
             b0 = self.d & 0x80000000
-            c0 = s & 0x80000000
-            if (~(a0 ^ b0)) & (c0 ^ a0):
+            s0 = s & 0x80000000
+            if (~(a0 ^ b0)) & (s0 ^ a0):
                 self.cc |= 0x4
             self.a = s & 0xffffffff
             self.writeW(self.p >> 2, self.a)
-            if s & 0x100000000:
+            if ((a0 | b0) & (a0 & b0)) | (su & 0x80000000):
                 self.cc |= 8
             self.testa()
             self.p = self.q << 2
@@ -475,7 +498,9 @@ class CPU(object):
             else:
                 self.trap(0x40)
         elif self.o == 0x6d: # WD
-            self.trap(0x40)
+            self.debug()
+            # TODO interrupts etc.
+            self.p = self.q << 2
         elif self.o == 0x6e: # AIO
             self.trap(0x40)
         elif self.o == 0x6f: # MMC
@@ -546,7 +571,7 @@ class CPU(object):
         raise Exception(f'Trap 0x{addr:02x} - q: 0x{self.q-1:x}, {OPCODES[self.o]} 0x{self.iword:08x}')
 
     def debug(self):
-        print(f'0x{(self.q-1):x}: 0x{self.c:08x} {OPCODES[self.o]} a: 0x{self.a:08x} d: 0x{self.d:08x} p: 0x{self.p>>2:08x} | {self.p&3} cc: 0x{self.cc:x}')
+        print(f'0x{(self.q-1):x}: 0x{self.iword:08x} {OPCODES[self.o]} a: 0x{self.a:08x} d: 0x{self.d:08x} p: 0x{self.p>>2:08x} | {self.p&3} cc: 0x{self.cc:x}')
         result = ''
         for i in range(8):
             result += f' r{i:2d}: 0x{self.rr[i]:08x}'
