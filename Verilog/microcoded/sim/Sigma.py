@@ -156,10 +156,11 @@ class CPU(object):
         # p contains effective BYTE address
         if self.o >> 4 == 7 and self.x:
             self.p += self.rr[self.x]
-        elif (self.o ^ 0x40) >> 4 == 7 and self.x:
+        elif self.o >> 4 == 5 and self.x:
             self.p += self.rr[self.x] << 1
         elif self.x:
             self.p += self.rr[self.x] << 2
+        self.p &= 0x7ffff
 
     def execOne(self):
         if self.o == 0x00: # ?.00
@@ -169,7 +170,7 @@ class CPU(object):
         elif self.o == 0x02: # LCFI
             if self.r & 2:
                 self.cc = (self.d >> 4) & 0xf
-                self.ff = self.d & 0xf
+                self.ff = self.d & 0x7
         elif self.o == 0x03: # ?.03
             self.trap(0x40)
         elif self.o == 0x04: # CAL1
@@ -314,7 +315,23 @@ class CPU(object):
             self.testa()
             self.p = self.q << 2
         elif self.o == 0x33: # MTW
-            self.trap(0x40)
+            self.a = self.r
+            if self.a & 0x8:
+                self.a |= 0xf0
+            self.d = self.readW(self.p >> 2)
+            s = self.a + self.d
+            self.cc &= 3
+            a0 = self.a & 0x80000000
+            b0 = self.d & 0x80000000
+            c0 = s & 0x80000000
+            if (~(a0 ^ b0)) & (c0 ^ a0):
+                self.cc |= 0x4
+            self.a = s & 0xffffffff
+            self.writeW(self.p >> 2, self.a)
+            if s & 0x100000000:
+                self.cc |= 8
+            self.testa()
+            self.p = self.q << 2
         elif self.o == 0x34: # ?.34
             self.trap(0x40)
         elif self.o == 0x35: # STW
@@ -357,7 +374,8 @@ class CPU(object):
         elif self.o == 0x47: # STS
             self.trap(0x40)
         elif self.o == 0x48: # EOR
-            self.a = (self.a ^ self.readW(self.p >> 2)) & 0xffffffff
+            self.d = self.readW(self.p >> 2)
+            self.a = (self.a ^ self.d) & 0xffffffff
             self.rr[self.r] = self.a
             self.testa()
             self.p = self.q << 2
@@ -366,7 +384,11 @@ class CPU(object):
         elif self.o == 0x4a: # LS
             self.trap(0x40)
         elif self.o == 0x4b: # AND
-            self.trap(0x40)
+            self.d = self.readW(self.p >> 2)
+            self.a = (self.a & self.d) & 0xffffffff
+            self.rr[self.r] = self.a
+            self.testa()
+            self.p = self.q << 2
         elif self.o == 0x4c: # SIO
             iop = self.iops[self.p >> 2]
             # TODO registers other than zero mean something
@@ -462,7 +484,7 @@ class CPU(object):
             byte = self.readB(self.p >> 2, self.p & 3)
             if self.r & 2:
                 self.cc = (byte >> 4) & 0xf
-                self.ff = byte & 0xff
+                self.ff = byte & 0x7
             self.p = self.q << 2
         elif self.o == 0x71: # CB
             self.d = self.readB(self.p >> 2, self.p & 3)
@@ -479,7 +501,18 @@ class CPU(object):
             self.testa()
             self.p = self.q << 2
         elif self.o == 0x73: # MTB
-            self.trap(0x40)
+            self.a = self.r
+            if self.a & 0x8:
+                self.a |= 0xf0
+            self.d = self.readB(self.p >> 2, self.p & 3)
+            s = self.a + self.d
+            self.a = s & 0xff
+            self.writeB(self.p >> 2, self.p & 3, self.a)
+            self.cc &= 3
+            if s & 0x100:
+                self.cc |= 8
+            self.testa()
+            self.p = self.q << 2
         elif self.o == 0x74: # STFC
             self.writeB(self.p >> 2, self.p & 3, (self.cc << 4) | self.ff)
             self.p = self.q << 2
@@ -513,14 +546,14 @@ class CPU(object):
         raise Exception(f'Trap 0x{addr:02x} - q: 0x{self.q-1:x}, {OPCODES[self.o]} 0x{self.iword:08x}')
 
     def debug(self):
-        print(f'0x{(self.q-1):x}: 0x{self.c:08x} {OPCODES[self.o]} a: 0x{self.a:08x} d: 0x{self.d:08x} cc: 0x{self.cc:x}')
+        print(f'0x{(self.q-1):x}: 0x{self.c:08x} {OPCODES[self.o]} a: 0x{self.a:08x} d: 0x{self.d:08x} p: 0x{self.p>>2:08x} | {self.p&3} cc: 0x{self.cc:x}')
         result = ''
         for i in range(8):
-            result += f' r{i}: 0x{self.rr[self.r]:08x}'
+            result += f' r{i:2d}: 0x{self.rr[i]:08x}'
         print(result)
         result = ''
         for i in range(8, 16, 1):
-            result += f' r{i}: 0x{self.rr[self.r]:08x}'
+            result += f' r{i:2d}: 0x{self.rr[i]:08x}'
         print(result)
 
 if __name__ == '__main__':
