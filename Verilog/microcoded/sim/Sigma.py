@@ -1,5 +1,6 @@
 
 import time
+import sys
 
 OPCODES = ['?.00', '?.01', 'LCFI', '?.03', 'CAL1', 'CAL2', 'CAL3', 'CAL4', 'PLW', 'PSW', 'PLM', 'PSM', '?.0C',
            '?.0D', 'LPSD', 'XPSD', 'AD', 'CD', 'LD', 'MSP', '?.14', 'STD', '?.16', '?.17', 'SD', 'CLM', 'LCD',
@@ -71,7 +72,7 @@ class CardReader(object):
                     n -= 1
                 self.index += 1
             if self.index >= len(self.bytes):
-                print(f'End of input')
+                print(f'End of deck!')
             return 0
         else:
             raise Exception(f'Unexpected IOP command: 0x{c0:08x}')
@@ -102,6 +103,7 @@ class CPU(object):
         self.armed = [False]*128
         self.enabled = [False]*128
         self.active = [False]*128
+        self.inTrap = False
 
     def readB(self, addr, offset):
         if addr < 16:
@@ -147,11 +149,20 @@ class CPU(object):
     def interrupt(self, loc):
         if self.enabled[loc] and not self.active[loc]:
             # print(f'Interrupt 0x{loc:x}')
-            p, q = self.p, self.q
-            self.p = loc << 2
-            self.ende()
-            self.p, self.q = p, q
-            self.execOne()
+            self.doTrap(loc)
+
+    def doTrap(self, loc):
+        if self.inTrap:
+            print(f'Double trap 0x{loc:x}, execution terminated.')
+            self.debug()
+            sys.exit(0)
+        p, q = self.p, self.q
+        self.p = loc << 2
+        self.ende()
+        self.p, self.q = p, q
+        self.inTrap = True
+        self.execOne()
+        self.inTrap = False
 
     def testa(self):
         self.cc &= 0xc
@@ -646,9 +657,10 @@ class CPU(object):
             self.trap(0x40)
 
     def trap(self, addr):
-        for ia, c in self.ia_trace[-10:]:
-            print(f'0x{ia:x}: 0x{c:08x} {OPCODES[(c >> 24) & 0x7f]}')
-        raise Exception(f'Trap 0x{addr:02x} - q: 0x{self.q-1:x}, {OPCODES[self.o]} 0x{self.iword:08x}')
+        # for ia, c in self.ia_trace[-10:]:
+        #     print(f'0x{ia:x}: 0x{c:08x} {OPCODES[(c >> 24) & 0x7f]}')
+        # raise Exception(f'Trap 0x{addr:02x} - q: 0x{self.q-1:x}, {OPCODES[self.o]} 0x{self.iword:08x}')
+        self.doTrap(0x40)
 
     def debug(self):
         print(f'0x{(self.q-1):x}: 0x{self.iword:08x} {OPCODES[self.o]} a: 0x{self.a:08x} d: 0x{self.d:08x} p: 0x{self.p>>2:08x} | {self.p&3} cc: 0x{self.cc:x}')
