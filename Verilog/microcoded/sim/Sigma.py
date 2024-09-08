@@ -78,8 +78,8 @@ class CardReader(object):
             raise Exception(f'Unexpected IOP command: 0x{c0:08x}')
 
     def testIO(self, daddr):
-        if self.index >= len(self.bytes):
-            return 0xc # I/O address not recognized and no status information is returned to general registers.
+        # if self.index >= len(self.bytes):
+        #     return 0xc # I/O address not recognized and no status information is returned to general registers.
         return 0
 
 class CPU(object):
@@ -106,17 +106,22 @@ class CPU(object):
         self.inTrap = False
         self.sense_switches = 0
 
-    def readB(self, addr, offset):
+    def readB(self, addr):
+        offset = addr & 3
+        addr >>= 2
         if addr < 16:
             return (self.rr[addr] >> 8*(3 - offset)) & 0xff
         return self.memory.readB(addr, offset)
 
     def readW(self, addr):
+        addr >>= 2
         if addr < 16:
             return self.rr[addr]
         return self.memory.readW(addr)
 
-    def writeB(self, addr, offset, value):
+    def writeB(self, addr, value):
+        offset = addr & 3
+        addr >>= 2
         if addr < 16:
             word = self.rr[addr]
             word &= ~(0xff << 8*(3 - offset))
@@ -126,6 +131,7 @@ class CPU(object):
         self.memory.writeB(addr, offset, value)
 
     def writeW(self, addr, value):
+        addr >>= 2
         if addr < 16:
             self.rr[addr] = value
             return
@@ -175,7 +181,7 @@ class CPU(object):
             self.cc |= 1
     
     def ende(self):
-        self.c = self.readW(self.p >> 2)
+        self.c = self.readW(self.p)
         self.ia_trace.append((self.p >> 2, self.c))
         self.iword = self.c
         self.p += 4
@@ -193,7 +199,7 @@ class CPU(object):
             return
         self.x = (self.c >> 17) & 7
         if self.c & 0x80000000:
-            self.c = self.readW(self.c & 0x1ffff)
+            self.c = self.readW((self.c & 0x1ffff) << 2)
         self.p = (self.c & 0x1ffff) << 2
         # p contains effective BYTE address
         if self.o >> 4 == 7 and self.x:
@@ -243,8 +249,8 @@ class CPU(object):
             self.trap(0x40)
         elif self.o == 0x0e: # LPSD
             # TODO Flags
-            dw0 = self.readW(self.p >> 2)
-            dw1 = self.readW((self.p >> 2) + 1) & 0xffc0ffff
+            dw0 = self.readW(self.p)
+            dw1 = self.readW(self.p + 4) & 0xffc0ffff
             self.cc = (dw0 >> 28) & 0xf
             self.ff = (dw0 >> 24) & 0x7
             self.mask5 = (dw0 >> 19) & 0x1f
@@ -252,10 +258,10 @@ class CPU(object):
             self.q = dw0 & 0x1ffff
             self.p = self.q << 2
         elif self.o == 0x0f: # XPSD
-            self.writeW(self.p >> 2, (self.cc << 28) | (self.ff << 24) | (self.mask5 << 19) | (self.q & 0x1ffff))
-            self.writeW((self.p >> 2) + 1, self.psd1)
-            dw0 = self.readW((self.p >> 2) + 2)
-            dw1 = self.readW((self.p >> 2) + 3)
+            self.writeW(self.p, (self.cc << 28) | (self.ff << 24) | (self.mask5 << 19) | (self.q & 0x1ffff))
+            self.writeW(self.p + 4, self.psd1)
+            dw0 = self.readW(self.p + 8)
+            dw1 = self.readW(self.p + 12)
             self.cc = (dw0 >> 28) & 0xf
             self.ff = (dw0 >> 24) & 0x7
             self.mask5 = (dw0 >> 19) & 0x1f
@@ -348,7 +354,7 @@ class CPU(object):
         elif self.o == 0x2f: # LRP
             self.trap(0x40)
         elif self.o == 0x30: # AW
-            s = self.a + self.readW(self.p >> 2)
+            s = self.a + self.readW(self.p)
             self.a = s & 0xffffffff
             self.rr[self.r] = self.a
             self.cc &= 7
@@ -357,7 +363,7 @@ class CPU(object):
             self.testa()
             self.p = self.q << 2
         elif self.o == 0x31: # CW
-            self.d = self.readW(self.p >> 2)
+            self.d = self.readW(self.p)
             s = self.a & self.d
             self.cc &= 0xb
             if s:
@@ -367,7 +373,7 @@ class CPU(object):
             self.testa()
             self.p = self.q << 2
         elif self.o == 0x32: # LW
-            self.a = self.readW(self.p >> 2)
+            self.a = self.readW(self.p)
             self.rr[self.r] = self.a
             self.testa()
             self.p = self.q << 2
@@ -375,7 +381,7 @@ class CPU(object):
             self.a = self.r
             if self.a & 0x8:
                 self.a |= 0xfffffff0
-            self.d = self.readW(self.p >> 2)
+            self.d = self.readW(self.p)
             s = self.a + self.d
             su = (self.a & 0x7fffffff) + (self.d & 0x7fffffff)
             self.cc &= 3
@@ -385,7 +391,7 @@ class CPU(object):
             if (~(a0 ^ b0)) & (s0 ^ a0):
                 self.cc |= 0x4
             self.a = s & 0xffffffff
-            self.writeW(self.p >> 2, self.a)
+            self.writeW(self.p, self.a)
             if ((a0 | b0) & (a0 & b0)) | (su & 0x80000000):
                 self.cc |= 8
             self.testa()
@@ -393,7 +399,7 @@ class CPU(object):
         elif self.o == 0x34: # ?.34
             self.trap(0x40)
         elif self.o == 0x35: # STW
-            self.writeW(self.p >> 2, self.a)
+            self.writeW(self.p, self.a)
             self.p = self.q << 2
         elif self.o == 0x36: # DW
             self.trap(0x40)
@@ -432,7 +438,7 @@ class CPU(object):
         elif self.o == 0x47: # STS
             self.trap(0x40)
         elif self.o == 0x48: # EOR
-            self.d = self.readW(self.p >> 2)
+            self.d = self.readW(self.p)
             self.a = (self.a ^ self.d) & 0xffffffff
             self.rr[self.r] = self.a
             self.testa()
@@ -442,7 +448,7 @@ class CPU(object):
         elif self.o == 0x4a: # LS
             self.trap(0x40)
         elif self.o == 0x4b: # AND
-            self.d = self.readW(self.p >> 2)
+            self.d = self.readW(self.p)
             self.a = (self.a & self.d) & 0xffffffff
             self.rr[self.r] = self.a
             self.testa()
@@ -610,13 +616,13 @@ class CPU(object):
         elif self.o == 0x6f: # MMC
             self.trap(0x40)
         elif self.o == 0x70: # LCF
-            byte = self.readB(self.p >> 2, self.p & 3)
+            byte = self.readB(self.p)
             if self.r & 2:
                 self.cc = (byte >> 4) & 0xf
                 self.ff = byte & 0x7
             self.p = self.q << 2
         elif self.o == 0x71: # CB
-            self.d = self.readB(self.p >> 2, self.p & 3)
+            self.d = self.readB(self.p)
             self.cc &= 8
             if self.a & self.d:
                 self.cc |= 4
@@ -625,7 +631,7 @@ class CPU(object):
             self.testa()
             self.p = self.q << 2
         elif self.o == 0x72: # LB
-            self.a = self.readB(self.p >> 2, self.p & 3)
+            self.a = self.readB(self.p)
             self.rr[self.r] = self.a
             self.testa()
             self.p = self.q << 2
@@ -633,20 +639,20 @@ class CPU(object):
             self.a = self.r
             if self.a & 0x8:
                 self.a |= 0xf0
-            self.d = self.readB(self.p >> 2, self.p & 3)
+            self.d = self.readB(self.p)
             s = self.a + self.d
             self.a = s & 0xff
-            self.writeB(self.p >> 2, self.p & 3, self.a)
+            self.writeB(self.p, self.a)
             self.cc &= 3
             if s & 0x100:
                 self.cc |= 8
             self.testa()
             self.p = self.q << 2
         elif self.o == 0x74: # STFC
-            self.writeB(self.p >> 2, self.p & 3, (self.cc << 4) | self.ff)
+            self.writeB(self.p, (self.cc << 4) | self.ff)
             self.p = self.q << 2
         elif self.o == 0x75: # STB
-            self.writeB(self.p >> 2, self.p & 3, self.a)
+            self.writeB(self.p, self.a)
             self.p = self.q << 2
         elif self.o == 0x76: # PACK
             self.trap(0x40)
