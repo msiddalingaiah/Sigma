@@ -65,18 +65,20 @@ class CardReader(object):
             print(f'CardReader: reading {n} bytes into WA 0x{ba>>2:x} + {ba&3} bytes, CARD {self.card}, flags: 0x{c1>>24:02x}')
             # Binary cards are 120 bytes long
             for i in range(120):
-                if n > 0:
+                if n > 0 and self.index < len(self.bytes):
                     self.memory.writeB(ba >> 2, ba & 3, self.bytes[self.index])
                     ba += 1
                     n -= 1
                 self.index += 1
+            if self.index >= len(self.bytes):
+                print(f'End of input')
             return 0
         else:
             raise Exception(f'Unexpected IOP command: 0x{c0:08x}')
 
     def testIO(self, daddr):
         if self.index >= len(self.bytes):
-            return 0x40 # busy
+            return 2 # busy
         return 0
 
 class CPU(object):
@@ -229,7 +231,7 @@ class CPU(object):
         elif self.o == 0x0e: # LPSD
             # TODO Flags
             dw0 = self.readW(self.p >> 2)
-            dw1 = self.readW((self.p >> 2) + 1)
+            dw1 = self.readW((self.p >> 2) + 1) & 0xffc0ffff
             self.cc = (dw0 >> 28) & 0xf
             self.ff = (dw0 >> 24) & 0x7
             self.mask5 = (dw0 >> 19) & 0x1f
@@ -237,7 +239,6 @@ class CPU(object):
             self.q = dw0 & 0x1ffff
             self.p = self.q << 2
         elif self.o == 0x0f: # XPSD
-            # print(f'0x{(self.q-1):x}: XPSD 0x{self.p>>2:08x}')
             self.writeW(self.p >> 2, (self.cc << 28) | (self.ff << 24) | (self.mask5 << 19) | (self.q & 0x1ffff))
             self.writeW((self.p >> 2) + 1, self.psd1)
             dw0 = self.readW((self.p >> 2) + 2)
