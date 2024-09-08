@@ -79,7 +79,7 @@ class CardReader(object):
 
     def testIO(self, daddr):
         if self.index >= len(self.bytes):
-            return 2 # busy
+            return 0xc # I/O address not recognized and no status information is returned to general registers.
         return 0
 
 class CPU(object):
@@ -104,6 +104,7 @@ class CPU(object):
         self.enabled = [False]*128
         self.active = [False]*128
         self.inTrap = False
+        self.sense_switches = 0
 
     def readB(self, addr, offset):
         if addr < 16:
@@ -136,6 +137,7 @@ class CPU(object):
         start_ns = time.time_ns()
         while True:
             if opcount % 1000000 == 0:
+                print('1000000 instructions executed: ctrl-C to terminate.')
                 self.debug()
             self.execOne()
             dt_ns = time.time_ns() - start_ns
@@ -340,7 +342,9 @@ class CPU(object):
         elif self.o == 0x2d: # ?.2D
             self.trap(0x40)
         elif self.o == 0x2e: # WAIT
-            self.trap(0x40)
+            self.debug()
+            input("WAIT: press enter to continue...")
+            self.p = self.q << 2
         elif self.o == 0x2f: # LRP
             self.trap(0x40)
         elif self.o == 0x30: # AW
@@ -523,8 +527,17 @@ class CPU(object):
         elif self.o == 0x6b: # INT
             self.trap(0x40)
         elif self.o == 0x6c: # RD
-            if self.p & 0xffff == 0: # Read sense switches
-                self.cc = 0
+            # 0x0: Read sense switches
+            # 0x48: Read interrupt inhibits
+            # 0x49: Read snapshot sample register
+            # 0x1x0x: Read interrupt control mode 1
+            addr = (self.p >> 2) & 0xffff
+            if addr == 0:
+                self.cc = self.sense_switches
+                self.p = self.q << 2
+            elif addr == 0x48:
+                if self.r:
+                    self.rr[self.r] = (self.psd1 >> 24) & 7
                 self.p = self.q << 2
             else:
                 self.trap(0x40)
