@@ -1,6 +1,6 @@
 
-vcd/CPUTestBench: CPU.v CPUTestBench.v Sequencer.v roms/microcode.txt programs/init.txt
-	iverilog -o vcd/CPUTestBench CPUTestBench.v
+vcd/CPUTestBench: CPU.v CPUTestBench.v Sequencer.v CardReader.v roms/microcode.txt programs/init.txt
+	iverilog -g2009 -o vcd/CPUTestBench CPUTestBench.v
 	vvp vcd/CPUTestBench
 
 CPU.v roms/microcode.asm: Pipeline.py
@@ -14,6 +14,8 @@ programs/init.txt: programs/init.asm roms/Assembler.py
 
 run:
 	vvp vcd/CPUTestBench
+
+all: CPU.v roms/microcode.asm vcd/CPUTestBench
 
 test:
 	python roms/CompilerTest.py

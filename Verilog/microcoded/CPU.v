@@ -16,14 +16,14 @@ endmodule
 /*
 Memory is word addressed, 17 bits
 */
-module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
+module CPU(input wire reset, input wire clock, input wire active, input wire [0:31] memory_data_in,
     output wire [15:31] memory_address, output reg [0:31] memory_data_out, output reg [0:3] wr_enables);
     assign memory_address = lb;
 
     // Microcode sequencer
     reg [0:1] uc_op;
     reg [0:11] uc_din;
-    Sequencer seq(reset, clock, uc_op, uc_din, uc_rom_address);
+    Sequencer seq(reset, clock, active, uc_op, uc_din, uc_rom_address);
     // Microcode ROM(s)
     wire [0:11] uc_rom_address;
     wire [0:55] uc_rom_data;
@@ -253,188 +253,190 @@ module CPU(input wire reset, input wire clock, input wire [0:31] memory_data_in,
             pipeline <= 0;
             wr_enables <= 0;
         end else begin
-            pipeline <= uc_rom_data;
-            wr_enables <= 0;
-            ia <= 0;
-            if (ende == 1) begin
-                // ende entry: p contains next instruction byte address
-                `ifdef TRACE_I
-                    $display("* Q %x: %x", q-1, c);
-                    $display("  R0 %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
-                    $display("  R8 %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
-                `endif
-                c <= c_in; d <= c_in; o <= c_in[1:7]; cs <= 0;
-                r <= c_in[8:11]; x <= c_in[12:14]; p <= p + 4;
-                // immediate value is sign extended and stored in d
-                if (~c_in[3] & ~c_in[4] & ~c_in[5]) begin
-                    d <= { {12{c_in[12]}}, c_in[12:31] };
-                end else if (c_in[0] == 1) begin
-                    ia <= 1;
-                end
-                // ende exit: c: instruction word, d: instruction word or immediate value, r: register number,
-                // x: index register, p: next instruction byte address, ia: indirect flag
-            end
-            if (ia == 1) begin
-                c <= c_in; d <= c_in; // indirect addressing mode: c, d contain indirect word, e.g. *c
-            end
-            case (ax)
-                AX_NONE: ; // do nothing
-                AX_S: a <= s;
-                AX_RR: a <= rr[r];
-                AX_0: a <= 32'h0;
-            endcase
-            case (dx)
-                DX_NONE: ; // do nothing
-                DX_0: d <= 32'h0;
-                DX_1: d <= 32'h1;
-                DX_CINB:
-                    case (p[32:33])
-                        0: d <= { 24'h0, c_in[0:7] };
-                        1: d <= { 24'h0, c_in[8:15] };
-                        2: d <= { 24'h0, c_in[16:23] };
-                        3: d <= { 24'h0, c_in[24:31] };
-                    endcase
-                DX_CINH:
-                    case (p[32])
-                        0: d <= { {16{c_in[0]}}, c_in[0:15] };
-                        1: d <= { {16{c_in[16]}}, c_in[16:31] };
-                    endcase
-                DX_CIN: d <= c_in;
-            endcase
-            case (rrx)
-                RRX_NONE: ; // do nothing
-                RRX_S: rr[r] <= s;
-                RRX_Q: rr[r] <= q;
-            endcase
-            case (px)
-                PX_NONE: ; // do nothing
-                PX_D_INDX:
-                    begin
-                        p[15:33] <= { d[15:31], 2'h0 };
-                        if (fa_b) begin
-                            p[15:33] <= { d[15:31], 2'h0 } + indx_offset[13:31];
-                        end
-                        if (fa_h) begin
-                            p[15:33] <= { d[15:31], 2'h0 } + { indx_offset[14:31], 1'h0 };
-                        end
-                        if (fa_w) begin
-                            p[15:33] <= { d[15:31], 2'h0 } + { indx_offset[15:31], 2'h0 };
-                        end
+            if (active) begin
+                pipeline <= uc_rom_data;
+                wr_enables <= 0;
+                ia <= 0;
+                if (ende == 1) begin
+                    // ende entry: p contains next instruction byte address
+                    `ifdef TRACE_I
+                        $display("* Q %x: %x", q-1, c);
+                        $display("  R0 %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
+                        $display("  R8 %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
+                    `endif
+                    c <= c_in; d <= c_in; o <= c_in[1:7]; cs <= 0;
+                    r <= c_in[8:11]; x <= c_in[12:14]; p <= p + 4;
+                    // immediate value is sign extended and stored in d
+                    if (~c_in[3] & ~c_in[4] & ~c_in[5]) begin
+                        d <= { {12{c_in[12]}}, c_in[12:31] };
+                    end else if (c_in[0] == 1) begin
+                        ia <= 1;
                     end
-                PX_Q: p[15:33] <= { q, 2'h0 };
-            endcase
-            case (qx)
-                QX_NONE: ; // do nothing
-                QX_P: q <= p[15:31];
-            endcase
-            case (write_size)
-                WR_NONE: ;
-                WR_BYTE:
-                    case (p[32:33])
-                        0: begin memory_data_out <= { s[24:31], 24'd0 }; wr_enables <= 4'b1000; end
-                        1: begin memory_data_out <= { 8'd0, s[24:31], 16'd0 }; wr_enables <= 4'b0100; end
-                        2: begin memory_data_out <= { 16'd0, s[24:31], 8'd0 }; wr_enables <= 4'b0010; end
-                        3: begin memory_data_out <= { 24'd0, s[24:31] }; wr_enables <= 4'b0001; end
-                    endcase
-                WR_HALF: ;
-                WR_WORD:
-                    begin
-                        memory_data_out <= s;
-                        wr_enables <= 4'b1111;
-                    end
-            endcase
-            case (divide)
-                DIV_NONE: ; // do nothing
-                DIV_PREP: begin
-                    // a:b - 64 bit numerator
-                    a <= { rr[r][1:31], 1'b0 };
-                    b <= { rr[r|1][1:31], 1'b0 };
-                    // c - 32 bit denominator
-                    c <= c_in;
-                    // $display("%d:%d/%d", rr[r], rr[r|1], c_in);
-                    // Start with sign == 0
-                    d <= ~c_in;
-                    cs <= 32'h1;
-                    dw_lsb <= 1;
-                    e <= 32-2;
+                    // ende exit: c: instruction word, d: instruction word or immediate value, r: register number,
+                    // x: index register, p: next instruction byte address, ia: indirect flag
                 end
-                DIV_LOOP: begin
-                    //$display("count: %d, a:b %x:%x, d: %x, cs: %x", e, a, b, d, cs);
-                    a <= { s[1:31], b[0] };
-                    b <= { b[1:31], dw_lsb };
-                    if (s[0] == 0) begin
-                        d <= ~c;
+                if (ia == 1) begin
+                    c <= c_in; d <= c_in; // indirect addressing mode: c, d contain indirect word, e.g. *c
+                end
+                case (ax)
+                    AX_NONE: ; // do nothing
+                    AX_S: a <= s;
+                    AX_RR: a <= rr[r];
+                    AX_0: a <= 32'h0;
+                endcase
+                case (dx)
+                    DX_NONE: ; // do nothing
+                    DX_0: d <= 32'h0;
+                    DX_1: d <= 32'h1;
+                    DX_CINB:
+                        case (p[32:33])
+                            0: d <= { 24'h0, c_in[0:7] };
+                            1: d <= { 24'h0, c_in[8:15] };
+                            2: d <= { 24'h0, c_in[16:23] };
+                            3: d <= { 24'h0, c_in[24:31] };
+                        endcase
+                    DX_CINH:
+                        case (p[32])
+                            0: d <= { {16{c_in[0]}}, c_in[0:15] };
+                            1: d <= { {16{c_in[16]}}, c_in[16:31] };
+                        endcase
+                    DX_CIN: d <= c_in;
+                endcase
+                case (rrx)
+                    RRX_NONE: ; // do nothing
+                    RRX_S: rr[r] <= s;
+                    RRX_Q: rr[r] <= q;
+                endcase
+                case (px)
+                    PX_NONE: ; // do nothing
+                    PX_D_INDX:
+                        begin
+                            p[15:33] <= { d[15:31], 2'h0 };
+                            if (fa_b) begin
+                                p[15:33] <= { d[15:31], 2'h0 } + indx_offset[13:31];
+                            end
+                            if (fa_h) begin
+                                p[15:33] <= { d[15:31], 2'h0 } + { indx_offset[14:31], 1'h0 };
+                            end
+                            if (fa_w) begin
+                                p[15:33] <= { d[15:31], 2'h0 } + { indx_offset[15:31], 2'h0 };
+                            end
+                        end
+                    PX_Q: p[15:33] <= { q, 2'h0 };
+                endcase
+                case (qx)
+                    QX_NONE: ; // do nothing
+                    QX_P: q <= p[15:31];
+                endcase
+                case (write_size)
+                    WR_NONE: ;
+                    WR_BYTE:
+                        case (p[32:33])
+                            0: begin memory_data_out <= { s[24:31], 24'd0 }; wr_enables <= 4'b1000; end
+                            1: begin memory_data_out <= { 8'd0, s[24:31], 16'd0 }; wr_enables <= 4'b0100; end
+                            2: begin memory_data_out <= { 16'd0, s[24:31], 8'd0 }; wr_enables <= 4'b0010; end
+                            3: begin memory_data_out <= { 24'd0, s[24:31] }; wr_enables <= 4'b0001; end
+                        endcase
+                    WR_HALF: ;
+                    WR_WORD:
+                        begin
+                            memory_data_out <= s;
+                            wr_enables <= 4'b1111;
+                        end
+                endcase
+                case (divide)
+                    DIV_NONE: ; // do nothing
+                    DIV_PREP: begin
+                        // a:b - 64 bit numerator
+                        a <= { rr[r][1:31], 1'b0 };
+                        b <= { rr[r|1][1:31], 1'b0 };
+                        // c - 32 bit denominator
+                        c <= c_in;
+                        // $display("%d:%d/%d", rr[r], rr[r|1], c_in);
+                        // Start with sign == 0
+                        d <= ~c_in;
                         cs <= 32'h1;
                         dw_lsb <= 1;
-                    end else begin
-                        d <= c;
+                        e <= 32-2;
+                    end
+                    DIV_LOOP: begin
+                        //$display("count: %d, a:b %x:%x, d: %x, cs: %x", e, a, b, d, cs);
+                        a <= { s[1:31], b[0] };
+                        b <= { b[1:31], dw_lsb };
+                        if (s[0] == 0) begin
+                            d <= ~c;
+                            cs <= 32'h1;
+                            dw_lsb <= 1;
+                        end else begin
+                            d <= c;
+                            cs <= 0;
+                            dw_lsb <= 0;
+                        end
+                        e <= e - 1;
+                    end
+                    DIV_POST: begin
+                        //$display("count: %d, a:b %x:%x, d: %x, cs: %x", e, a, b, d, cs);
+                        a <= { s[0:31] };
+                        b <= { b[2:31], dw_lsb, ~s[0] };
+                        d <= 0;
                         cs <= 0;
-                        dw_lsb <= 0;
+                        if (s[0] == 1) begin
+                            d <= c;
+                        end
                     end
-                    e <= e - 1;
-                end
-                DIV_POST: begin
-                    //$display("count: %d, a:b %x:%x, d: %x, cs: %x", e, a, b, d, cs);
-                    a <= { s[0:31] };
-                    b <= { b[2:31], dw_lsb, ~s[0] };
-                    d <= 0;
-                    cs <= 0;
-                    if (s[0] == 1) begin
-                        d <= c;
+                    DIV_SAVE: begin
+                        rr[r] <= s; // remainder
+                        rr[r|1] <= b; // quotient
+                        // $display("quotient: %d, rem: %d", b, s);
+                    end
+                endcase
+                case (multiply)
+                    MUL_NONE: ; // do nothing
+                    MUL_PREP: begin
+                        // $display("%d x %d", rr[r], d);
+                        a <= 0;
+                        b <= rr[r];
+                        c <= d;
+                        bc31 <= 0;
+                        case (rr[r][30:31])
+                            0: begin d <= 0; cs <= 0; end
+                            1: begin d <= d; cs <= 0; end
+                            2: begin d <= { d[1:31], 1'b0 }; cs <= 0; end
+                            3: begin d <= ~d;  cs <= 1; bc31 <= 1; end
+                        endcase
+                        e <= (32 >> 1) - 1;
+                    end
+                    MUL_LOOP: begin
+                        // $display("e: %d, a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", e, a, b, d, cs, s, bpair, bc31);
+                        a <= { {2{s[0]}}, s[0:29] };
+                        b <= { s[30:31], b[0:29] };
+                        bc31 <= bpair[0] | (bpair[1] & bpair[2]);
+                        case (bpair & 3)
+                            0: begin d <= 0; cs <= 0; end
+                            1: begin d <= c; cs <= 0; end
+                            2: begin d <= { c[1:31], 1'b0 }; cs <= 0; end
+                            3: begin d <= ~c;  cs <= 1; end
+                        endcase
+                        e <= e - 1;
+                    end
+                    MUL_SAVE: begin
+                        // $display("a:b %d:%d, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", a, b, d, cs, s, bpair, bc31);
+                        rr[r] <= a;
+                        rr[r | 1] <= b;
+                    end
+                endcase
+                if (testa == 1) begin cc[3] <= (~a[0]) & (a != 0); cc[4] <= a[0]; end
+                if (wd_en == 1) begin
+                    // $display("wd_en, d[24:31] = %x, r = %x, rr[r][25:31]", d[24:31], r, rr[r][25:31]);
+                    if ((d[24:31] == 0) && (r != 0)) begin
+                        $write("%s", rr[r][25:31]);
                     end
                 end
-                DIV_SAVE: begin
-                    rr[r] <= s; // remainder
-                    rr[r|1] <= b; // quotient
-                    // $display("quotient: %d, rem: %d", b, s);
+                if (uc_debug == 1) begin
+                    $display("%4d: q: %x, p[15:31]: %x, c_in: %x, s: %x, fa_b: %x, indx_offset: %x, x: %x, ia: %x, branch: %x",
+                        seq.pc-1, q, p[15:31], c_in, s, fa_b, indx_offset, x, ia, branch);
+                    //$stop;
                 end
-            endcase
-            case (multiply)
-                MUL_NONE: ; // do nothing
-                MUL_PREP: begin
-                    // $display("%d x %d", rr[r], d);
-                    a <= 0;
-                    b <= rr[r];
-                    c <= d;
-                    bc31 <= 0;
-                    case (rr[r][30:31])
-                        0: begin d <= 0; cs <= 0; end
-                        1: begin d <= d; cs <= 0; end
-                        2: begin d <= { d[1:31], 1'b0 }; cs <= 0; end
-                        3: begin d <= ~d;  cs <= 1; bc31 <= 1; end
-                    endcase
-                    e <= (32 >> 1) - 1;
-                end
-                MUL_LOOP: begin
-                    // $display("e: %d, a:b %x:%x, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", e, a, b, d, cs, s, bpair, bc31);
-                    a <= { {2{s[0]}}, s[0:29] };
-                    b <= { s[30:31], b[0:29] };
-                    bc31 <= bpair[0] | (bpair[1] & bpair[2]);
-                    case (bpair & 3)
-                        0: begin d <= 0; cs <= 0; end
-                        1: begin d <= c; cs <= 0; end
-                        2: begin d <= { c[1:31], 1'b0 }; cs <= 0; end
-                        3: begin d <= ~c;  cs <= 1; end
-                    endcase
-                    e <= e - 1;
-                end
-                MUL_SAVE: begin
-                    // $display("a:b %d:%d, d: %x, cs: %x, s: %x, bpair: %x, bc31: %x", a, b, d, cs, s, bpair, bc31);
-                    rr[r] <= a;
-                    rr[r | 1] <= b;
-                end
-            endcase
-            if (testa == 1) begin cc[3] <= (~a[0]) & (a != 0); cc[4] <= a[0]; end
-            if (wd_en == 1) begin
-                // $display("wd_en, d[24:31] = %x, r = %x, rr[r][25:31]", d[24:31], r, rr[r][25:31]);
-                if ((d[24:31] == 0) && (r != 0)) begin
-                    $write("%s", rr[r][25:31]);
-                end
-            end
-            if (uc_debug == 1) begin
-                $display("%4d: q: %x, p[15:31]: %x, c_in: %x, s: %x, fa_b: %x, indx_offset: %x, x: %x, ia: %x, branch: %x",
-                    seq.pc-1, q, p[15:31], c_in, s, fa_b, indx_offset, x, ia, branch);
-                //$stop;
             end
         end
     end

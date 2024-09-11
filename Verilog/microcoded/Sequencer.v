@@ -11,7 +11,7 @@
  * See https://github.com/Nakazoto/CenturionComputer/blob/main/Computer/CPU6%20Board/Datasheets/am2909_am2911.pdf
  */
 
-module Sequencer(input wire reset, input wire clock, input wire [1:0] op, input wire [11:0] din, output reg [11:0] yout);
+module Sequencer(input wire reset, input wire clock, input wire active, input wire [1:0] op, input wire [11:0] din, output reg [11:0] yout);
 
     integer i;
     initial begin
@@ -50,16 +50,18 @@ module Sequencer(input wire reset, input wire clock, input wire [1:0] op, input 
             pc = 0;
             sp = 3;
 		end else begin
-            if (stackWr == 1) begin
-                stack[stackAddr] <= pc;
+            if (active) begin
+                if (stackWr == 1) begin
+                    stack[stackAddr] <= pc;
+                end
+                case (op)
+                    0: ;  // next
+                    1: ;  // jump
+                    2: sp <= sp + 1; // call
+                    3: sp <= sp - 1; // return
+                endcase
+                pc <= yout + 1;
             end
-            case (op)
-                0: ;  // next
-                1: ;  // jump
-                2: sp <= sp + 1; // call
-                3: sp <= sp - 1; // return
-            endcase
-            pc <= yout + 1;
 		end
     end
 endmodule

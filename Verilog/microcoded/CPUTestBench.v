@@ -5,6 +5,7 @@
     `include "CPUhw.v"
 `else
     `include "CPU.v"
+    `include "CardReader.v"
 `endif
 
 // `define TRACE_WR 1
@@ -92,8 +93,58 @@ module Memory(input wire clock, input wire [15:31] address, input wire [0:3] wri
     end
 endmodule
 
+module Arbiter(input wire reset, input wire clock,
+    input wire [0:3] write_en[0:1], input wire [15:31] address[0:1], input wire [0:31] data_in[0:1],
+    output reg [0:3] mem_write_en, output reg [15:31] memory_address, output reg [0:31] memory_data,
+    input wire [0:1] running, output reg [0:1] active);
+
+    reg [0:3] selected_device;
+
+    always @(*) begin
+        active = 0;
+        if (running[selected_device]) begin
+            active[selected_device] = 1;
+            mem_write_en = write_en[selected_device];
+            memory_address = address[selected_device];
+            memory_data = data_in[selected_device];
+        end else begin
+            active[0] = 1;
+            mem_write_en = write_en[0];
+            memory_address = address[0];
+            memory_data = data_in[0];
+        end
+        // active = 0;
+        // mem_write_en = 0;
+        // memory_address = 0;
+        // memory_data = 0;
+        // case (active_device)
+        //     0: begin // CPU
+        //         active[0] = 1;
+        //         mem_write_en = write_en[0];
+        //         memory_address = address[0];
+        //         memory_data = data_in[0];
+        //     end
+        //     1: begin // CPU
+        //         active[1] = 1;
+        //         mem_write_en = write_en[1];
+        //         memory_address = address[1];
+        //         memory_data = data_in[1];
+        //     end
+        // endcase
+    end
+
+    always @(posedge clock, posedge reset) begin
+        if (reset == 1) begin
+            selected_device <= 0;
+        end else begin
+            selected_device <= selected_device + 1;
+            if (selected_device == 1) selected_device <= 0;
+        end
+    end
+endmodule
+
 module CPUTestBench;
-    localparam CYCLE_LIMIT = 1500;
+    localparam CYCLE_LIMIT = 2000;
     localparam TIME_LIMIT = 101*CYCLE_LIMIT;
 
     integer i;
@@ -105,6 +156,7 @@ module CPUTestBench;
         $dumpvars(0, CPUTestBench);
 
         $readmemh("programs/init.txt", ram.temp);
+        $readmemh("programs/sighcp.txt", cr0.card_words);
         for (i=0; i<ram.MAX_WORD_LEN; i=i+1) begin
             temp = ram.temp[i];
             ram.cells0[i] = temp[0:7];
@@ -127,43 +179,76 @@ module CPUTestBench;
         $finish;
     end
 
-    wire [0:31] data_c2r, data_r2c;
-    wire [0:16] addressBus;
-    wire [0:3] wr_enables;
+    wire [0:31] memory_data_in, memory_data_out;
+    wire [0:31] cpu_data_out, cr0_data_out;
+    wire [15:31] memory_address, cpu_address, cr0_address;
+    wire [0:3] mem_write_en, cpu_wr_en, ccr0_wr_en;
     wire clock;
     Clock cg0(clock);
-    Memory ram(clock, addressBus, wr_enables, data_c2r, data_r2c);
+    Memory ram(clock, memory_address, mem_write_en, memory_data_in, memory_data_out);
     reg reset;
-    CPU cpu(reset, clock, data_r2c, addressBus, data_c2r, wr_enables);
+    wire [0:11] iop;
+    wire cr0_sio, cr0_tio;
+    wire [0:3] cr0_cc;
+
+    wire [0:3] write_en[0:1];
+    assign write_en[0] = cpu_wr_en;
+    assign write_en[1] = ccr0_wr_en;
+
+    wire [15:31] address[0:1];
+    assign address[0] = cpu_address;
+    assign address[1] = cr0_address;
+
+    wire [0:31] data_in[0:1];
+    assign data_in[0] = cpu_data_out;
+    assign data_in[1] = cr0_data_out;
+
+    wire [0:1] running;
+    wire cr0_running;
+    assign running[0] = 1;
+    assign running[1] = cr0_running;
+
+    wire [0:1] active;
+
+    Arbiter arb(reset, clock, write_en, address, data_in,
+        mem_write_en, memory_address, memory_data_in, running, active);
+
+    CPU cpu(reset, clock, active[0], memory_data_out, cpu_address, cpu_data_out, cpu_wr_en);
     reg [0:31] cycle_count;
     reg [0:15] instruction_count;
     real cycles_per_inst;
 
-    always @(posedge clock) begin
-        cycle_count <= cycle_count + 1;
-        if (cycle_count >= CYCLE_LIMIT) begin
-            $display("\nClock limit reached, possible inifinite loop at 0x%4x", (cpu.p >> 2) - 1);
-            cycles_per_inst = 100*cycle_count / instruction_count;
-            $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
-                cycle_count, instruction_count, cycles_per_inst/100);
-            $finish;
-        end
-        if (cpu.o == 46) begin
-            $display("\nCPU WAIT: execution terminated at 0x%4x", (cpu.p >> 2) - 1);
-            cycles_per_inst = 100*cycle_count / instruction_count;
-            $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
-                cycle_count, instruction_count, cycles_per_inst/100);
-            $finish;
-        end
-        if (cpu.trap) begin
-            $display("\nTrap encountered at %x, c = %x.", cpu.q - 1, cpu.c);
-            cycles_per_inst = 100*cycle_count / instruction_count;
-            $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
-                cycle_count, instruction_count, cycles_per_inst/100);
-            $finish;
-        end
-        if (cpu.ende) begin
-            instruction_count <= instruction_count + 1;
+    CardReader cr0(reset, clock, cr0_running, active[1], memory_data_out, cr0_address, cr0_data_out, ccr0_wr_en,
+        cr0_sio, cr0_tio, cr0_cc);
+
+    always @(posedge clock, posedge reset) begin
+        if (reset == 1) begin
+        end else begin
+            cycle_count <= cycle_count + 1;
+            if (cycle_count >= CYCLE_LIMIT) begin
+                $display("\nClock limit reached, possible inifinite loop at 0x%4x", (cpu.p >> 2) - 1);
+                cycles_per_inst = 100*cycle_count / instruction_count;
+                $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
+                    cycle_count, instruction_count, cycles_per_inst/100);
+                $finish;
+            end
+            if (cpu.o == 46) begin
+                $display("\nCPU WAIT: execution terminated at 0x%4x", (cpu.p >> 2) - 1);
+                cycles_per_inst = 100*cycle_count / instruction_count;
+                $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
+                    cycle_count, instruction_count, cycles_per_inst/100);
+                $finish;
+            end
+            if (cpu.trap) begin
+                $display("\nTrap encountered at %x, c = %x.", cpu.q - 1, cpu.c);
+                cycles_per_inst = 100*cycle_count / instruction_count;
+                $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
+                    cycle_count, instruction_count, cycles_per_inst/100);
+                $finish;
+            end
+            if (cpu.ende) begin
+                instruction_count <= instruction_count + 1;
+            end
         end
     end
 endmodule

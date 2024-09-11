@@ -495,6 +495,10 @@ def main {
                 continue _trap;
             }
             OP_RD: {
+                # 0x0: Read sense switches
+                # 0x48: Read interrupt inhibits
+                # 0x49: Read snapshot sample register
+                # 0x1x0x: Read interrupt control mode 1
                 continue _trap;
             }
             OP_WD: {
