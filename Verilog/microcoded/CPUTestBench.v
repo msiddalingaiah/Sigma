@@ -5,8 +5,9 @@
     `include "CPUhw.v"
 `else
     `include "CPU.v"
-    `include "CardReader.v"
 `endif
+
+`include "CardReader.v"
 
 // `define TRACE_WR 1
 

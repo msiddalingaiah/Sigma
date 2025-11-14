@@ -21,5 +21,5 @@ test:
 	python roms/CompilerTest.py
 
 hw: *.v programs/init.txt
-	iverilog -DCPU_HW=1 -o vcd/CPUTestBench CPUTestBench.v
-	vvp vcd/CPUTestBench
+	iverilog -g2009 -DCPU_HW=1 -o vcd/CPUTestBenchHW CPUTestBench.v
+	vvp vcd/CPUTestBenchHW
