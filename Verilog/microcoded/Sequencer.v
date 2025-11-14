@@ -13,6 +13,12 @@
 
 module Sequencer(input wire reset, input wire clock, input wire active, input wire [1:0] op, input wire [11:0] din, output reg [11:0] yout);
 
+    reg [11:0] pc;
+    reg [1:0] sp, stackAddr;
+    reg [11:0] mux;
+    reg stackWr;
+    reg [11:0] stack[0:3];
+
     integer i;
     initial begin
         pc = 0;
@@ -22,12 +28,6 @@ module Sequencer(input wire reset, input wire clock, input wire active, input wi
         stackWr = 0;
         for (i=0;i<4;i=i+1) stack[i] = 0;
     end
-
-    reg [11:0] pc;
-    reg [1:0] sp, stackAddr;
-    reg [11:0] mux;
-    reg stackWr;
-    reg [11:0] stack[0:3];
 
     // Guideline #3: When modeling combinational logic with an "always" 
     //              block, use blocking assignments.

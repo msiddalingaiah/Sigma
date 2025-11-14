@@ -18,16 +18,15 @@ Memory is word addressed, 17 bits
 */
 module CPU(input wire reset, input wire clock, input wire active, input wire [0:31] memory_data_in,
     output wire [15:31] memory_address, output reg [0:31] memory_data_out, output reg [0:3] wr_enables);
-    assign memory_address = lb;
 
-    // Microcode sequencer
-    reg [0:1] uc_op;
-    reg [0:11] uc_din;
-    Sequencer seq(reset, clock, active, uc_op, uc_din, uc_rom_address);
     // Microcode ROM(s)
     wire [0:11] uc_rom_address;
     wire [0:55] uc_rom_data;
     CodeROM uc_rom(uc_rom_address, uc_rom_data);
+    // Microcode sequencer
+    reg [0:1] uc_op;
+    reg [0:11] uc_din;
+    Sequencer seq(reset, clock, active, uc_op, uc_din, uc_rom_address);
 
     // ---- BEGIN Pipeline definitions DO NOT EDIT
 
@@ -164,6 +163,8 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     reg [0:2] x;
     // Divide LSB
     reg dw_lsb;
+
+    assign memory_address = lb;
 
     // Address family decode, see ANLZ instruction
     wire fa_b = o[1] & o[2] & o[3];

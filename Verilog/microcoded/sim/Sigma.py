@@ -694,6 +694,6 @@ class CPU(object):
 
 if __name__ == '__main__':
     memory = Memory()
-    iops = [None, CardReader(memory, 'programs/sighcp')]
+    iops = [None, CardReader(memory, '../programs/sighcp')]
     cpu = CPU(memory, iops)
     cpu.run()

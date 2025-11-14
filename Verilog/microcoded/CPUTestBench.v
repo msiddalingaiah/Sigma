@@ -147,6 +147,11 @@ module CPUTestBench;
     localparam CYCLE_LIMIT = 2000;
     localparam TIME_LIMIT = 101*CYCLE_LIMIT;
 
+    reg reset;
+    reg [0:31] cycle_count;
+    reg [0:15] instruction_count;
+    real cycles_per_inst;
+
     integer i;
     reg [0:31] temp;
     initial begin
@@ -186,7 +191,6 @@ module CPUTestBench;
     wire clock;
     Clock cg0(clock);
     Memory ram(clock, memory_address, mem_write_en, memory_data_in, memory_data_out);
-    reg reset;
     wire [0:11] iop;
     wire cr0_sio, cr0_tio;
     wire [0:3] cr0_cc;
@@ -214,9 +218,6 @@ module CPUTestBench;
         mem_write_en, memory_address, memory_data_in, running, active);
 
     CPU cpu(reset, clock, active[0], memory_data_out, cpu_address, cpu_data_out, cpu_wr_en);
-    reg [0:31] cycle_count;
-    reg [0:15] instruction_count;
-    real cycles_per_inst;
 
     CardReader cr0(reset, clock, cr0_running, active[1], memory_data_out, cr0_address, cr0_data_out, ccr0_wr_en,
         cr0_sio, cr0_tio, cr0_cc);
