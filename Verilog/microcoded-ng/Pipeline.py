@@ -79,22 +79,22 @@ class Pipeline(object):
 
     def getMicroLines(self):
         lines = []
-        lines.append('const seq.endian = BIG;')
-        lines.append(f'const seq.width = {self.width};')
+        lines.append('const seq.endian = BIG')
+        lines.append(f'const seq.width = {self.width}')
         lines.append('')
         start = 0
         for name, width in self.fields.items():
             if name.startswith('seq_'):
                 name = name.replace('seq_', 'seq.')
             end = start + width-1
-            lines.append(f'field {name} = {start}:{end};')
+            lines.append(f'field {name} = {start}:{end}')
             start += width
         for name, (start, width) in self.overlaps.items():
             end = start + width-1
-            lines.append(f'field {name} = {start}:{end};')
+            lines.append(f'field {name} = {start}:{end}')
         lines.append('')
         for name, value in self.constants.items():
-            lines.append(f'const {name} = {value};')
+            lines.append(f'const {name} = {value}')
         return lines
 
     def writeVerilog(self, filename):
