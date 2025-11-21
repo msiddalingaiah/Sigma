@@ -150,87 +150,112 @@ class Pipeline(object):
 import sys
 
 if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print('usage: python Pipeline.py <verilog-file> <micro-def-file>')
-        sys.exit(1)
-
-    width = 56
-
     fields = {}
     fields['seq_op'] = 2
     fields['seq_address_mux'] = 2
     fields['seq_condition'] = 4
-    fields['ax'] = 4
+    fields['ax'] = 3
+    fields['bx'] = 2
+    fields['cx'] = 3
     fields['dx'] = 3
+    fields['ex'] = 3
+    fields['ox'] = 1
     fields['px'] = 3
-    fields['qx'] = 1
-    fields['rrx'] = 4
-    fields['sxop'] = 4
+    fields['qx'] = 2
+    fields['rrx'] = 1
+    fields['sx'] = 4
     fields['ende'] = 1
     fields['testa'] = 1
     fields['wd_en'] = 1
     fields['trap'] = 1
-    fields['divide'] = 3
-    fields['multiply'] = 2
     fields['uc_debug'] = 1
     fields['write_size'] = 2
-    fields['__unused'] = 5
+    fields['__unused'] = 4
     fields['seq_address'] = 12
 
+    width = 0
+    for k, v in fields.items():
+        width += v
+
+    print(f"Microword width: {width} bits")
+    if width & 3 != 0:
+        raise Exception("Microword width is not a multiple of 8 bits")
+
+    if len(sys.argv) < 3:
+        print('usage: python Pipeline.py <verilog-file> <micro-def-file>')
+        sys.exit(1)
+
     overlaps = {}
-    overlaps['_const8'] = (width-8, 8)
+    overlaps['_const12'] = (width-12, 12)
 
     constants = {}
-    constants['SX_ADD'] = 0
-    constants['SX_SUB'] = 1
-    constants['SX_A'] = 2
-    constants['SX_D'] = 3
+    constants['AXNONE'] = 0
+    constants['AXCONST'] = 1
+    constants['AXE'] = 2
+    constants['AXR'] = 3
+    constants['AXRR'] = 4
+    constants['AXS'] = 5
 
-    constants['AX_NONE'] = 0
-    constants['AX_S'] = 1
-    constants['AX_RR'] = 2
-    constants['AX_0'] = 3
+    constants['BXNONE'] = 0
+    constants['BXCONST'] = 1
+    constants['BXS'] = 2
 
-    constants['DX_NONE'] = 0
-    constants['DX_0'] = 1
-    constants['DX_1'] = 2
-    constants['DX_CINB'] = 3
-    constants['DX_CINH'] = 4
-    constants['DX_CIN'] = 5
+    constants['CXNONE'] = 0
+    constants['CXCONST'] = 1
+    constants['CXMB'] = 2
+    constants['CXRR'] = 3
+    constants['CXS'] = 4
 
-    constants['PX_NONE'] = 0
-    constants['PX_D_INDX'] = 1
-    constants['PX_Q'] = 2
+    constants['DXNONE'] = 0
+    constants['DXCONST'] = 1
+    constants['DXC'] = 2
+    constants['DXCC'] = 3
+    constants['DXNC'] = 4
+    constants['DXPSW1'] = 5
+    constants['DXPSW2'] = 6
 
-    constants['QX_NONE'] = 0
-    constants['QX_P'] = 1
+    constants['EXNONE'] = 0
+    constants['EXCONST'] = 1
+    constants['EXB'] = 1
+    constants['EXCC'] = 2
+    constants['EXS'] = 3
 
-    constants['RRX_NONE'] = 0
-    constants['RRX_S'] = 1
-    constants['RRX_Q'] = 2
+    constants['OXNONE'] = 0
+    constants['OXC'] = 1
 
-    constants['COND_NONE'] = 0
-    constants['COND_S_GT_ZERO'] = 1
-    constants['COND_S_LT_ZERO'] = 2
-    constants['COND_CC_AND_R_ZERO'] = 3
-    constants['COND_C0_EQ_1'] = 4
-    constants['COND_CIN0_EQ_1'] = 5
-    constants['COND_E_NEQ_0'] = 6
+    constants['PXNONE'] = 0
+    constants['PXCONST'] = 1
+    constants['PXQ'] = 2
+    constants['PXS'] = 3
+    constants['PCTP1'] = 4  # P15-PP31 <= P15-PP31 + 1
+
+    constants['QXNONE'] = 0
+    constants['QXCONST'] = 1
+    constants['QXP'] = 2
+
+    constants['RRXNONE'] = 0
+    constants['RRXS'] = 1
+
+    constants['SXPLUS'] = 0     # S = A + D + CS
+    constants['SXXOR'] = 1      # S = A ^ D
+    constants['SXOR'] = 2       # S = A | D
+    constants['SXAND'] = 3      # S = A & D
+    constants['SXMA'] = 4       # S = -A
+    constants['SXMD'] = 5       # S = -D
+    constants['SXUAB'] = 6      # S = A upward align byte
+    constants['SXUAH'] = 7      # S = A upward align halfword
+    constants['SXUDB'] = 8      # S = D upward align byte
+    constants['SXUDH'] = 9      # S = D upward align halfword
+    constants['SXA'] = 10       # S = A
+    constants['SXB'] = 11       # S = B
+    constants['SXD'] = 12       # S = D
+    constants['SXP'] = 13       # S15-S31 = P15-P31, S0-S1 = P32-P33
 
     constants['ADDR_MUX_SEQ'] = 0
     constants['ADDR_MUX_OPCODE'] = 1
     constants['ADDR_MUX_OPROM'] = 2
 
-    constants['DIV_NONE'] = 0
-    constants['DIV_PREP'] = 1
-    constants['DIV_LOOP'] = 2
-    constants['DIV_POST'] = 3
-    constants['DIV_SAVE'] = 4
-
-    constants['MUL_NONE'] = 0
-    constants['MUL_PREP'] = 1
-    constants['MUL_LOOP'] = 2
-    constants['MUL_SAVE'] = 3
+    constants['COND_NONE'] = 0
 
     constants['WR_NONE'] = 0
     constants['WR_BYTE'] = 1

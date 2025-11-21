@@ -89,7 +89,7 @@ module Memory(input wire clock, input wire [15:31] address, input wire [0:3] wri
 endmodule
 
 module CPUTestBench;
-    localparam CYCLE_LIMIT = 2000;
+    localparam CYCLE_LIMIT = 20;
     localparam TIME_LIMIT = 101*CYCLE_LIMIT;
 
     reg reset;
@@ -126,39 +126,19 @@ module CPUTestBench;
     end
 
     wire [0:31] memory_data_in, memory_data_out;
-    wire [0:31] cpu_data_out, cr0_data_out;
-    wire [15:31] memory_address, cpu_address, cr0_address;
-    wire [0:3] mem_write_en, cpu_wr_en, ccr0_wr_en;
+    wire [15:31] memory_address;
+    wire [0:3] mem_write_en;
     wire clock;
     Clock cg0(clock);
     Memory ram(clock, memory_address, mem_write_en, memory_data_in, memory_data_out);
-    wire [0:11] iop;
-    wire cr0_sio, cr0_tio;
-    wire [0:3] cr0_cc;
 
-    wire [0:3] write_en[0:1];
-    assign write_en[0] = cpu_wr_en;
-    assign write_en[1] = ccr0_wr_en;
+    reg [0:1] active;
 
-    wire [15:31] address[0:1];
-    assign address[0] = cpu_address;
-    assign address[1] = cr0_address;
-
-    wire [0:31] data_in[0:1];
-    assign data_in[0] = cpu_data_out;
-    assign data_in[1] = cr0_data_out;
-
-    wire [0:1] running;
-    wire cr0_running;
-    assign running[0] = 1;
-    assign running[1] = cr0_running;
-
-    wire [0:1] active;
-
-    CPU cpu(reset, clock, active[0], memory_data_out, cpu_address, cpu_data_out, cpu_wr_en);
+    CPU cpu(reset, clock, active[0], memory_data_out, memory_address, memory_data_in, mem_write_en);
 
     always @(posedge clock, posedge reset) begin
         if (reset == 1) begin
+            active <= 2'h2;
         end else begin
             cycle_count <= cycle_count + 1;
             if (cycle_count >= CYCLE_LIMIT) begin
