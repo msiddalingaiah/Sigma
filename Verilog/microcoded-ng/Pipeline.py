@@ -157,6 +157,7 @@ if __name__ == '__main__':
     fields['ax'] = 3
     fields['bx'] = 2
     fields['cx'] = 3
+    fields['csx'] = 2
     fields['dx'] = 3
     fields['ex'] = 3
     fields['ox'] = 1
@@ -170,7 +171,7 @@ if __name__ == '__main__':
     fields['trap'] = 1
     fields['uc_debug'] = 1
     fields['write_size'] = 2
-    fields['__unused'] = 4
+    fields['__unused'] = 2
     fields['seq_address'] = 12
 
     width = 0
@@ -205,6 +206,10 @@ if __name__ == '__main__':
     constants['CXMB'] = 2
     constants['CXRR'] = 3
     constants['CXS'] = 4
+
+    constants['CSXNONE'] = 0
+    constants['CSXCONST'] = 1
+    constants['CSXK00'] = 2
 
     constants['DXNONE'] = 0
     constants['DXCONST'] = 1
@@ -256,6 +261,9 @@ if __name__ == '__main__':
     constants['ADDR_MUX_OPROM'] = 2
 
     constants['COND_NONE'] = 0
+    constants['COND_CC_ZERO'] = 1
+    constants['COND_CC_NEG'] = 2
+    constants['COND_CC_POS'] = 3
 
     constants['WR_NONE'] = 0
     constants['WR_BYTE'] = 1

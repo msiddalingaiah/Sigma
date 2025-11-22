@@ -40,24 +40,25 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     // |-------|-------|-------|-------|-------|-------|-------|
     //            || - bx[11:12] 2 bits
     //              |_| - cx[13:15] 3 bits
-    //                 |_| - dx[16:18] 3 bits
-    //                    |_| - ex[19:21] 3 bits
+    //                 || - csx[16:17] 2 bits
+    //                   |_| - dx[18:20] 3 bits
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                       | - ox[22]
-    //                        |_| - px[23:25] 3 bits
-    //                           || - qx[26:27] 2 bits
-    //                             | - rrx[28]
+    //                      |_| - ex[21:23] 3 bits
+    //                         | - ox[24]
+    //                          |_| - px[25:27] 3 bits
+    //                             || - qx[28:29] 2 bits
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                              |__| - sx[29:32] 4 bits
-    //                                  | - ende[33]
-    //                                   | - testa[34]
-    //                                    | - wd_en[35]
+    //                               | - rrx[30]
+    //                                |__| - sx[31:34] 4 bits
+    //                                    | - ende[35]
+    //                                     | - testa[36]
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                                     | - trap[36]
-    //                                      | - uc_debug[37]
-    //                                       || - write_size[38:39] 2 bits
-    //                                         |__| - __unused[40:43] 4 bits
+    //                                      | - wd_en[37]
+    //                                       | - trap[38]
+    //                                        | - uc_debug[39]
+    //                                         || - write_size[40:41] 2 bits
     // |-------|-------|-------|-------|-------|-------|-------|
+    //                                           || - __unused[42:43] 2 bits
     //                                             |__________| - seq_address[44:55] 12 bits
     //                                             |__________| - _const12[44:55] 12 bits
 
@@ -68,20 +69,21 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     wire [0:2] ax = pipeline[8:10];
     wire [0:1] bx = pipeline[11:12];
     wire [0:2] cx = pipeline[13:15];
-    wire [0:2] dx = pipeline[16:18];
-    wire [0:2] ex = pipeline[19:21];
-    wire ox = pipeline[22];
-    wire [0:2] px = pipeline[23:25];
-    wire [0:1] qx = pipeline[26:27];
-    wire rrx = pipeline[28];
-    wire [0:3] sx = pipeline[29:32];
-    wire ende = pipeline[33];
-    wire testa = pipeline[34];
-    wire wd_en = pipeline[35];
-    wire trap = pipeline[36];
-    wire uc_debug = pipeline[37];
-    wire [0:1] write_size = pipeline[38:39];
-    wire [0:3] __unused = pipeline[40:43];
+    wire [0:1] csx = pipeline[16:17];
+    wire [0:2] dx = pipeline[18:20];
+    wire [0:2] ex = pipeline[21:23];
+    wire ox = pipeline[24];
+    wire [0:2] px = pipeline[25:27];
+    wire [0:1] qx = pipeline[28:29];
+    wire rrx = pipeline[30];
+    wire [0:3] sx = pipeline[31:34];
+    wire ende = pipeline[35];
+    wire testa = pipeline[36];
+    wire wd_en = pipeline[37];
+    wire trap = pipeline[38];
+    wire uc_debug = pipeline[39];
+    wire [0:1] write_size = pipeline[40:41];
+    wire [0:1] __unused = pipeline[42:43];
     wire [0:11] seq_address = pipeline[44:55];
     wire [0:11] _const12 = pipeline[44:55];
     
@@ -99,6 +101,9 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     localparam CXMB = 2;
     localparam CXRR = 3;
     localparam CXS = 4;
+    localparam CSXNONE = 0;
+    localparam CSXCONST = 1;
+    localparam CSXK00 = 2;
     localparam DXNONE = 0;
     localparam DXCONST = 1;
     localparam DXC = 2;
@@ -141,6 +146,9 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     localparam ADDR_MUX_OPCODE = 1;
     localparam ADDR_MUX_OPROM = 2;
     localparam COND_NONE = 0;
+    localparam COND_CC_ZERO = 1;
+    localparam COND_CC_NEG = 2;
+    localparam COND_CC_POS = 3;
     localparam WR_NONE = 0;
     localparam WR_BYTE = 1;
     localparam WR_HALF = 2;
@@ -160,7 +168,9 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     // Condition code register
     reg [1:4] cc;
     // Carry save register
-    reg [0:31] cs;
+    reg cs;
+    // End carry signal (carry out)
+    reg k00;
 
     // opcode register
     reg [1:7] o;
@@ -177,15 +187,18 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     // private memory index register number
     reg [0:2] x;
 
+    // Non-zero condition save register (B Was Zero)
+    reg bwz;
+
     // memory address lines
     reg [15:31] lb;
     // memory output data
-    reg [0:31] mem_out;
+    reg [0:31] mb;
     // memory write enables
     reg [0:3] wr_en;
 
     assign memory_address = active ? lb : 17'bZ;
-    assign memory_data_out = active ? mem_out : 32'bZ;
+    assign memory_data_out = active ? mb : 32'bZ;
     assign wr_enables = active ? wr_en : 4'bZ;
 
     // Address family decode, see ANLZ instruction
@@ -214,18 +227,34 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
         endcase
         s = 0;
         case (sx)
-            SXPLUS: s = a+d+cs;
+            SXPLUS: {k00, s} = a+d+cs;
+            SXXOR: s = s ^ d;
+            SXOR: s = s | d;
+            SXAND: s = s & d;
+            SXMA: s = -a;
+            SXMD: s = -d;
+            SXUAB: s = { a[24:31], a[24:31], a[24:31], a[24:31] };
+            SXUAH: s = { a[16:31], a[16:31] };
+            SXUDB: s = { d[24:31], d[24:31], d[24:31], d[24:31] };
+            SXUDH: s = { d[16:31], d[16:31] };
+            SXA: s = a;
+            SXB: s = b;
+            SXD: s = d;
+            SXP: s = { p[32:33], 15'h0, p[15:31] }; // S15-S31 = P15-P31, S0-S1 = P32-P33
         endcase
         branch = 0;
         case (seq_condition)
-            COND_NONE: branch = 0; // branch unconditionally
+            COND_NONE: branch = 0;
+            COND_CC_ZERO: branch = (~cc[3]) & (~cc[4]);
+            COND_CC_NEG: branch = (~cc[3]) & (cc[4]);
+            COND_CC_POS: branch = (cc[3]) & (~cc[4]);
         endcase
         uc_op = seq_op;
         case (seq_op)
             0: uc_op = { 1'h0, branch }; // next, invert selected branch condition
             1: uc_op = { 1'h0, ~branch }; // jump
-            2: uc_op = { ~branch, 1'h0 }; // call
-            3: uc_op = { ~branch, ~branch }; // return
+            2: ; // call
+            3: ; // return
         endcase
     end
 
@@ -249,6 +278,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
             x <= 0;
             pipeline <= 0;
             wr_en <= 0;
+            bwz <= 0;
         end else begin
             if (active) begin
                 pipeline <= uc_rom_data;
@@ -263,19 +293,27 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                 end
                 case (ax)
                     AXNONE: ; // do nothing
-                    AXCONST: a <= constant32;
+                    AXCONST: a <= { { a[11:31], 11'h0 } | constant32 };
                     AXS: a <= s;
                 endcase
                 case (dx)
                     DXNONE: ; // do nothing
-                    DXCONST: d <= constant32;
+                    DXCONST: d <= { { d[11:31], 11'h0 } | constant32 };
+                endcase
+                case (csx)
+                    CSXNONE: ; // do nothing
+                    CSXCONST: cs <= constant32[0];
+                    CSXK00: cs <= k00;
                 endcase
                 case (ox)
                     OXNONE: ; // do nothing
                 endcase
+                if (testa == 1) begin
+                    cc[3] <= (~a[0]) & (a != 0);
+                    cc[4] <= a[0];
+                end
                 if (uc_debug == 1) begin
-                    $display("%4d: a: %x",
-                        seq.pc-1, a);
+                    $display("%4d: a: %x, d: %x, cs: %d, cc: %b", seq.pc-1, a, d, cs, cc);
                 end
             end
         end
