@@ -107,11 +107,10 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     localparam DXNONE = 0;
     localparam DXCONST = 1;
     localparam DXC = 2;
-    localparam DXCin = 3;
-    localparam DXCC = 4;
-    localparam DXNC = 5;
-    localparam DXPSW1 = 6;
-    localparam DXPSW2 = 7;
+    localparam DXCC = 3;
+    localparam DXNC = 4;
+    localparam DXPSW1 = 5;
+    localparam DXPSW2 = 6;
     localparam EXNONE = 0;
     localparam EXCONST = 1;
     localparam EXB = 1;
@@ -161,9 +160,10 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
 
     // Standard register configuration
     reg [0:31] a, b, d;
-    // c is a transparent latch, see pp 3-38, receives data from memory
-    reg [0:31] c;
-    reg [0:31] c_in;
+    // c receives data from memory
+    // The C-register is unique among the CPU registers in that its storage circuits are made
+    // of buffered latches instead of flip-flops, see pp 3-38. Forwarding is used to simulate latches.
+    reg [0:31] c_in, c, c_out;
     // e is a counting register
     reg [0:7] e;
     // Condition code register
@@ -215,8 +215,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
 
     // Signals
 
-    // Guideline #3: When modeling combinational logic with an "always" 
-    //              block, use blocking assignments.
+    // Guideline #3: When modeling combinational logic with an "always" block, use blocking assignments ( = ).
     // Order matters here!!!
     always @(*) begin
         // Sequencer d_in mux
@@ -243,11 +242,13 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
             SXD: s = d;
             SXP: s = { p[32:33], 15'h0, p[15:31] }; // S15-S31 = P15-P31, S0-S1 = P32-P33
         endcase
+        c_in = 0;
         case (cx)
             CXNONE: ; // do nothing
             CXCONST: c_in = { { c[11:31], 11'h0 } | constant32 };
             CXS: c_in = s;
         endcase
+        c_out = cx == CXNONE ? c : c_in;
         branch = 0;
         case (seq_condition)
             COND_NONE: branch = 0;
@@ -264,8 +265,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
         endcase
     end
 
-    // Guideline #1: When modeling sequential logic, use nonblocking 
-    //              assignments.
+    // Guideline #1: When modeling sequential logic, use nonblocking assignments ( <= ).
     integer i;
     always @(posedge clock, posedge reset) begin
         if (reset == 1) begin
@@ -309,8 +309,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                 case (dx)
                     DXNONE: ; // do nothing
                     DXCONST: d <= { { d[11:31], 11'h0 } | constant32 };
-                    DXC: d <= c;
-                    DXCin: d <= c_in;
+                    DXC: d <= c_out;
                 endcase
                 case (csx)
                     CSXNONE: ; // do nothing

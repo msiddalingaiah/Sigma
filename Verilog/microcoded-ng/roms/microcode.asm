@@ -48,11 +48,10 @@ const CSXK00 = 2
 const DXNONE = 0
 const DXCONST = 1
 const DXC = 2
-const DXCin = 3
-const DXCC = 4
-const DXNC = 5
-const DXPSW1 = 6
-const DXPSW2 = 7
+const DXCC = 3
+const DXNC = 4
+const DXPSW1 = 5
+const DXPSW2 = 6
 const EXNONE = 0
 const EXCONST = 1
 const EXB = 1
@@ -100,6 +99,7 @@ const WR_WORD = 3
 
 def main:
     call countdown
+    call fib
     uc_debug = 1
     trap = 1
 
@@ -112,6 +112,8 @@ def countdown:
     _const12 = 99, ax = AXCONST, return
 
 def fib:
+    _const12 = 0, ax = AXCONST, cx = CXCONST, dx = DXCONST
+    _const12 = 0, ax = AXCONST, cx = CXCONST, dx = DXCONST
     _const12 = 1, ax = AXCONST, cx = CXCONST, dx = DXCONST
     do:
         sx = SXPLUS, cx = CXS, uc_debug=1, testa = 1

@@ -37,7 +37,7 @@ module Sequencer(input wire reset, input wire clock, input wire active, input wi
         case (op)
             0: mux = pc;  // next
             1: begin mux = din+pc; end // jump
-            2: begin mux = din+pc; stackAddr = sp + 1; stackWr = 1; end // call
+            2: begin mux = din+pc; stackAddr = sp + 1; stackWr = 1; end // call with sp *forwarding*
             3: mux = stack[stackAddr]; // return
         endcase
         yout = mux;

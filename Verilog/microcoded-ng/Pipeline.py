@@ -214,11 +214,10 @@ if __name__ == '__main__':
     constants['DXNONE'] = 0
     constants['DXCONST'] = 1
     constants['DXC'] = 2
-    constants['DXCin'] = 3
-    constants['DXCC'] = 4
-    constants['DXNC'] = 5
-    constants['DXPSW1'] = 6
-    constants['DXPSW2'] = 7
+    constants['DXCC'] = 3
+    constants['DXNC'] = 4
+    constants['DXPSW1'] = 5
+    constants['DXPSW2'] = 6
 
     constants['EXNONE'] = 0
     constants['EXCONST'] = 1

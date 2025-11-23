@@ -1,18 +1,18 @@
-80000000000002 //    0: seq.op=2, seq.address=2; call 2 (3)
-00000000010000 //    1: uc_debug=1
-00000000020000 //    2: trap=1
-00200000000005 //    3: _const12=5, ax=1
-00000800080fff //    4: _const12=-1, dx=1, testa=1
-03a00000090fff //    5: sx=0, ax=5, testa=1, uc_debug=1, seq.address=-1, seq.condition=3; if condition[3] jump -1 (5)
-c0200000000063 //    6: _const12=99, ax=1, seq.op=3; return
-00210800000001 //    7: _const12=1, ax=1, cx=1, dx=1
-00040000090000 //    8: sx=0, cx=4, uc_debug=1, testa=1
-03a01001800ffe //    9: sx=12, ax=5, dx=2, seq.address=-2, seq.condition=3; if condition[3] jump -2 (8)
-00000000010000 //   10: sx=0, uc_debug=1
-c0000000000000 //   11: sx=0, seq.op=3; return
-00000000000000
-00000000000000
-00000000000000
+80000000000003 //    0: seq.op=2, seq.address=3; call 3 (4)
+80000000000006 //    1: seq.op=2, seq.address=6; call 6 (8)
+00000000010000 //    2: uc_debug=1
+00000000020000 //    3: trap=1
+00200000000005 //    4: _const12=5, ax=1
+00000800080fff //    5: _const12=-1, dx=1, testa=1
+03a00000090fff //    6: sx=0, ax=5, testa=1, uc_debug=1, seq.address=-1, seq.condition=3; if condition[3] jump -1 (6)
+c0200000000063 //    7: _const12=99, ax=1, seq.op=3; return
+00210800000000 //    8: _const12=0, ax=1, cx=1, dx=1
+00210800000000 //    9: _const12=0, ax=1, cx=1, dx=1
+00210800000001 //   10: _const12=1, ax=1, cx=1, dx=1
+00040000090000 //   11: sx=0, cx=4, uc_debug=1, testa=1
+03a01001800ffe //   12: sx=12, ax=5, dx=2, seq.address=-2, seq.condition=3; if condition[3] jump -2 (11)
+00000000010000 //   13: sx=0, uc_debug=1
+c0000000000000 //   14: sx=0, seq.op=3; return
 00000000000000
 00000000000000
 00000000000000

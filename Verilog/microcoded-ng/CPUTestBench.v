@@ -89,7 +89,7 @@ module Memory(input wire clock, input wire [15:31] address, input wire [0:3] wri
 endmodule
 
 module CPUTestBench;
-    localparam CYCLE_LIMIT = 20;
+    localparam CYCLE_LIMIT = 30;
     localparam TIME_LIMIT = 101*CYCLE_LIMIT;
 
     reg reset;
@@ -118,7 +118,7 @@ module CPUTestBench;
         // $readmemh("roms/op_switch.txt", cpu.op_switch);
 
         #0 reset = 0; #25 reset = 1; #90 reset = 0;
-        #TIME_LIMIT $display("\Time limit reached, possible inifinite loop at 0x%4x", (cpu.p >> 2) - 1);
+        #TIME_LIMIT $display("\Time limit reached, possible inifinite loop at uPC %-d", cpu.seq.pc-1);
         cycles_per_inst = 100*cycle_count / instruction_count;
         $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
             cycle_count, instruction_count, cycles_per_inst/100);
@@ -142,7 +142,7 @@ module CPUTestBench;
         end else begin
             cycle_count <= cycle_count + 1;
             if (cycle_count >= CYCLE_LIMIT) begin
-                $display("\nClock limit reached, possible inifinite loop at 0x%4x", (cpu.p >> 2) - 1);
+                $display("\nClock limit reached, possible inifinite loop at uPC %-d", cpu.seq.pc-1);
                 cycles_per_inst = 100*cycle_count / instruction_count;
                 $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
                     cycle_count, instruction_count, cycles_per_inst/100);
