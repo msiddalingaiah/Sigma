@@ -241,7 +241,7 @@ if __name__ == '__main__':
     constants['RRXNONE'] = 0
     constants['RRXS'] = 1
 
-    constants['SXPLUS'] = 0     # S = A + D + CS
+    constants['SXADD'] = 0     # S = A + D + CS
     constants['SXXOR'] = 1      # S = A ^ D
     constants['SXOR'] = 2       # S = A | D
     constants['SXAND'] = 3      # S = A & D

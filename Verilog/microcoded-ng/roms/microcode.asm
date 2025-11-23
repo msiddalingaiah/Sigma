@@ -69,7 +69,7 @@ const QXCONST = 1
 const QXP = 2
 const RRXNONE = 0
 const RRXS = 1
-const SXPLUS = 0
+const SXADD = 0
 const SXXOR = 1
 const SXOR = 2
 const SXAND = 3
@@ -107,7 +107,7 @@ def countdown:
     _const12 = 5, ax = AXCONST
     _const12 = -1, dx = DXCONST, testa = 1
     do:
-        sx = SXPLUS, ax = AXS, testa = 1, uc_debug = 1
+        sx = SXADD, ax = AXS, testa = 1, uc_debug = 1
     while COND_CC_POS
     _const12 = 99, ax = AXCONST, return
 
@@ -116,8 +116,8 @@ def fib:
     _const12 = 0, ax = AXCONST, cx = CXCONST, dx = DXCONST
     _const12 = 1, ax = AXCONST, cx = CXCONST, dx = DXCONST
     do:
-        sx = SXPLUS, cx = CXS, uc_debug=1, testa = 1
+        sx = SXADD, cx = CXS, uc_debug=1, testa = 1
         sx = SXD, ax = AXS, dx = DXC
     while COND_CC_POS
-    sx = SXPLUS, uc_debug=1
-    sx = SXPLUS, return
+    sx = SXADD, uc_debug=1
+    sx = SXADD, return

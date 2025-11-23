@@ -112,16 +112,18 @@ class LineScanner(Scanner):
                 line = line.rstrip()
                 self.index = 0
                 while self.index < len(line):
-                    self.nextLine(line)
+                    self.addTerminal(line)
                 self.terminals.append(Terminal('EOL', '', self.lineNumber))
             self.lineNumber += 1
         while len(self.indentStack) > 1:
             self.terminals.append(Terminal('DEDENT', '', self.lineNumber))
             self.indentStack.pop()
 
-    def nextLine(self, line):
+    # Add next terminal in this line
+    def addTerminal(self, line):
         match = self.spaces.match(line, self.index)
         if match:
+            # Is this line indented?
             if self.index == 0:
                 self.index = match.end()
                 text = match.group()
@@ -134,14 +136,18 @@ class LineScanner(Scanner):
                         self.terminals.append(Terminal('DEDENT', text, self.lineNumber))
                         self.indentStack.pop()
                     return
+            # Just spaces in the middle of the line, ignore
             self.index = match.end()
+        # Ignore comment
         if line[self.index] == '#':
             self.index = len(line)
             return
+        # No indent, add DEDENTs as needed
         if self.index == 0:
             while len(self.indentStack) > 1:
                 self.terminals.append(Terminal('DEDENT', '', self.lineNumber))
                 self.indentStack.pop()
+        # Add next terminal in this line
         for p in self.patterns:
             match = p.match(line, self.index)
             if match:

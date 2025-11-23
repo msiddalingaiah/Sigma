@@ -128,7 +128,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     localparam QXP = 2;
     localparam RRXNONE = 0;
     localparam RRXS = 1;
-    localparam SXPLUS = 0;
+    localparam SXADD = 0;
     localparam SXXOR = 1;
     localparam SXOR = 2;
     localparam SXAND = 3;
@@ -227,7 +227,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
         endcase
         s = 0;
         case (sx)
-            SXPLUS: {k00, s} = a+d+cs;
+            SXADD: {k00, s} = a+d+cs;
             SXXOR: s = s ^ d;
             SXOR: s = s | d;
             SXAND: s = s & d;
