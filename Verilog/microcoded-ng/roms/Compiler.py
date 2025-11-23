@@ -90,7 +90,7 @@ class LineScanner(Scanner):
     def setInput(self, input):
         self.lines = input.split('\n')
         self.index = 0
-        self.indentStack = ['']
+        self.indentStack = [0]
         self.terminal = None
         self.terminals = []
         self.collectTerminals()
@@ -109,52 +109,46 @@ class LineScanner(Scanner):
         for line in self.lines:
             ls = line.strip()
             if len(ls) > 0 and ls[0] != '#':
-                line = line.rstrip()
-                self.index = 0
-                while self.index < len(line):
-                    self.addTerminal(line)
+                self.addLineTerminals(line.rstrip())
                 self.terminals.append(Terminal('EOL', '', self.lineNumber))
             self.lineNumber += 1
         while len(self.indentStack) > 1:
             self.terminals.append(Terminal('DEDENT', '', self.lineNumber))
             self.indentStack.pop()
 
-    # Add next terminal in this line
-    def addTerminal(self, line):
-        match = self.spaces.match(line, self.index)
+    # Add all terminals in this line
+    def addLineTerminals(self, line):
+        index = 0
+        match = self.spaces.match(line, index)
         if match:
-            # Is this line indented?
-            if self.index == 0:
-                self.index = match.end()
-                text = match.group()
-                if len(text) > len(self.indentStack[-1]):
-                    self.indentStack.append(text)
-                    self.terminals.append(Terminal('INDENT', text, self.lineNumber))
-                    return
-                if len(self.indentStack) and len(text) < len(self.indentStack[-1]):
-                    while len(self.indentStack) and len(text) < len(self.indentStack[-1]):
-                        self.terminals.append(Terminal('DEDENT', text, self.lineNumber))
-                        self.indentStack.pop()
-                    return
-            # Just spaces in the middle of the line, ignore
-            self.index = match.end()
-        # Ignore comment
-        if line[self.index] == '#':
-            self.index = len(line)
-            return
-        # No indent, add DEDENTs as needed
-        if self.index == 0:
+            index = match.end()
+            indent = match.group()
+            indent_len = len(indent)
+            if indent_len > self.indentStack[-1]:
+                self.indentStack.append(indent_len)
+                self.terminals.append(Terminal('INDENT', indent, self.lineNumber))
+            else:
+                while len(self.indentStack) and indent_len < self.indentStack[-1]:
+                    self.terminals.append(Terminal('DEDENT', indent, self.lineNumber))
+                    self.indentStack.pop()
+        else:
             while len(self.indentStack) > 1:
                 self.terminals.append(Terminal('DEDENT', '', self.lineNumber))
                 self.indentStack.pop()
-        # Add next terminal in this line
-        for p in self.patterns:
-            match = p.match(line, self.index)
-            if match:
-                self.index = match.end()
-                self.terminals.append(Terminal(p.name, match.group(), self.lineNumber))
+        line_len = len(line)
+        while index < line_len:
+            while index < line_len and line[index].isspace():
+                index += 1
+            if index >= line_len or line[index] == '#':
                 return
-        raise Exception(f'line: {self.lineNumber}: unrecognized input: {line[self.index:]}')
+            for p in self.patterns:
+                match = p.match(line, index)
+                if match:
+                    index = match.end()
+                    self.terminals.append(Terminal(p.name, match.group(), self.lineNumber))
+                    break
+            if not match:
+                raise Exception(f'line: {self.lineNumber}: unrecognized input: {line[index:]}')
 
 ESCAPE_CHARS = {'n': '\n', 'r': '\r', 't': '\t', 'f': '\f'}
 
