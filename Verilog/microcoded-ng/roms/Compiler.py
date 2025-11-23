@@ -138,6 +138,10 @@ class LineScanner(Scanner):
         if line[self.index] == '#':
             self.index = len(line)
             return
+        if self.index == 0:
+            while len(self.indentStack) > 1:
+                self.terminals.append(Terminal('DEDENT', '', self.lineNumber))
+                self.indentStack.pop()
         for p in self.patterns:
             match = p.match(line, self.index)
             if match:
@@ -239,14 +243,14 @@ class Parser(object):
 
     def parseStatList(self):
         colon = self.sc.expect(':')
-        if self.sc.matches('EOL'):
-            tree = Tree(self.sc.expect('INDENT'))
-            while not self.sc.matches('DEDENT'):
-                tree.add(self.parseStatement())
-            return tree
-        tree = Tree(Terminal('INDENT', '', colon.lineNumber))
-        tree.add(self.parseStatement())
+        self.sc.expect('EOL')
+        tree = Tree(self.sc.expect('INDENT'))
+        while not self.sc.matches('DEDENT'):
+            tree.add(self.parseStatement())
         return tree
+        # tree = Tree(Terminal('INDENT', '', colon.lineNumber))
+        # tree.add(self.parseStatement())
+        # return tree
 
     def parseStatement(self):
         tree = Tree(Terminal('stat', 'stat'))

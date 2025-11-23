@@ -48,10 +48,11 @@ const CSXK00 = 2
 const DXNONE = 0
 const DXCONST = 1
 const DXC = 2
-const DXCC = 3
-const DXNC = 4
-const DXPSW1 = 5
-const DXPSW2 = 6
+const DXCin = 3
+const DXCC = 4
+const DXNC = 5
+const DXPSW1 = 6
+const DXPSW2 = 7
 const EXNONE = 0
 const EXCONST = 1
 const EXB = 1
@@ -97,15 +98,18 @@ const WR_WORD = 3
 
 # ---- END Pipeline definitions DO NOT EDIT
 
-def main:
-    _const12 = -1, ax = AXCONST
-    _const12 = 0x7f0, ax = AXCONST
-    uc_debug=1
-
-    _const12 = 0xf, dx = DXCONST
-    uc_debug=1
-
-    sx = SXPLUS, ax = AXS, csx = CSXK00, testa = 1
-    sx = SXPLUS, uc_debug=1
-    sx = SXPLUS
+def foo:
     trap = 1
+
+def main:
+    call fib
+    trap = 1
+
+def fib:
+    _const12 = 1, ax = AXCONST, cx = CXCONST, dx = DXCONST
+    do:
+        sx = SXPLUS, cx = CXS, uc_debug=1, testa = 1
+        sx = SXD, ax = AXS, dx = DXC
+    while COND_CC_POS
+    sx = SXPLUS, uc_debug=1
+    sx = SXPLUS, return

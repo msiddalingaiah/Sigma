@@ -107,10 +107,11 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     localparam DXNONE = 0;
     localparam DXCONST = 1;
     localparam DXC = 2;
-    localparam DXCC = 3;
-    localparam DXNC = 4;
-    localparam DXPSW1 = 5;
-    localparam DXPSW2 = 6;
+    localparam DXCin = 3;
+    localparam DXCC = 4;
+    localparam DXNC = 5;
+    localparam DXPSW1 = 6;
+    localparam DXPSW2 = 7;
     localparam EXNONE = 0;
     localparam EXCONST = 1;
     localparam EXB = 1;
@@ -242,6 +243,11 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
             SXD: s = d;
             SXP: s = { p[32:33], 15'h0, p[15:31] }; // S15-S31 = P15-P31, S0-S1 = P32-P33
         endcase
+        case (cx)
+            CXNONE: ; // do nothing
+            CXCONST: c_in = { { c[11:31], 11'h0 } | constant32 };
+            CXS: c_in = s;
+        endcase
         branch = 0;
         case (seq_condition)
             COND_NONE: branch = 0;
@@ -296,9 +302,15 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                     AXCONST: a <= { { a[11:31], 11'h0 } | constant32 };
                     AXS: a <= s;
                 endcase
+                case (cx)
+                    CXNONE: ; // do nothing
+                    default: c <= c_in;
+                endcase
                 case (dx)
                     DXNONE: ; // do nothing
                     DXCONST: d <= { { d[11:31], 11'h0 } | constant32 };
+                    DXC: d <= c;
+                    DXCin: d <= c_in;
                 endcase
                 case (csx)
                     CSXNONE: ; // do nothing
@@ -313,7 +325,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                     cc[4] <= a[0];
                 end
                 if (uc_debug == 1) begin
-                    $display("%4d: a: %x, d: %x, cs: %d, cc: %b", seq.pc-1, a, d, cs, cc);
+                    $display("%4d: a: %x, c: %x, d: %x, cs: %d, cc: %b", seq.pc-1, a, c, d, cs, cc);
                 end
             end
         end
