@@ -105,7 +105,7 @@ module CPUTestBench;
         $dumpfile("vcd/CPUTestBench.vcd");
         $dumpvars(0, CPUTestBench);
 
-        // $readmemh("programs/init.txt", ram.temp);
+        $readmemh("programs/init.txt", ram.temp);
         for (i=0; i<ram.MAX_WORD_LEN; i=i+1) begin
             temp = ram.temp[i];
             ram.cells0[i] = temp[0:7];

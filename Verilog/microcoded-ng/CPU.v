@@ -323,6 +323,12 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                     cc[3] <= (~a[0]) & (a != 0);
                     cc[4] <= a[0];
                 end
+                if (wd_en == 1) begin
+                    // if ((d[24:31] == 0) && (r != 0)) begin
+                    //     $write("%s", rr[r][25:31]);
+                    // end
+                    $write("%s", s[25:31]);
+                end
                 if (uc_debug == 1) begin
                     $display("%4d: a: %x, c: %x, d: %x, cs: %d, cc: %b", seq.pc-1, a, c, d, cs, cc);
                 end

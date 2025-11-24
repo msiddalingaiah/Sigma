@@ -116,6 +116,18 @@ class LineScanner(Scanner):
             self.terminals.append(Terminal('DEDENT', '', self.lineNumber))
             self.indentStack.pop()
 
+    # "Tabs are replaced (from left to right) by one to eight spaces such that the total number
+    # of characters up to and including the replacement is a multiple of eight [...]"
+    # See https://docs.python.org/3.1/reference/lexical_analysis.html#indentation
+    def getIndentCount(self, indent):
+        count = 0
+        for c in indent:
+            if c == '\t':
+                count += 8 - (count % 8)
+            else:
+                count += 1
+        return count
+
     # Add all terminals in this line
     def addLineTerminals(self, line):
         index = 0
@@ -123,7 +135,7 @@ class LineScanner(Scanner):
         if match:
             index = match.end()
             indent = match.group()
-            indent_len = len(indent)
+            indent_len = self.getIndentCount(indent)
             if indent_len > self.indentStack[-1]:
                 self.indentStack.append(indent_len)
                 self.terminals.append(Terminal('INDENT', indent, self.lineNumber))
