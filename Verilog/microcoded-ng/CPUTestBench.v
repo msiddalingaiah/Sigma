@@ -52,15 +52,9 @@ module Memory(input wire clock, input wire [15:31] address, input wire [0:3] wri
         end
     end
 
-    always @(*) begin
-        data_out = 0;
-        case (address)
-            default:
-                data_out = { cells0[addr], cells1[addr], cells2[addr], cells3[addr] };
-        endcase
-    end
-
     always @(posedge clock) begin
+        // Synchronous read
+        data_out = { cells0[addr], cells1[addr], cells2[addr], cells3[addr] };
         if (write_en[0]) begin
             `ifdef TRACE_WR
                 $display("WR0: %x, %x", addr, data_in[0:7]);

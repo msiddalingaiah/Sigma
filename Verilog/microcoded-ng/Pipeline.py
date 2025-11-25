@@ -160,7 +160,7 @@ if __name__ == '__main__':
     fields['csx'] = 2
     fields['dx'] = 3
     fields['ex'] = 3
-    fields['ox'] = 1
+    fields['lmx'] = 1
     fields['px'] = 3
     fields['qx'] = 2
     fields['rrx'] = 1
@@ -225,8 +225,8 @@ if __name__ == '__main__':
     constants['EXCC'] = 2
     constants['EXS'] = 3
 
-    constants['OXNONE'] = 0
-    constants['OXC'] = 1
+    constants['LMXC'] = 0
+    constants['LMXQ'] = 1
 
     constants['PXNONE'] = 0
     constants['PXCONST'] = 1
@@ -241,7 +241,7 @@ if __name__ == '__main__':
     constants['RRXNONE'] = 0
     constants['RRXS'] = 1
 
-    constants['SXADD'] = 0     # S = A + D + CS
+    constants['SXADD'] = 0      # S = A + D + CS
     constants['SXXOR'] = 1      # S = A ^ D
     constants['SXOR'] = 2       # S = A | D
     constants['SXAND'] = 3      # S = A & D

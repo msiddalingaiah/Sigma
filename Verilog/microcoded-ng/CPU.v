@@ -1,7 +1,7 @@
 
 `include "Sequencer.v"
 
-// `define TRACE_I 1
+`define TRACE_I 1
 
 /**
  * This module implements the microcode ROM.
@@ -44,7 +44,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     //                   |_| - dx[18:20] 3 bits
     // |-------|-------|-------|-------|-------|-------|-------|
     //                      |_| - ex[21:23] 3 bits
-    //                         | - ox[24]
+    //                         | - lmx[24]
     //                          |_| - px[25:27] 3 bits
     //                             || - qx[28:29] 2 bits
     // |-------|-------|-------|-------|-------|-------|-------|
@@ -72,7 +72,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     wire [0:1] csx = pipeline[16:17];
     wire [0:2] dx = pipeline[18:20];
     wire [0:2] ex = pipeline[21:23];
-    wire ox = pipeline[24];
+    wire lmx = pipeline[24];
     wire [0:2] px = pipeline[25:27];
     wire [0:1] qx = pipeline[28:29];
     wire rrx = pipeline[30];
@@ -116,8 +116,8 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     localparam EXB = 1;
     localparam EXCC = 2;
     localparam EXS = 3;
-    localparam OXNONE = 0;
-    localparam OXC = 1;
+    localparam LMXC = 0;
+    localparam LMXQ = 1;
     localparam PXNONE = 0;
     localparam PXCONST = 1;
     localparam PXQ = 2;
@@ -180,13 +180,13 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     // q holds the next instruction address
     reg [15:31] q;
     // private memory address (register number), pctr counts up, mctr counts down
-    reg [28:31] r;
+    reg [8:11] r;
     // private memory registers
     reg [0:31] rr[0:16];
     // sum bus
     reg [0:31] s;
     // private memory index register number
-    reg [0:2] x;
+    reg [12:14] x;
 
     // Non-zero condition save register (B Was Zero)
     reg bwz;
@@ -246,9 +246,16 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
         case (cx)
             CXNONE: ; // do nothing
             CXCONST: c_in = { { c[11:31], 11'h0 } | constant32 };
+            CXMB: c_in = memory_data_in;
+            CXRR: c_in = rr[r];
             CXS: c_in = s;
         endcase
         c_out = cx == CXNONE ? c : c_in;
+        case (lmx)
+            LMXC: lb[15:31] = c_out[15:31];
+            LMXQ: lb = q;
+        endcase
+
         branch = 0;
         case (seq_condition)
             COND_NONE: branch = 0;
@@ -276,7 +283,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
             cs <= 0;
             d <= 0;
             o <= 0;
-            p <= { 32'h26, 2'h0 }; // Boot location + 1, see 3-510 Bootstrap program
+            p <= 0;
             q <= 0;
             r <= 0;
             for (i=0; i<16; i=i+1) rr[i] = 32'h00000000;
@@ -290,7 +297,11 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                 pipeline <= uc_rom_data;
                 wr_en <= 0;
                 if (ende == 1) begin
-                    // ende entry: p contains next instruction byte address
+                    // ende entry: Q contains instruction word address
+                    o[1:7] <= c_out[1:7];
+                    r[8:11] <= c_out[8:11];
+                    x[12:14] <= c_out[8:14];
+                    a <= 0; b <= 0; e <= 0;
                     `ifdef TRACE_I
                         $display("* Q %x: %x", q-1, c);
                         $display("  R0 %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
@@ -316,8 +327,22 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                     CSXCONST: cs <= constant32[0];
                     CSXK00: cs <= k00;
                 endcase
-                case (ox)
-                    OXNONE: ; // do nothing
+                case (px)
+                    PXNONE: ; // do nothing
+                    PXCONST: p <= constant32[0];
+                    PXQ: p[15:31] <= q[15:31];
+                    // TODO this is only for word operands. Byte and halfword operands need adjustment.
+                    PXS: p[15:31] <= s[15:31];
+                    PCTP1: p[15:31] <= p[15:31] + 1;
+                endcase
+                case (qx)
+                    QXNONE: ; // do nothing
+                    QXCONST: q <= { { q[11:31], 11'h0 } | constant32 };
+                    QXP: q <= p[15:31];
+                endcase
+                case (rrx)
+                    RRXNONE: ; // do nothing
+                    RRXS: rr[r] <= s;
                 endcase
                 if (testa == 1) begin
                     cc[3] <= (~a[0]) & (a != 0);
@@ -330,7 +355,8 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                     $write("%s", s[25:31]);
                 end
                 if (uc_debug == 1) begin
-                    $display("%4d: a: %x, c: %x, d: %x, cs: %d, cc: %b", seq.pc-1, a, c, d, cs, cc);
+                    $display("%4d: A: %x, C: %x, D: %x, CC: %b, CS: %d, P: %x:%1d, Q: %x",
+                        seq.pc-1, a, c, d, cc, cs, p>>2, p&3, q);
                 end
             end
         end

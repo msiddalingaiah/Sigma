@@ -1,33 +1,33 @@
-80000000000004 //    0: seq.op=2, seq.address=4; call 4 (5)
-80000000000008 //    1: seq.op=2, seq.address=8; call 8 (10)
-8000000000000d //    2: seq.op=2, seq.address=13; call 13 (16)
-00000000010000 //    3: uc_debug=1
-00000000020000 //    4: trap=1
-00200000000048 //    5: _const12=72, ax=1
-00200001440069 //    6: sx=10, _const12=105, ax=1, wd_en=1
-00200001440021 //    7: sx=10, _const12=33, ax=1, wd_en=1
-0020000144000a //    8: sx=10, _const12=10, ax=1, wd_en=1
-c0000001440000 //    9: sx=10, wd_en=1, seq.op=3; return
-00200000000000 //   10: _const12=0, ax=1
-00200000000000 //   11: _const12=0, ax=1
-00200000000005 //   12: _const12=5, ax=1
-00000800080fff //   13: _const12=-1, dx=1, testa=1
-03a00000090fff //   14: sx=0, ax=5, testa=1, uc_debug=1, seq.address=-1, seq.condition=3; if condition[3] jump -1 (14)
-c0200000000063 //   15: _const12=99, ax=1, seq.op=3; return
-00210800000000 //   16: _const12=0, ax=1, cx=1, dx=1
-00210800000000 //   17: _const12=0, ax=1, cx=1, dx=1
-00210800000001 //   18: _const12=1, ax=1, cx=1, dx=1
-00040000090000 //   19: sx=0, cx=4, uc_debug=1, testa=1
-03a01001800ffe //   20: sx=12, ax=5, dx=2, seq.address=-2, seq.condition=3; if condition[3] jump -2 (19)
-00000000010000 //   21: sx=0, uc_debug=1
-c0000000000000 //   22: sx=0, seq.op=3; return
-00000000000000
-00000000000000
-00000000000000
-00000000000000
-00000000000000
-00000000000000
-00000000000000
+80000000000008 //    0: seq.op=2, seq.address=8; call 8 (9)
+800000a0000009 //    1: px=2, lmx=1, seq.op=2, seq.address=9; call 9 (11)
+00020008010000 //    2: qx=2, cx=2, uc_debug=1
+00000030000000 //    3: sx=0, px=3
+00001020000000 //    4: px=2, dx=2
+00a00002000000 //    5: sx=0, rrx=1, ax=5
+80000000090004 //    6: testa=1, uc_debug=1, seq.op=2, seq.address=4; call 4 (11)
+00000000010000 //    7: uc_debug=1
+00000000020000 //    8: trap=1
+00000004000000 //    9: _const12=0, qx=1
+c0000004000026 //   10: _const12=38, qx=1, seq.op=3; return
+c0021040110000 //   11: cx=2, dx=2, px=4, lmx=0, ende=1, uc_debug=1, seq.op=3; return
+00200000000048 //   12: _const12=72, ax=1
+00200001440069 //   13: sx=10, _const12=105, ax=1, wd_en=1
+00200001440021 //   14: sx=10, _const12=33, ax=1, wd_en=1
+0020000144000a //   15: sx=10, _const12=10, ax=1, wd_en=1
+c0000001440000 //   16: sx=10, wd_en=1, seq.op=3; return
+00200000000000 //   17: _const12=0, ax=1
+00200000000000 //   18: _const12=0, ax=1
+00200000000005 //   19: _const12=5, ax=1
+00000800080fff //   20: _const12=-1, dx=1, testa=1
+03a00000090fff //   21: sx=0, ax=5, testa=1, uc_debug=1, seq.address=-1, seq.condition=3; if condition[3] jump -1 (21)
+c0200000000063 //   22: _const12=99, ax=1, seq.op=3; return
+00210800000000 //   23: _const12=0, ax=1, cx=1, dx=1
+00210800000000 //   24: _const12=0, ax=1, cx=1, dx=1
+00210800000001 //   25: _const12=1, ax=1, cx=1, dx=1
+00040000090000 //   26: sx=0, cx=4, uc_debug=1, testa=1
+03a01001800ffe //   27: sx=12, ax=5, dx=2, seq.address=-2, seq.condition=3; if condition[3] jump -2 (26)
+00000000010000 //   28: sx=0, uc_debug=1
+c0000000000000 //   29: sx=0, seq.op=3; return
 00000000000000
 00000000000000
 00000000000000
