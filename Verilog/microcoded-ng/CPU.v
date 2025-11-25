@@ -209,7 +209,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     wire fa_w = ou3 | (~o[3] & ~o[4] & o[5]) | (o[1] & ~o[3] & o[4]) | (o[2] & ~o[3] & o[4]); // pp 3-182
     wire [0:31] indx_offset = {32{(x[0] | x[1] | x[2])}} & rr[x];
 
-    wire [0:31] constant32 = { {20{_const12[0]}}, _const12[0:11] };
+    wire [0:31] constant32 = { 20'h0, _const12[0:11] };
 
     reg [11:0] op_switch[0:127];
 
@@ -245,7 +245,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
         c_in = 0;
         case (cx)
             CXNONE: ; // do nothing
-            CXCONST: c_in = { { c[11:31], 11'h0 } | constant32 };
+            CXCONST: c_in = { { c[12:31], 12'h0 } | constant32 };
             CXMB: c_in = memory_data_in;
             CXRR: c_in = rr[r];
             CXS: c_in = s;
@@ -303,14 +303,14 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                     x[12:14] <= c_out[8:14];
                     a <= 0; b <= 0; e <= 0;
                     `ifdef TRACE_I
-                        $display("* Q %x: %x", q-1, c);
-                        $display("  R0 %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
-                        $display("  R8 %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
+                        $display("* Q: %x, C: %x", q, c);
+                        $display(" R0: %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
+                        $display(" R8: %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
                     `endif
                 end
                 case (ax)
                     AXNONE: ; // do nothing
-                    AXCONST: a <= { { a[11:31], 11'h0 } | constant32 };
+                    AXCONST: a <= { { a[12:31], 12'h0 } | constant32 };
                     AXS: a <= s;
                 endcase
                 case (cx)
@@ -319,7 +319,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                 endcase
                 case (dx)
                     DXNONE: ; // do nothing
-                    DXCONST: d <= { { d[11:31], 11'h0 } | constant32 };
+                    DXCONST: d <= { { d[12:31], 12'h0 } | constant32 };
                     DXC: d <= c_out;
                 endcase
                 case (csx)
@@ -337,7 +337,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                 endcase
                 case (qx)
                     QXNONE: ; // do nothing
-                    QXCONST: q <= { { q[11:31], 11'h0 } | constant32 };
+                    QXCONST: q <= { { q[12:31], 12'h0 } | constant32 };
                     QXP: q <= p[15:31];
                 endcase
                 case (rrx)
