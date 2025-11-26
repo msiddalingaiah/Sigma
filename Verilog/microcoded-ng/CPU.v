@@ -1,7 +1,7 @@
 
 `include "Sequencer.v"
 
-`define TRACE_I 1
+// `define TRACE_I 1
 
 /**
  * This module implements the microcode ROM.
@@ -93,6 +93,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     localparam AXR = 3;
     localparam AXRR = 4;
     localparam AXS = 5;
+    localparam AXRRX = 6;
     localparam BXNONE = 0;
     localparam BXCONST = 1;
     localparam BXS = 2;
@@ -116,8 +117,8 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     localparam EXB = 1;
     localparam EXCC = 2;
     localparam EXS = 3;
-    localparam LMXC = 0;
-    localparam LMXQ = 1;
+    localparam LMXQ = 0;
+    localparam LMXC = 1;
     localparam PXNONE = 0;
     localparam PXCONST = 1;
     localparam PXQ = 2;
@@ -149,6 +150,8 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     localparam COND_CC_ZERO = 1;
     localparam COND_CC_NEG = 2;
     localparam COND_CC_POS = 3;
+    localparam COND_OP_INDIRECT = 4;
+    localparam COND_OP_INDEX = 5;
     localparam WR_NONE = 0;
     localparam WR_BYTE = 1;
     localparam WR_HALF = 2;
@@ -262,11 +265,13 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
             COND_CC_ZERO: branch = (~cc[3]) & (~cc[4]);
             COND_CC_NEG: branch = (~cc[3]) & (cc[4]);
             COND_CC_POS: branch = (cc[3]) & (~cc[4]);
+            COND_OP_INDIRECT: branch = c_out[0];
+            COND_OP_INDEX: branch = x[12] | x[13] | x[14];
         endcase
         uc_op = seq_op;
         case (seq_op)
-            0: uc_op = { 1'h0, branch }; // next, invert selected branch condition
-            1: uc_op = { 1'h0, ~branch }; // jump
+            0: uc_op = { 1'h0, branch }; // next
+            1: uc_op = { 1'h0, ~branch }; // jump, invert selected branch condition
             2: ; // call
             3: ; // return
         endcase
@@ -300,10 +305,10 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                     // ende entry: Q contains instruction word address
                     o[1:7] <= c_out[1:7];
                     r[8:11] <= c_out[8:11];
-                    x[12:14] <= c_out[8:14];
+                    x[12:14] <= c_out[12:14];
                     a <= 0; b <= 0; e <= 0;
                     `ifdef TRACE_I
-                        $display("* Q: %x, C: %x", q, c);
+                        $display("* Q: %x, C: %x, R: %d, X: %d", q, c, r, x);
                         $display(" R0: %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
                         $display(" R8: %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
                     `endif
@@ -312,6 +317,8 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                     AXNONE: ; // do nothing
                     AXCONST: a <= { { a[12:31], 12'h0 } | constant32 };
                     AXS: a <= s;
+                    AXRR: a <= rr[r];
+                    AXRRX: a <= rr[x];
                 endcase
                 case (cx)
                     CXNONE: ; // do nothing
