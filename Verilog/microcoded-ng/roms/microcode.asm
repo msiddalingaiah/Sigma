@@ -287,7 +287,10 @@ def sigma:
                 trap = 1
 
             OP_LW:
-                px = PXQ, continue exec_ende
+                px = PXQ, lmx = LMXC
+                cx = CXMB, dx = DXC
+                sx = SXD, rrx = RRXS, ax = AXS
+                testa = 1, continue exec_ende
 
             OP_MTW:
                 trap = 1
