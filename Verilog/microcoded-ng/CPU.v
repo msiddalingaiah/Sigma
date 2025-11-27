@@ -225,7 +225,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
         uc_din = seq_address;
         case (seq_address_mux)
             ADDR_MUX_SEQ: uc_din = seq_address; // jump or call
-            ADDR_MUX_OPCODE: uc_din = { 3'h0, o, 2'h0 } + { 4'h0, o, 1'h0 }; // instruction op code
+            ADDR_MUX_OPCODE: uc_din = { 5'h0, o }; // instruction op code
             ADDR_MUX_OPROM: uc_din = op_switch[o]; // instruction op code
         endcase
         s = 0;
@@ -362,8 +362,8 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                     $write("%s", s[25:31]);
                 end
                 if (uc_debug == 1) begin
-                    $display("%4d: A: %x, C: %x, D: %x, CC: %b, CS: %d, P: %x:%1d, Q: %x",
-                        seq.pc-1, a, c, d, cc, cs, p>>2, p&3, q);
+                    $display("%4d: A: %x, C: %x, D: %x, CC: %b, CS: %d, O: %2x, P: %x:%1d, Q: %x, R: %1x, X: %1x",
+                        seq.pc-1, a, c, d, cc, cs, o, p>>2, p&3, q, r, x);
                 end
             end
         end

@@ -364,11 +364,12 @@ class Parser(object):
         self.sc.expect('if', 'do', 'while', 'loop', 'switch', 'call', 'return', 'continue')
 
     def parseSwitchBlock(self, stat_name):
-        tree = Tree(self.sc.expect('{'))
-        while not self.sc.matches('}'):
+        tree = Tree(self.sc.expect(':'))
+        self.sc.expect('EOL')
+        self.sc.expect('INDENT')
+        while not self.sc.matches('DEDENT'):
             tree.add(self.parseExp())
-            self.sc.expect(':')
-            tree.add(self.parseStatList(stat_name))
+            tree.add(self.parseStatList())
         return tree
 
     def parseExp(self, index=0):
