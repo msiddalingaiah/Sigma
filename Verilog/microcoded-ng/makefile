@@ -19,3 +19,6 @@ all: CPU.v roms/microcode.asm vcd/CPUTestBench
 
 test:
 	python roms/CompilerTest.py
+
+clean:
+	del vcd\CPUTestBench

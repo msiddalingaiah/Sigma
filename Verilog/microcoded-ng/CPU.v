@@ -206,11 +206,13 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     assign wr_enables = active ? wr_en : 4'bZ;
 
     // Address family decode, see ANLZ instruction
-    wire fa_b = o[1] & o[2] & o[3];
-    wire fa_h = o[1] & ~o[2] & o[3];
-    wire ou3 = (~o[1]) & o[2] & o[3];
-    wire fa_w = ou3 | (~o[3] & ~o[4] & o[5]) | (o[1] & ~o[3] & o[4]) | (o[2] & ~o[3] & o[4]); // pp 3-182
-    wire [0:31] indx_offset = {32{(x[0] | x[1] | x[2])}} & rr[x];
+    wire fa_b = c[1] & c[2] & c[3];
+    wire fa_h = c[1] & ~c[2] & c[3];
+    wire ou3 = (~c[1]) & c[2] & c[3];
+    wire fa_w = ou3 | (~c[3] & ~c[4] & c[5]) | (c[1] & ~c[3] & c[4]) | (c[2] & ~c[3] & c[4]); // pp 3-182
+    // TODO: doubleword decode
+    // wire fa_d = ...
+    wire [0:31] indx_offset = {32{(c[12] | c[13] | c[14])}} & rr[c[12:14]];
 
     wire [0:31] constant32 = { 20'h0, _const12[0:11] };
 
@@ -308,6 +310,19 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                     r[8:11] <= c[8:11];
                     x[12:14] <= c[12:14];
                     a <= 0; b <= 0; e <= 0;
+                    // Word offset in A register
+                    if (fa_b) begin
+                        a <= {2'h0, indx_offset[0:29]};
+                        p[32:33] <= indx_offset[30:31];
+                    end
+                    if (fa_h) begin
+                        a <= {1'h0, indx_offset[0:30]};
+                        p[32:33] <= { indx_offset[31], 1'h0 };
+                    end
+                    if (fa_w) begin
+                        a <= indx_offset;
+                        p[32:33] <= 2'h0;
+                    end
                     `ifdef TRACE_I
                         $display("* Q: %x, C: %x, R: %d, X: %d", q, c, r, x);
                         $display(" R0: %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
@@ -319,7 +334,6 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                     AXCONST: a <= { { a[12:31], 12'h0 } | constant32 };
                     AXS: a <= s;
                     AXRR: a <= rr[r];
-                    AXRRX: a <= rr[x];
                 endcase
                 case (cx)
                     CXNONE: ; // do nothing

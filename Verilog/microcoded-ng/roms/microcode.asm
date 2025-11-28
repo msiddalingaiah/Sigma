@@ -110,10 +110,7 @@ def sigma:
 
     prep: lmx = LMXC, qx = QXP, if COND_OP_INDIRECT:
         cx = CXMB, dx = DXC
-    ax = AXRRX, sx = SXD, px = PXS, if COND_OP_INDEX:
-        sx = SXADD, px = PXS
-
-    switch ADDR_MUX_OPCODE:
+    sx = SXADD, px = PXS, switch ADDR_MUX_OPCODE:
         OP_NAO_00:
             trap = 1
 
@@ -122,7 +119,7 @@ def sigma:
 
         OP_LCFI:
             px = PXQ, lmx = LMXQ, uc_debug = 1
-            cx = CXMB, dx = DXC, px = PCTP1, lmx = LMXC, ende = 1, continue prep
+            cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_NAO_03:
             trap = 1
@@ -269,7 +266,7 @@ def sigma:
             px = PXQ, lmx = LMXC, uc_debug = 1
             cx = CXMB, dx = DXC
             sx = SXD, rrx = RRXS, ax = AXS, lmx = LMXQ
-            testa = 1, cx = CXMB, dx = DXC, px = PCTP1, lmx = LMXC, ende = 1, continue prep
+            testa = 1, cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_MTW:
             trap = 1
@@ -348,11 +345,11 @@ def sigma:
 
         OP_SIO:
             px = PXQ, lmx = LMXQ, uc_debug = 1
-            cx = CXMB, dx = DXC, px = PCTP1, lmx = LMXC, ende = 1, continue prep
+            cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_TIO:
             px = PXQ, lmx = LMXQ, uc_debug = 1
-            cx = CXMB, dx = DXC, px = PCTP1, lmx = LMXC, ende = 1, continue prep
+            cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_TDV:
             trap = 1
@@ -437,7 +434,7 @@ def sigma:
 
         OP_BCS:
             px = PXQ, lmx = LMXQ, uc_debug = 1
-            cx = CXMB, dx = DXC, px = PCTP1, lmx = LMXC, ende = 1, continue prep
+            cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_BAL:
             trap = 1
@@ -548,8 +545,7 @@ def test_prep:
 def prep_func:
     lmx = LMXC, qx = QXP, if COND_OP_INDIRECT:
         cx = CXMB, dx = DXC
-    ax = AXRRX, sx = SXD, px = PXS, if COND_OP_INDEX:
-        sx = SXADD, px = PXS
+    sx = SXADD, px = PXS
     uc_debug = 1, return
 
 # See 3-658
