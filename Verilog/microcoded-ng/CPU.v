@@ -166,7 +166,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
     // c receives data from memory
     // The C-register is unique among the CPU registers in that its storage circuits are made
     // of buffered latches instead of flip-flops, see pp 3-38. Forwarding is used to simulate latches.
-    reg [0:31] c_in, c, c_out;
+    reg [0:31] c_in, c_reg, c;
     // e is a counting register
     reg [0:7] e;
     // Condition code register
@@ -248,14 +248,15 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
         c_in = 0;
         case (cx)
             CXNONE: ; // do nothing
-            CXCONST: c_in = { { c[12:31], 12'h0 } | constant32 };
+            CXCONST: c_in = { { c_reg[12:31], 12'h0 } | constant32 };
             CXMB: c_in = memory_data_in;
             CXRR: c_in = rr[r];
             CXS: c_in = s;
         endcase
-        c_out = cx == CXNONE ? c : c_in;
+        // c data forwarding avoids transparent latch
+        c = cx == CXNONE ? c_reg : c_in;
         case (lmx)
-            LMXC: lb[15:31] = c_out[15:31];
+            LMXC: lb[15:31] = c[15:31];
             LMXQ: lb = q;
         endcase
 
@@ -265,7 +266,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
             COND_CC_ZERO: branch = (~cc[3]) & (~cc[4]);
             COND_CC_NEG: branch = (~cc[3]) & (cc[4]);
             COND_CC_POS: branch = (cc[3]) & (~cc[4]);
-            COND_OP_INDIRECT: branch = c_out[0];
+            COND_OP_INDIRECT: branch = c[0];
             COND_OP_INDEX: branch = x[12] | x[13] | x[14];
         endcase
         uc_op = seq_op;
@@ -283,7 +284,7 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
         if (reset == 1) begin
             a <= 0;
             b <= 0;
-            c <= 0;
+            c_reg <= 0;
             cc <= 0;
             cs <= 0;
             d <= 0;
@@ -303,9 +304,9 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                 wr_en <= 0;
                 if (ende == 1) begin
                     // ende entry: Q contains instruction word address
-                    o[1:7] <= c_out[1:7];
-                    r[8:11] <= c_out[8:11];
-                    x[12:14] <= c_out[12:14];
+                    o[1:7] <= c[1:7];
+                    r[8:11] <= c[8:11];
+                    x[12:14] <= c[12:14];
                     a <= 0; b <= 0; e <= 0;
                     `ifdef TRACE_I
                         $display("* Q: %x, C: %x, R: %d, X: %d", q, c, r, x);
@@ -322,12 +323,12 @@ module CPU(input wire reset, input wire clock, input wire active, input wire [0:
                 endcase
                 case (cx)
                     CXNONE: ; // do nothing
-                    default: c <= c_in;
+                    default: c_reg <= c_in;
                 endcase
                 case (dx)
                     DXNONE: ; // do nothing
                     DXCONST: d <= { { d[12:31], 12'h0 } | constant32 };
-                    DXC: d <= c_out;
+                    DXC: d <= c;
                 endcase
                 case (csx)
                     CSXNONE: ; // do nothing

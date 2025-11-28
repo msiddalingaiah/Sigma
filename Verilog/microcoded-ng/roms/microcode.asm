@@ -105,426 +105,405 @@ def main:
 
     trap = 1
 
-    # call test_prep
-    # trap = 1
-
-    # call message
-    # call countdown
-    # call fib
-    # uc_debug = 1
-    # trap = 1
-
-    call reset
-    px = PXQ, lmx = LMXQ, call fetch
-    # PRE1/PRE2 no indirect, no indexing
-    qx = QXP, cx = CXMB, uc_debug = 1
-    sx = SXADD, px = PXS
-    # PH1 (LW, 0 X'24')
-    px = PXQ, dx = DXC
-    sx = SXADD, rrx = RRXS, ax = AXS
-    testa = 1, uc_debug = 1, call fetch
-
-    uc_debug = 1
-    trap = 1
-
 def sigma:
     call reset
-    loop:
-        lmx = LMXC, qx = QXP, if COND_OP_INDIRECT:
+
+    prep: lmx = LMXC, qx = QXP, if COND_OP_INDIRECT:
+        cx = CXMB, dx = DXC
+    ax = AXRRX, sx = SXD, px = PXS, if COND_OP_INDEX:
+        sx = SXADD, px = PXS
+
+    switch ADDR_MUX_OPCODE:
+        OP_NAO_00:
+            trap = 1
+
+        OP_NAO_01:
+            trap = 1
+
+        OP_LCFI:
+            px = PXQ, lmx = LMXQ, uc_debug = 1
+            cx = CXMB, dx = DXC, px = PCTP1, lmx = LMXC, ende = 1, continue prep
+
+        OP_NAO_03:
+            trap = 1
+
+        OP_CAL1:
+            trap = 1
+
+        OP_CAL2:
+            trap = 1
+
+        OP_CAL3:
+            trap = 1
+
+        OP_CAL4:
+            trap = 1
+
+        OP_PLW:
+            trap = 1
+
+        OP_PSW:
+            trap = 1
+
+        OP_PLM:
+            trap = 1
+
+        OP_PSM:
+            trap = 1
+
+        OP_NAO_0c:
+            trap = 1
+
+        OP_NAO_0d:
+            trap = 1
+
+        OP_LPSD:
+            trap = 1
+
+        OP_XPSD:
+            trap = 1
+
+        OP_AD:
+            trap = 1
+
+        OP_CD:
+            trap = 1
+
+        OP_LD:
+            trap = 1
+
+        OP_MSP:
+            trap = 1
+
+        OP_NAO_14:
+            trap = 1
+
+        OP_STD:
+            trap = 1
+
+        OP_NAO_16:
+            trap = 1
+
+        OP_NAO_17:
+            trap = 1
+
+        OP_SD:
+            trap = 1
+
+        OP_CLM:
+            trap = 1
+
+        OP_LCD:
+            trap = 1
+
+        OP_LAD:
+            trap = 1
+
+        OP_FSL:
+            trap = 1
+
+        OP_FAL:
+            trap = 1
+
+        OP_FDL:
+            trap = 1
+
+        OP_FML:
+            trap = 1
+
+        OP_AI:
+            trap = 1
+
+        OP_CI:
+            trap = 1
+
+        OP_LI:
+            trap = 1
+
+        OP_MI:
+            trap = 1
+
+        OP_SF:
+            trap = 1
+
+        OP_S:
+            trap = 1
+
+        OP_NAO_26:
+            trap = 1
+
+        OP_NAO_27:
+            trap = 1
+
+        OP_CVS:
+            trap = 1
+
+        OP_CVA:
+            trap = 1
+
+        OP_LM:
+            trap = 1
+
+        OP_STM:
+            trap = 1
+
+        OP_NAO_2c:
+            trap = 1
+
+        OP_NAO_2d:
+            trap = 1
+
+        OP_WAIT:
+            trap = 1
+
+        OP_LRP:
+            trap = 1
+
+        OP_AW:
+            trap = 1
+
+        OP_CW:
+            trap = 1
+
+        OP_LW:
+            px = PXQ, lmx = LMXC, uc_debug = 1
             cx = CXMB, dx = DXC
-        ax = AXRRX, sx = SXD, px = PXS, if COND_OP_INDEX:
-            sx = SXADD, px = PXS
+            sx = SXD, rrx = RRXS, ax = AXS, lmx = LMXQ
+            testa = 1, cx = CXMB, dx = DXC, px = PCTP1, lmx = LMXC, ende = 1, continue prep
 
-        switch ADDR_MUX_OPCODE:
-            OP_NAO_00:
-                trap = 1
+        OP_MTW:
+            trap = 1
 
-            OP_NAO_01:
-                trap = 1
+        OP_NAO_34:
+            trap = 1
 
-            OP_LCFI:
-                px = PXQ, continue exec_ende
+        OP_STW:
+            trap = 1
 
-            OP_NAO_03:
-                trap = 1
+        OP_DW:
+            trap = 1
 
-            OP_CAL1:
-                trap = 1
+        OP_MW:
+            trap = 1
 
-            OP_CAL2:
-                trap = 1
+        OP_SW:
+            trap = 1
 
-            OP_CAL3:
-                trap = 1
+        OP_CLR:
+            trap = 1
 
-            OP_CAL4:
-                trap = 1
+        OP_LCW:
+            trap = 1
 
-            OP_PLW:
-                trap = 1
+        OP_LAW:
+            trap = 1
 
-            OP_PSW:
-                trap = 1
+        OP_FSS:
+            trap = 1
 
-            OP_PLM:
-                trap = 1
+        OP_FAS:
+            trap = 1
 
-            OP_PSM:
-                trap = 1
+        OP_FDS:
+            trap = 1
 
-            OP_NAO_0c:
-                trap = 1
+        OP_FMS:
+            trap = 1
 
-            OP_NAO_0d:
-                trap = 1
+        OP_TTBS:
+            trap = 1
 
-            OP_LPSD:
-                trap = 1
+        OP_TBS:
+            trap = 1
 
-            OP_XPSD:
-                trap = 1
+        OP_NAO_42:
+            trap = 1
 
-            OP_AD:
-                trap = 1
+        OP_NAO_43:
+            trap = 1
 
-            OP_CD:
-                trap = 1
+        OP_ANLZ:
+            trap = 1
 
-            OP_LD:
-                trap = 1
+        OP_CS:
+            trap = 1
 
-            OP_MSP:
-                trap = 1
+        OP_XW:
+            trap = 1
 
-            OP_NAO_14:
-                trap = 1
+        OP_STS:
+            trap = 1
 
-            OP_STD:
-                trap = 1
+        OP_EOR:
+            trap = 1
 
-            OP_NAO_16:
-                trap = 1
+        OP_OR:
+            trap = 1
 
-            OP_NAO_17:
-                trap = 1
+        OP_LS:
+            trap = 1
 
-            OP_SD:
-                trap = 1
+        OP_AND:
+            trap = 1
 
-            OP_CLM:
-                trap = 1
+        OP_SIO:
+            px = PXQ, lmx = LMXQ, uc_debug = 1
+            cx = CXMB, dx = DXC, px = PCTP1, lmx = LMXC, ende = 1, continue prep
 
-            OP_LCD:
-                trap = 1
+        OP_TIO:
+            px = PXQ, lmx = LMXQ, uc_debug = 1
+            cx = CXMB, dx = DXC, px = PCTP1, lmx = LMXC, ende = 1, continue prep
 
-            OP_LAD:
-                trap = 1
+        OP_TDV:
+            trap = 1
 
-            OP_FSL:
-                trap = 1
+        OP_HIO:
+            trap = 1
 
-            OP_FAL:
-                trap = 1
+        OP_AH:
+            trap = 1
 
-            OP_FDL:
-                trap = 1
+        OP_CH:
+            trap = 1
 
-            OP_FML:
-                trap = 1
+        OP_LH:
+            trap = 1
 
-            OP_AI:
-                trap = 1
+        OP_MTH:
+            trap = 1
 
-            OP_CI:
-                trap = 1
+        OP_NAO_54:
+            trap = 1
 
-            OP_LI:
-                trap = 1
+        OP_STH:
+            trap = 1
 
-            OP_MI:
-                trap = 1
+        OP_DH:
+            trap = 1
 
-            OP_SF:
-                trap = 1
+        OP_MH:
+            trap = 1
 
-            OP_S:
-                trap = 1
+        OP_SH:
+            trap = 1
 
-            OP_NAO_26:
-                trap = 1
+        OP_NAO_59:
+            trap = 1
 
-            OP_NAO_27:
-                trap = 1
+        OP_LCH:
+            trap = 1
 
-            OP_CVS:
-                trap = 1
+        OP_LAH:
+            trap = 1
 
-            OP_CVA:
-                trap = 1
+        OP_NAO_5c:
+            trap = 1
 
-            OP_LM:
-                trap = 1
+        OP_NAO_5d:
+            trap = 1
 
-            OP_STM:
-                trap = 1
+        OP_NAO_5e:
+            trap = 1
 
-            OP_NAO_2c:
-                trap = 1
+        OP_NAO_5f:
+            trap = 1
 
-            OP_NAO_2d:
-                trap = 1
+        OP_CBS:
+            trap = 1
 
-            OP_WAIT:
-                trap = 1
+        OP_MBS:
+            trap = 1
 
-            OP_LRP:
-                trap = 1
+        OP_NAO_62:
+            trap = 1
 
-            OP_AW:
-                trap = 1
+        OP_EBS:
+            trap = 1
 
-            OP_CW:
-                trap = 1
+        OP_BDR:
+            trap = 1
 
-            OP_LW:
-                px = PXQ, lmx = LMXC
-                cx = CXMB, dx = DXC
-                sx = SXD, rrx = RRXS, ax = AXS
-                testa = 1, continue exec_ende
+        OP_BIR:
+            trap = 1
 
-            OP_MTW:
-                trap = 1
+        OP_AWM:
+            trap = 1
 
-            OP_NAO_34:
-                trap = 1
+        OP_EXU:
+            trap = 1
 
-            OP_STW:
-                trap = 1
+        OP_BCR:
+            trap = 1
 
-            OP_DW:
-                trap = 1
+        OP_BCS:
+            px = PXQ, lmx = LMXQ, uc_debug = 1
+            cx = CXMB, dx = DXC, px = PCTP1, lmx = LMXC, ende = 1, continue prep
 
-            OP_MW:
-                trap = 1
+        OP_BAL:
+            trap = 1
 
-            OP_SW:
-                trap = 1
+        OP_INT:
+            trap = 1
 
-            OP_CLR:
-                trap = 1
+        OP_RD:
+            trap = 1
 
-            OP_LCW:
-                trap = 1
+        OP_WD:
+            trap = 1
 
-            OP_LAW:
-                trap = 1
+        OP_AIO:
+            trap = 1
 
-            OP_FSS:
-                trap = 1
+        OP_MMC:
+            trap = 1
 
-            OP_FAS:
-                trap = 1
+        OP_LCF:
+            trap = 1
 
-            OP_FDS:
-                trap = 1
+        OP_CB:
+            trap = 1
 
-            OP_FMS:
-                trap = 1
+        OP_LB:
+            trap = 1
 
-            OP_TTBS:
-                trap = 1
+        OP_MTB:
+            trap = 1
 
-            OP_TBS:
-                trap = 1
+        OP_STFC:
+            trap = 1
 
-            OP_NAO_42:
-                trap = 1
+        OP_STB:
+            trap = 1
 
-            OP_NAO_43:
-                trap = 1
+        OP_PACK:
+            trap = 1
 
-            OP_ANLZ:
-                trap = 1
+        OP_UNPK:
+            trap = 1
 
-            OP_CS:
-                trap = 1
+        OP_DS:
+            trap = 1
 
-            OP_XW:
-                trap = 1
+        OP_DA:
+            trap = 1
 
-            OP_STS:
-                trap = 1
+        OP_DD:
+            trap = 1
 
-            OP_EOR:
-                trap = 1
+        OP_DM:
+            trap = 1
 
-            OP_OR:
-                trap = 1
+        OP_DSA:
+            trap = 1
 
-            OP_LS:
-                trap = 1
+        OP_DC:
+            trap = 1
 
-            OP_AND:
-                trap = 1
+        OP_DL:
+            trap = 1
 
-            OP_SIO:
-                px = PXQ, continue exec_ende
-
-            OP_TIO:
-                px = PXQ, continue exec_ende
-
-            OP_TDV:
-                trap = 1
-
-            OP_HIO:
-                trap = 1
-
-            OP_AH:
-                trap = 1
-
-            OP_CH:
-                trap = 1
-
-            OP_LH:
-                trap = 1
-
-            OP_MTH:
-                trap = 1
-
-            OP_NAO_54:
-                trap = 1
-
-            OP_STH:
-                trap = 1
-
-            OP_DH:
-                trap = 1
-
-            OP_MH:
-                trap = 1
-
-            OP_SH:
-                trap = 1
-
-            OP_NAO_59:
-                trap = 1
-
-            OP_LCH:
-                trap = 1
-
-            OP_LAH:
-                trap = 1
-
-            OP_NAO_5c:
-                trap = 1
-
-            OP_NAO_5d:
-                trap = 1
-
-            OP_NAO_5e:
-                trap = 1
-
-            OP_NAO_5f:
-                trap = 1
-
-            OP_CBS:
-                trap = 1
-
-            OP_MBS:
-                trap = 1
-
-            OP_NAO_62:
-                trap = 1
-
-            OP_EBS:
-                trap = 1
-
-            OP_BDR:
-                trap = 1
-
-            OP_BIR:
-                trap = 1
-
-            OP_AWM:
-                trap = 1
-
-            OP_EXU:
-                trap = 1
-
-            OP_BCR:
-                trap = 1
-
-            OP_BCS:
-                px = PXQ, continue exec_ende
-
-            OP_BAL:
-                trap = 1
-
-            OP_INT:
-                trap = 1
-
-            OP_RD:
-                trap = 1
-
-            OP_WD:
-                trap = 1
-
-            OP_AIO:
-                trap = 1
-
-            OP_MMC:
-                trap = 1
-
-            OP_LCF:
-                trap = 1
-
-            OP_CB:
-                trap = 1
-
-            OP_LB:
-                trap = 1
-
-            OP_MTB:
-                trap = 1
-
-            OP_STFC:
-                trap = 1
-
-            OP_STB:
-                trap = 1
-
-            OP_PACK:
-                trap = 1
-
-            OP_UNPK:
-                trap = 1
-
-            OP_DS:
-                trap = 1
-
-            OP_DA:
-                trap = 1
-
-            OP_DD:
-                trap = 1
-
-            OP_DM:
-                trap = 1
-
-            OP_DSA:
-                trap = 1
-
-            OP_DC:
-                trap = 1
-
-            OP_DL:
-                trap = 1
-
-            OP_DST:
-                trap = 1
-
-        exec_ende: cx = CXMB, dx = DXC, px = PCTP1, lmx = LMXC, ende = 1, uc_debug = 1
-
+        OP_DST:
+            trap = 1
 
 def test_prep:
     _const12 = (0x00120026 >> 24) & 0xfff, cx = CXCONST
@@ -542,31 +521,31 @@ def test_prep:
     _const12 = 0, cx = CXCONST
     _const12 = 0x26, cx = CXCONST
     ende = 1
-    dx = DXC, call prep
+    dx = DXC, call prep_func
 
     # Indirect
     _const12 = (0x80000026 >> 24) & 0xfff, cx = CXCONST
     _const12 = (0x80000026 >> 12) & 0xfff, cx = CXCONST
     _const12 = 0x26, cx = CXCONST
     ende = 1
-    dx = DXC, call prep
+    dx = DXC, call prep_func
 
     # Indexed
     _const12 = (0x00120026 >> 24) & 0xfff, cx = CXCONST
     _const12 = (0x00120026 >> 12) & 0xfff, cx = CXCONST
     _const12 = 0x26, cx = CXCONST
     ende = 1
-    dx = DXC, call prep
+    dx = DXC, call prep_func
 
     # Indirect, indexed
     _const12 = (0x80120026 >> 24) & 0xfff, cx = CXCONST
     _const12 = (0x80120026 >> 12) & 0xfff, cx = CXCONST
     _const12 = 0x26, cx = CXCONST
     ende = 1
-    dx = DXC, call prep
+    dx = DXC, call prep_func
     return
 
-def prep:
+def prep_func:
     lmx = LMXC, qx = QXP, if COND_OP_INDIRECT:
         cx = CXMB, dx = DXC
     ax = AXRRX, sx = SXD, px = PXS, if COND_OP_INDEX:
