@@ -84,7 +84,7 @@ module Memory(input wire clock, input wire [15:31] address, input wire [0:3] wri
 endmodule
 
 module CPUTestBench;
-    localparam CYCLE_LIMIT = 50;
+    localparam CYCLE_LIMIT = 100;
     localparam TIME_LIMIT = 101*CYCLE_LIMIT;
 
     reg reset;
@@ -129,16 +129,16 @@ module CPUTestBench;
     Clock cg0(clock);
     Memory ram(clock, memory_address, mem_write_en, memory_data_in, memory_data_out);
 
-    reg [0:1] active;
+    reg cpu_active;
 
-    CPU cpu(reset, clock, active[0], memory_address, memory_data_out, memory_data_in, mem_write_en,
+    CPU cpu(reset, clock, cpu_active, memory_address, memory_data_out, memory_data_in, mem_write_en,
         iop_func, iop_addr, iop_cc);
-    IOP iop(reset, clock, active[1], memory_address, memory_data_out, memory_data_in, mem_write_en,
+    IOP iop(reset, clock, ~cpu_active, memory_address, memory_data_out, memory_data_in, mem_write_en,
         iop_func, iop_addr, iop_cc);
 
     always @(posedge clock, posedge reset) begin
         if (reset == 1) begin
-            active <= 2'h2;
+            cpu_active <= 1;
         end else begin
             cycle_count <= cycle_count + 1;
             if (cycle_count >= CYCLE_LIMIT) begin
@@ -165,6 +165,8 @@ module CPUTestBench;
             if (cpu.ende) begin
                 instruction_count <= instruction_count + 1;
             end
+            if ((memory_address == 17'h20) & cpu_active & mem_write_en[0]) cpu_active <= 0;
+            if ((memory_address == 17'h21) & ~cpu_active & mem_write_en[0]) cpu_active <= 1;
         end
     end
 endmodule

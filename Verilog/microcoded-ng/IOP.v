@@ -17,18 +17,42 @@ module IOP(input wire reset, input wire clock, input wire active, output wire [1
     assign memory_data_out = active ? mb : 32'bZ;
     assign wr_enables = active ? wr_en : 4'bZ;
 
+    reg [0:3] phase;
+
     // Guideline #3: When modeling combinational logic with an "always" block, use blocking assignments ( = ).
     // Order matters here!!!
     always @(*) begin
-        lb = 17'h0;
-        wr_en = 4'h0;
     end
 
     // Guideline #1: When modeling sequential logic, use nonblocking assignments ( <= ).
     always @(posedge clock, posedge reset) begin
         if (reset == 1) begin
+            phase <= 0;
+            wr_en <= 0;
+            lb <= 0;
+            mb <= 0;
         end else begin
             if (active) begin
+                if (phase == 0) begin
+                    lb <= 17'h2a;
+                    mb <= 32'h32100021;
+                    wr_en <= 4'hf;
+                    phase <= 1;
+                end
+                if (phase == 1) begin
+                    wr_en <= 0;
+                    phase <= 2;
+                end
+                if (phase == 2) begin
+                    lb <= 17'h21;
+                    mb <= 32'h0E000000;
+                    wr_en <= 4'hf;
+                    phase <= 3;
+                end
+                if (phase == 3) begin
+                    wr_en <= 0;
+                    phase <= 0;
+                end
             end
         end
     end

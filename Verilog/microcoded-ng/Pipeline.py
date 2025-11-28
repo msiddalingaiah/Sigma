@@ -196,7 +196,7 @@ if __name__ == '__main__':
     constants['AXR'] = 3
     constants['AXRR'] = 4
     constants['AXS'] = 5
-    constants['AXRRX'] = 6 # Contents of index register, e.g. a <= rr[x]
+    constants['AXRR0'] = 6 # Contents of register 0, e.g. a <= rr[0]
 
     constants['BXNONE'] = 0
     constants['BXCONST'] = 1
@@ -227,7 +227,8 @@ if __name__ == '__main__':
     constants['EXS'] = 3
 
     constants['LMXQ'] = 0
-    constants['LMXC'] = 1
+    constants['LMXP'] = 1
+    constants['LMXC'] = 2
 
     constants['PXNONE'] = 0
     constants['PXCONST'] = 1

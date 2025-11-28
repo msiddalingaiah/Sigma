@@ -34,7 +34,7 @@ const AXE = 2
 const AXR = 3
 const AXRR = 4
 const AXS = 5
-const AXRRX = 6
+const AXRR0 = 6
 const BXNONE = 0
 const BXCONST = 1
 const BXS = 2
@@ -59,7 +59,8 @@ const EXB = 1
 const EXCC = 2
 const EXS = 3
 const LMXQ = 0
-const LMXC = 1
+const LMXP = 1
+const LMXC = 2
 const PXNONE = 0
 const PXCONST = 1
 const PXQ = 2
@@ -110,7 +111,7 @@ def sigma:
 
     prep: lmx = LMXC, qx = QXP, if COND_OP_INDIRECT:
         cx = CXMB, dx = DXC
-    sx = SXADD, px = PXS, switch ADDR_MUX_OPCODE:
+    sx = SXADD, px = PXS, uc_debug = 1, switch ADDR_MUX_OPCODE:
         OP_NAO_00:
             trap = 1
 
@@ -118,7 +119,7 @@ def sigma:
             trap = 1
 
         OP_LCFI:
-            px = PXQ, lmx = LMXQ, uc_debug = 1
+            px = PXQ, lmx = LMXQ
             cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_NAO_03:
@@ -263,9 +264,9 @@ def sigma:
             trap = 1
 
         OP_LW:
-            px = PXQ, lmx = LMXC, uc_debug = 1
+            lmx = LMXP
             cx = CXMB, dx = DXC
-            sx = SXD, rrx = RRXS, ax = AXS, lmx = LMXQ
+            sx = SXD, rrx = RRXS, ax = AXS, lmx = LMXQ, px = PXQ
             testa = 1, cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_MTW:
@@ -344,11 +345,15 @@ def sigma:
             trap = 1
 
         OP_SIO:
-            px = PXQ, lmx = LMXQ, uc_debug = 1
+            ax = AXRR
+            _const12 = 0, px = PXCONST
+            _const12 = 0x80, px = PXCONST
+            sx = SXA, lmx = LMXP, write_size = WR_WORD
+            px = PXQ, lmx = LMXQ
             cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_TIO:
-            px = PXQ, lmx = LMXQ, uc_debug = 1
+            px = PXQ, lmx = LMXQ
             cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_TDV:
@@ -433,7 +438,7 @@ def sigma:
             trap = 1
 
         OP_BCS:
-            px = PXQ, lmx = LMXQ, uc_debug = 1
+            px = PXQ, lmx = LMXQ
             cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_BAL:

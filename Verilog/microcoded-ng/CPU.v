@@ -94,7 +94,7 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
     localparam AXR = 3;
     localparam AXRR = 4;
     localparam AXS = 5;
-    localparam AXRRX = 6;
+    localparam AXRR0 = 6;
     localparam BXNONE = 0;
     localparam BXCONST = 1;
     localparam BXS = 2;
@@ -119,7 +119,8 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
     localparam EXCC = 2;
     localparam EXS = 3;
     localparam LMXQ = 0;
-    localparam LMXC = 1;
+    localparam LMXP = 1;
+    localparam LMXC = 2;
     localparam PXNONE = 0;
     localparam PXCONST = 1;
     localparam PXQ = 2;
@@ -256,11 +257,21 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
             CXRR: c_in = rr[r];
             CXS: c_in = s;
         endcase
+        mb = s;
         // c data forwarding avoids transparent latch
         c = cx == CXNONE ? c_reg : c_in;
         case (lmx)
-            LMXC: lb[15:31] = c[15:31];
             LMXQ: lb = q;
+            LMXP: lb = p[15:31];
+            LMXC: lb[15:31] = c[15:31];
+        endcase
+        wr_en = 4'h0;
+        case (write_size)
+            WR_NONE: wr_en = 4'h0;
+            // TODO: complete byte/half word write
+            WR_BYTE: wr_en = 4'h0;
+            WR_HALF: wr_en = 4'h0;
+            WR_WORD: wr_en = 4'hf;
         endcase
 
         branch = 0;
@@ -299,12 +310,10 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
             e <= 0;
             x <= 0;
             pipeline <= 0;
-            wr_en <= 0;
             bwz <= 0;
         end else begin
             if (active) begin
                 pipeline <= uc_rom_data;
-                wr_en <= 0;
                 if (ende == 1) begin
                     // ende entry: Q contains instruction word address
                     o[1:7] <= c[1:7];
@@ -324,17 +333,13 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
                         a <= indx_offset;
                         p[32:33] <= 2'h0;
                     end
-                    `ifdef TRACE_I
-                        $display("* Q: %x, C: %x, R: %d, X: %d", q, c, r, x);
-                        $display(" R0: %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
-                        $display(" R8: %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
-                    `endif
                 end
                 case (ax)
                     AXNONE: ; // do nothing
                     AXCONST: a <= { { a[12:31], 12'h0 } | constant32 };
                     AXS: a <= s;
                     AXRR: a <= rr[r];
+                    AXRR0: a <= rr[0];
                 endcase
                 case (cx)
                     CXNONE: ; // do nothing
@@ -352,7 +357,7 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
                 endcase
                 case (px)
                     PXNONE: ; // do nothing
-                    PXCONST: p <= constant32[0];
+                    PXCONST: p <= { { p[14:33], 12'h0 } | constant32 };
                     PXQ: p[15:31] <= q[15:31];
                     // TODO this is only for word operands. Byte and halfword operands need adjustment.
                     PXS: p[15:31] <= s[15:31];
@@ -380,6 +385,9 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
                 if (uc_debug == 1) begin
                     $display("%4d: A: %x, C: %x, D: %x, CC: %b, CS: %d, O: %2x, P: %x:%1d, Q: %x, R: %1x, X: %1x",
                         seq.pc-1, a, c, d, cc, cs, o, p>>2, p&3, q, r, x);
+                    $display("* Q: %x, C: %x, R: %d, X: %d", q, c, r, x);
+                    $display(" R0: %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
+                    $display(" R8: %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
                 end
             end
         end
