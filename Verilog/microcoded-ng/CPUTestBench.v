@@ -2,6 +2,7 @@
 `timescale 1 ns/10 ps  // time-unit = 1 ns, precision = 10 ps
 
 `include "CPU.v"
+`include "IOP.v"
 
 // `define TRACE_WR 1
 
@@ -122,13 +123,18 @@ module CPUTestBench;
     wire [0:31] memory_data_in, memory_data_out;
     wire [15:31] memory_address;
     wire [0:3] mem_write_en;
+    wire [0:2] iop_func, iop_addr;
+    wire [0:1] iop_cc;
     wire clock;
     Clock cg0(clock);
     Memory ram(clock, memory_address, mem_write_en, memory_data_in, memory_data_out);
 
     reg [0:1] active;
 
-    CPU cpu(reset, clock, active[0], memory_data_out, memory_address, memory_data_in, mem_write_en);
+    CPU cpu(reset, clock, active[0], memory_address, memory_data_out, memory_data_in, mem_write_en,
+        iop_func, iop_addr, iop_cc);
+    IOP iop(reset, clock, active[1], memory_address, memory_data_out, memory_data_in, mem_write_en,
+        iop_func, iop_addr, iop_cc);
 
     always @(posedge clock, posedge reset) begin
         if (reset == 1) begin

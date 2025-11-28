@@ -1,5 +1,5 @@
 
-vcd/CPUTestBench: CPU.v CPUTestBench.v roms/microcode.txt programs/init.txt
+vcd/CPUTestBench: CPU.v IOP.v CPUTestBench.v roms/microcode.txt programs/init.txt
 	iverilog -g2009 -o vcd/CPUTestBench CPUTestBench.v
 	vvp vcd/CPUTestBench
 

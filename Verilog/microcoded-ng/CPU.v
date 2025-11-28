@@ -16,8 +16,9 @@ endmodule
 /*
 Memory is word addressed, 17 bits
 */
-module CPU(input wire reset, input wire clock, input wire active, input wire [0:31] memory_data_in,
-    output wire [15:31] memory_address, output reg [0:31] memory_data_out, output reg [0:3] wr_enables);
+module CPU(input wire reset, input wire clock, input wire active, output wire [15:31] memory_address,
+    input wire [0:31] memory_data_in, output [0:31] memory_data_out, output [0:3] wr_enables,
+    output reg [0:2] iop_func, output reg [0:2] iop_addr, input reg [0:1] iop_cc);
 
     // Microcode ROM(s)
     wire [0:11] uc_rom_address;
