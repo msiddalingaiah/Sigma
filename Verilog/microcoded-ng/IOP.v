@@ -19,6 +19,12 @@ module IOP(input wire reset, input wire clock, input wire active, output wire [1
 
     reg [0:3] phase;
 
+    localparam FNC_SIO = 0;
+    localparam FNC_TIO = 1;
+    localparam FNC_TDV = 2;
+    localparam FNC_HIO = 3;
+    localparam FNC_AIO = 6;
+
     // Guideline #3: When modeling combinational logic with an "always" block, use blocking assignments ( = ).
     // Order matters here!!!
     always @(*) begin
@@ -33,25 +39,29 @@ module IOP(input wire reset, input wire clock, input wire active, output wire [1
             mb <= 0;
         end else begin
             if (active) begin
-                if (phase == 0) begin
-                    lb <= 17'h2a;
-                    mb <= 32'h32100021;
-                    wr_en <= 4'hf;
-                    phase <= 1;
+                if (iop_func == FNC_SIO) begin
+                    if (phase == 0) begin
+                        lb <= 17'h2a;
+                        mb <= 32'h32100021;
+                        wr_en <= 4'hf;
+                        phase <= 1;
+                    end
+                    if (phase == 1) begin
+                        wr_en <= 0;
+                        phase <= 2;
+                    end
+                    if (phase == 2) begin
+                        lb <= 17'h21;
+                        mb <= 32'h0E000000;
+                        wr_en <= 4'hf;
+                        phase <= 3;
+                    end
+                    if (phase == 3) begin
+                        wr_en <= 0;
+                        phase <= 0;
+                    end
                 end
-                if (phase == 1) begin
-                    wr_en <= 0;
-                    phase <= 2;
-                end
-                if (phase == 2) begin
-                    lb <= 17'h21;
-                    mb <= 32'h0E000000;
-                    wr_en <= 4'hf;
-                    phase <= 3;
-                end
-                if (phase == 3) begin
-                    wr_en <= 0;
-                    phase <= 0;
+                if (iop_func == FNC_TIO) begin
                 end
             end
         end

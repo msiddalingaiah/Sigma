@@ -220,6 +220,12 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
 
     reg [11:0] op_switch[0:127];
 
+    localparam FNC_SIO = 0;
+    localparam FNC_TIO = 1;
+    localparam FNC_TDV = 2;
+    localparam FNC_HIO = 3;
+    localparam FNC_AIO = 6;
+
     // Signals
 
     // Guideline #3: When modeling combinational logic with an "always" block, use blocking assignments ( = ).
@@ -272,6 +278,15 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
             WR_BYTE: wr_en = 4'h0;
             WR_HALF: wr_en = 4'h0;
             WR_WORD: wr_en = 4'hf;
+        endcase
+
+        iop_func = FNC_SIO;
+        case (o)
+            7'h4c: iop_func = FNC_SIO;
+            7'h4d: iop_func = FNC_TIO;
+            7'h4e: iop_func = FNC_TDV;
+            7'h4f: iop_func = FNC_HIO;
+            7'h6e: iop_func = FNC_AIO;
         endcase
 
         branch = 0;
