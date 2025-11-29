@@ -252,7 +252,7 @@ def sigma:
             trap = 1
 
         OP_WAIT:
-            trap = 1
+            wait: continue wait
 
         OP_LRP:
             trap = 1

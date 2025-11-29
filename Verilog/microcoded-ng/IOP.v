@@ -32,55 +32,53 @@ module ConsoleIOP(input wire reset, input wire clock, input wire active, output 
     reg [0:2] iop;
     reg [0:7] device;
     reg [15:33] p;
-    reg [0:31] a;
-    reg [0:7] count;
+    reg [0:7] a, count;
 
     // Guideline #3: When modeling combinational logic with an "always" block, use blocking assignments ( = ).
     // Order matters here!!!
     always @(*) begin
         iop = iop_device[21:23];
         device = iop_device[24:31];
+        a = 8'h20;
+        case (p[32:33])
+            0: a = memory_data_in[0:7];
+            1: a = memory_data_in[8:15];
+            2: a = memory_data_in[16:23];
+            3: a = memory_data_in[24:31];
+        endcase
+        wr_en = 0;
+        lb = p[15:31];
+        mb = 0;
+        case (phase)
+            0: ;
+            1: ;
+            5: begin lb = 17'h21; mb = 32'h0E000000; wr_en = 4'hf; end
+        endcase
     end
 
     // Guideline #1: When modeling sequential logic, use nonblocking assignments ( <= ).
     always @(posedge clock, posedge reset) begin
         if (reset == 1) begin
+            p <= 0;
             phase <= 0;
-            wr_en <= 0;
-            lb <= 0;
-            mb <= 0;
         end else begin
             if (active) begin
-                wr_en <= 0;
-                if (phase == 0) begin
-                    $display("IOP %x, Device %x: Console", iop, device);
-                    lb <= 17'h20;
-                    phase <= 1;
-                end
-                if (phase == 1) begin
-                    lb <= { memory_data_in[16:31], 1'h1 };
-                    phase <= 2;
-                end
-                if (phase == 2) begin
-                    p[15:33] = memory_data_in[13:31];
-                    lb <= memory_data_in[16:31];
-                    phase <= 3;
-                end
-                // TODO: stopped here
-                if (phase == 3) begin
-                end
-                if (phase == 4) begin
-                end
-                if (phase == 2) begin
-                    lb <= 17'h21;
-                    mb <= 32'h0E000000;
-                    wr_en <= 4'hf;
-                    phase <= 3;
-                end
-                if (phase == 3) begin
-                    wr_en <= 0;
-                    phase <= 0;
-                end
+                phase <= phase + 1;
+                case (phase)
+                    0: begin
+                        $display("IOP %x, Device %x: Console", iop, device);
+                        p <= { 17'h20, 2'h0 };
+                    end
+                    1: begin
+                        // p <= { memory_data_in[16:31], 3'h0 };
+                    end
+                    2: begin
+                    end
+                endcase
+                // TODO: stopped here.
+                $display("PH%d: addr: %x, data: %x, p: %x", phase, lb, memory_data_in, p);
+            end else begin
+                phase <= 0;
             end
         end
     end
@@ -99,6 +97,7 @@ module PapertapeIOP(input wire reset, input wire clock, input wire active, outpu
     // memory write enables
     reg [0:3] wr_en;
     reg [0:31] tape[0:MAX_WORD_LEN-1];
+    reg [15:31] p;
 
     assign memory_address = active ? lb : 17'bZ;
     assign memory_data_out = active ? mb : 32'bZ;
@@ -113,39 +112,40 @@ module PapertapeIOP(input wire reset, input wire clock, input wire active, outpu
     always @(*) begin
         iop = iop_device[21:23];
         device = iop_device[24:31];
+        wr_en = 0;
+        lb = p;
+        mb = tape[lb];
+        case (phase)
+            0: ;
+            1: begin wr_en = 4'hf; end
+            2: begin lb = 17'h21; mb = 32'h0E000000; wr_en = 4'hf; end
+        endcase
     end
 
     // Guideline #1: When modeling sequential logic, use nonblocking assignments ( <= ).
     always @(posedge clock, posedge reset) begin
         if (reset == 1) begin
             phase <= 0;
-            wr_en <= 0;
-            lb <= 0;
-            mb <= 0;
+            p <= 17'h2a;
         end else begin
             if (active) begin
-                wr_en <= 0;
-                if (phase == 0) begin
-                    $display("IOP %x, Device %x: Papertape", iop, device);
-                    lb <= 17'h29;
-                    phase <= 1;
-                end
-                if (phase == 1) begin
-                    mb <= tape[lb+1];
-                    wr_en <= 4'hf;
-                    if (lb == 17'h70) phase <= 2;
-                    lb <= lb + 1;
-                end
-                if (phase == 2) begin
-                    lb <= 17'h21;
-                    mb <= 32'h0E000000;
-                    wr_en <= 4'hf;
-                    phase <= 3;
-                end
-                if (phase == 3) begin
-                    wr_en <= 0;
-                    phase <= 0;
-                end
+                phase <= phase + 1;
+                case (phase)
+                    0: begin
+                        $display("IOP %x, Device %x: Papertape", iop, device);
+                    end
+                    1: begin
+                        if (p != 17'h2f) phase <= phase;
+                        p <= p + 1;
+                    end
+                    2: begin
+                        phase <= phase;
+                    end
+                endcase
+                // if (wr_en) $display("PH%d: addr: %x, data: %x, p: %x", phase, lb, mb, p);
+            end else begin
+                phase <= 0;
+                p <= 17'h2a;
             end
         end
     end

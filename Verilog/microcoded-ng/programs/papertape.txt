@@ -42,7 +42,7 @@
 00000000
 32000050 // 002a             LW,0        siodw      ; Loads the contents of location X'24' (X'11') into private memory register 0
 4c000001 // 002b             SIO,0       1          ; Write to IOP0, device 1 (console)
-00000000
+2e000000 // 002c             WAIT,0      0
 00000000
 00000000
 00000000
