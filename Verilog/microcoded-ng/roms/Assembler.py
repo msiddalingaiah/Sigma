@@ -304,6 +304,14 @@ class Defines(object):
             return a * b
         if op == '/':
             return a / b
+        if op == '&':
+            return a & b
+        if op == '|':
+            return a | b
+        if op == '<<':
+            return a << b
+        if op == '>>':
+            return a >> b
         raise Exception(f"line {tree.value.lineNumber}, Unknown operator '{op}'")
 
     def unescape(self, string):

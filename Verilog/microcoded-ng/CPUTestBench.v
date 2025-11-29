@@ -84,7 +84,7 @@ module Memory(input wire clock, input wire [15:31] address, input wire [0:3] wri
 endmodule
 
 module CPUTestBench;
-    localparam CYCLE_LIMIT = 100;
+    localparam CYCLE_LIMIT = 200;
     localparam TIME_LIMIT = 101*CYCLE_LIMIT;
 
     reg reset;
@@ -111,6 +111,8 @@ module CPUTestBench;
 
         $readmemh("roms/microcode.txt", cpu.uc_rom.memory);
         // $readmemh("roms/op_switch.txt", cpu.op_switch);
+
+        $readmemh("programs/papertape.txt", iop.papertape.tape);
 
         #0 reset = 0; #25 reset = 1; #90 reset = 0;
         #TIME_LIMIT $display("\Time limit reached, possible inifinite loop at uPC %-d", cpu.seq.pc-1);

@@ -345,8 +345,8 @@ def sigma:
             trap = 1
 
         OP_SIO:
-            sx = SXP, bx = BXS, ax = AXRR
-            _const12 = 0, px = PXCONST, uc_debug = 1 # B contains IO address
+            sx = SXP, bx = BXS, ax = AXRR0
+            _const12 = 0, px = PXCONST # B contains IO address
             _const12 = 0x80, px = PXCONST
             sx = SXA, lmx = LMXP, write_size = WR_WORD
             px = PXQ, lmx = LMXQ
