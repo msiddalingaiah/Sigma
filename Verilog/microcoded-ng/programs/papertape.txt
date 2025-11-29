@@ -40,9 +40,10 @@
 00000000
 00000000
 00000000
-32000050 // 002a             LW,0        siodw      ; Loads the contents of location X'24' (X'11') into private memory register 0
+32000052 // 002a             LW,0        dwaddr     ; Loads the contents of location X'24' (X'11') into private memory register 0
 4c000001 // 002b             SIO,0       1          ; Write to IOP0, device 1 (console)
-2e000000 // 002c             WAIT,0      0
+4c000001 // 002c             SIO,0       1          ; Write to IOP0, device 1 (console)
+2e000000 // 002d             WAIT,0      0
 00000000
 00000000
 00000000
@@ -77,8 +78,7 @@
 00000000
 00000000
 00000000
-00000000
-01000180 // 0050 siodw       GEN,32      0x01000000 | (message << 2) ; Bits 0 through 31 of I/O command doubleword. Specifies read order (02) and starting byte location X'A8'. Word location is X'A8'/4, or X'2A'
+01000180 // 0050 siodw       GEN,32      0x01000000 | (message << 2) ; Bits 0 through 31 of I/O command doubleword. Specifies write order (01) and starting byte location.
 020000ff // 0051             GEN,32      0x020000FF ; No flags, suppress incorrect length. X'FF' specifies writing up to 255 bytes
 00000028 // 0052 dwaddr      GEN,32      siodw>>1
 00000000

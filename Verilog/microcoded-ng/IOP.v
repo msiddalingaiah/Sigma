@@ -39,20 +39,18 @@ module ConsoleIOP(input wire reset, input wire clock, input wire active, output 
     always @(*) begin
         iop = iop_device[21:23];
         device = iop_device[24:31];
+        wr_en = 0;
+        lb = p[15:31];
+        mb = 0;
+        case (phase)
+            10: begin lb = 17'h21; mb = 32'h0E000000; wr_en = 4'hf; end
+        endcase
         a = 8'h20;
         case (p[32:33])
             0: a = memory_data_in[0:7];
             1: a = memory_data_in[8:15];
             2: a = memory_data_in[16:23];
             3: a = memory_data_in[24:31];
-        endcase
-        wr_en = 0;
-        lb = p[15:31];
-        mb = 0;
-        case (phase)
-            0: ;
-            1: ;
-            5: begin lb = 17'h21; mb = 32'h0E000000; wr_en = 4'hf; end
         endcase
     end
 
@@ -61,24 +59,41 @@ module ConsoleIOP(input wire reset, input wire clock, input wire active, output 
         if (reset == 1) begin
             p <= 0;
             phase <= 0;
+            count <= 0;
         end else begin
             if (active) begin
                 phase <= phase + 1;
                 case (phase)
                     0: begin
-                        $display("IOP %x, Device %x: Console", iop, device);
+                        // $display("IOP %x, Device %x: Console", iop, device);
+                        // Load pointer to command double word address
                         p <= { 17'h20, 2'h0 };
                     end
                     1: begin
-                        // p <= { memory_data_in[16:31], 3'h0 };
+                        // Load command double word address
+                        p <= { memory_data_in[16:31], 3'h0 };
                     end
                     2: begin
+                        // Load memory byte address
+                        p <= memory_data_in[13:31];
+                    end
+                    4: begin
+                        // TEXTC string, first byte contains count
+                        count <= a;
+                        p <= p + 1;
+                    end
+                    5: begin
+                        $write("%c", a);
+                        p <= p + 1;
+                        count <= count - 1;
+                    end
+                    6: begin
+                        if (count != 0) phase <= phase-1;
                     end
                 endcase
-                // TODO: stopped here.
-                $display("PH%d: addr: %x, data: %x, p: %x", phase, lb, memory_data_in, p);
             end else begin
                 phase <= 0;
+                count <= 0;
             end
         end
     end
@@ -135,7 +150,7 @@ module PapertapeIOP(input wire reset, input wire clock, input wire active, outpu
                         $display("IOP %x, Device %x: Papertape", iop, device);
                     end
                     1: begin
-                        if (p != 17'h2f) phase <= phase;
+                        if (p != 17'h90) phase <= phase;
                         p <= p + 1;
                     end
                     2: begin
