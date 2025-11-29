@@ -42,9 +42,9 @@
 00000000
 32000052 // 002a             LW,0        dwaddr     ; Loads the contents of location X'24' (X'11') into private memory register 0
 4c000001 // 002b             SIO,0       1          ; Write to IOP0, device 1 (console)
-4c000001 // 002c             SIO,0       1          ; Write to IOP0, device 1 (console)
-2e000000 // 002d             WAIT,0      0
-00000000
+02200090 // 002c             LCFI,2      0x90
+4c000001 // 002d             SIO,0       1          ; Write to IOP0, device 1 (console)
+2e000000 // 002e             WAIT,0      0
 00000000
 00000000
 00000000
