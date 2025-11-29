@@ -123,7 +123,8 @@ module CPUTestBench;
     wire [0:31] memory_data_in, memory_data_out;
     wire [15:31] memory_address;
     wire [0:3] mem_write_en;
-    wire [0:2] iop_func, iop_addr;
+    wire [0:2] iop_func;
+    wire [0:10] iop_device;
     wire [0:1] iop_cc;
     wire clock;
     Clock cg0(clock);
@@ -132,9 +133,9 @@ module CPUTestBench;
     reg cpu_active;
 
     CPU cpu(reset, clock, cpu_active, memory_address, memory_data_out, memory_data_in, mem_write_en,
-        iop_func, iop_addr, iop_cc);
+        iop_func, iop_device, iop_cc);
     IOP iop(reset, clock, ~cpu_active, memory_address, memory_data_out, memory_data_in, mem_write_en,
-        iop_func, iop_addr, iop_cc);
+        iop_func, iop_device, iop_cc);
 
     always @(posedge clock, posedge reset) begin
         if (reset == 1) begin

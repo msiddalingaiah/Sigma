@@ -160,7 +160,7 @@ if __name__ == '__main__':
     fields['csx'] = 2
     fields['dx'] = 3
     fields['ex'] = 3
-    fields['lmx'] = 1
+    fields['lmx'] = 2
     fields['px'] = 3
     fields['qx'] = 2
     fields['rrx'] = 1
@@ -171,7 +171,7 @@ if __name__ == '__main__':
     fields['trap'] = 1
     fields['uc_debug'] = 1
     fields['write_size'] = 2
-    fields['__unused'] = 2
+    fields['__unused'] = 1
     fields['seq_address'] = 12
 
     width = 0

@@ -85,5 +85,7 @@ md vcd
 
 ## TODO
 
+* Instructions, in order: TIO, BCS, BCC, XPSD, LCFI, LI, CI, CW
+* IOPs: card reader, console output
 * Double word addressing offset, e.g. fa_d, p[32:33]
 * Test index addressing for byte, halfword, word, and doubleword instructions

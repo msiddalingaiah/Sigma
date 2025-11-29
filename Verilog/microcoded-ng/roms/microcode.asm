@@ -13,18 +13,18 @@ field cx = 13:15
 field csx = 16:17
 field dx = 18:20
 field ex = 21:23
-field lmx = 24:24
-field px = 25:27
-field qx = 28:29
-field rrx = 30:30
-field sx = 31:34
-field ende = 35:35
-field testa = 36:36
-field wd_en = 37:37
-field trap = 38:38
-field uc_debug = 39:39
-field write_size = 40:41
-field __unused = 42:43
+field lmx = 24:25
+field px = 26:28
+field qx = 29:30
+field rrx = 31:31
+field sx = 32:35
+field ende = 36:36
+field testa = 37:37
+field wd_en = 38:38
+field trap = 39:39
+field uc_debug = 40:40
+field write_size = 41:42
+field __unused = 43:43
 field seq.address = 44:55
 field _const12 = 44:55
 
@@ -111,7 +111,7 @@ def sigma:
 
     prep: lmx = LMXC, qx = QXP, if COND_OP_INDIRECT:
         cx = CXMB, dx = DXC
-    sx = SXADD, px = PXS, uc_debug = 1, switch ADDR_MUX_OPCODE:
+    sx = SXADD, px = PXS, switch ADDR_MUX_OPCODE:
         OP_NAO_00:
             trap = 1
 
@@ -345,8 +345,8 @@ def sigma:
             trap = 1
 
         OP_SIO:
-            ax = AXRR
-            _const12 = 0, px = PXCONST
+            sx = SXP, bx = BXS, ax = AXRR
+            _const12 = 0, px = PXCONST, uc_debug = 1 # B contains IO address
             _const12 = 0x80, px = PXCONST
             sx = SXA, lmx = LMXP, write_size = WR_WORD
             px = PXQ, lmx = LMXQ

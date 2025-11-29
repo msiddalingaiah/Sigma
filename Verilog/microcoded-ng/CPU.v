@@ -18,7 +18,7 @@ Memory is word addressed, 17 bits
 */
 module CPU(input wire reset, input wire clock, input wire active, output wire [15:31] memory_address,
     input wire [0:31] memory_data_in, output [0:31] memory_data_out, output [0:3] wr_enables,
-    output reg [0:2] iop_func, output reg [0:2] iop_addr, input reg [0:1] iop_cc);
+    output reg [0:2] iop_func, output wire [0:10] iop_device, input wire [0:1] iop_cc);
 
     // Microcode ROM(s)
     wire [0:11] uc_rom_address;
@@ -45,21 +45,21 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
     //                   |_| - dx[18:20] 3 bits
     // |-------|-------|-------|-------|-------|-------|-------|
     //                      |_| - ex[21:23] 3 bits
-    //                         | - lmx[24]
-    //                          |_| - px[25:27] 3 bits
-    //                             || - qx[28:29] 2 bits
+    //                         || - lmx[24:25] 2 bits
+    //                           |_| - px[26:28] 3 bits
+    //                              || - qx[29:30] 2 bits
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                               | - rrx[30]
-    //                                |__| - sx[31:34] 4 bits
-    //                                    | - ende[35]
-    //                                     | - testa[36]
+    //                                | - rrx[31]
+    //                                 |__| - sx[32:35] 4 bits
+    //                                     | - ende[36]
+    //                                      | - testa[37]
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                                      | - wd_en[37]
-    //                                       | - trap[38]
-    //                                        | - uc_debug[39]
-    //                                         || - write_size[40:41] 2 bits
+    //                                       | - wd_en[38]
+    //                                        | - trap[39]
+    //                                         | - uc_debug[40]
+    //                                          || - write_size[41:42] 2 bits
     // |-------|-------|-------|-------|-------|-------|-------|
-    //                                           || - __unused[42:43] 2 bits
+    //                                            | - __unused[43]
     //                                             |__________| - seq_address[44:55] 12 bits
     //                                             |__________| - _const12[44:55] 12 bits
 
@@ -73,18 +73,18 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
     wire [0:1] csx = pipeline[16:17];
     wire [0:2] dx = pipeline[18:20];
     wire [0:2] ex = pipeline[21:23];
-    wire lmx = pipeline[24];
-    wire [0:2] px = pipeline[25:27];
-    wire [0:1] qx = pipeline[28:29];
-    wire rrx = pipeline[30];
-    wire [0:3] sx = pipeline[31:34];
-    wire ende = pipeline[35];
-    wire testa = pipeline[36];
-    wire wd_en = pipeline[37];
-    wire trap = pipeline[38];
-    wire uc_debug = pipeline[39];
-    wire [0:1] write_size = pipeline[40:41];
-    wire [0:1] __unused = pipeline[42:43];
+    wire [0:1] lmx = pipeline[24:25];
+    wire [0:2] px = pipeline[26:28];
+    wire [0:1] qx = pipeline[29:30];
+    wire rrx = pipeline[31];
+    wire [0:3] sx = pipeline[32:35];
+    wire ende = pipeline[36];
+    wire testa = pipeline[37];
+    wire wd_en = pipeline[38];
+    wire trap = pipeline[39];
+    wire uc_debug = pipeline[40];
+    wire [0:1] write_size = pipeline[41:42];
+    wire __unused = pipeline[43];
     wire [0:11] seq_address = pipeline[44:55];
     wire [0:11] _const12 = pipeline[44:55];
     
@@ -206,6 +206,7 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
     assign memory_address = active ? lb : 17'bZ;
     assign memory_data_out = active ? mb : 32'bZ;
     assign wr_enables = active ? wr_en : 4'bZ;
+    assign iop_device = b[21:31];
 
     // Address family decode, see ANLZ instruction
     wire fa_b = c[1] & c[2] & c[3];
@@ -269,7 +270,7 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
         case (lmx)
             LMXQ: lb = q;
             LMXP: lb = p[15:31];
-            LMXC: lb[15:31] = c[15:31];
+            LMXC: lb = c[15:31];
         endcase
         wr_en = 4'h0;
         case (write_size)
@@ -356,6 +357,11 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
                     AXRR: a <= rr[r];
                     AXRR0: a <= rr[0];
                 endcase
+                case (bx)
+                    BXNONE: ; // do nothing
+                    BXCONST: b <= { { b[12:31], 12'h0 } | constant32 };
+                    BXS: b <= s;
+                endcase
                 case (cx)
                     CXNONE: ; // do nothing
                     default: c_reg <= c_in;
@@ -398,8 +404,8 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
                     $write("%s", s[25:31]);
                 end
                 if (uc_debug == 1) begin
-                    $display("%4d: A: %x, C: %x, D: %x, CC: %b, CS: %d, O: %2x, P: %x:%1d, Q: %x, R: %1x, X: %1x",
-                        seq.pc-1, a, c, d, cc, cs, o, p>>2, p&3, q, r, x);
+                    $display("%4d: A: %x, B: %x, C: %x, D: %x, CC: %b, CS: %d, O: %2x, P: %x:%1d, Q: %x, R: %1x, X: %1x",
+                        seq.pc-1, a, b, c, d, cc, cs, o, p>>2, p&3, q, r, x);
                     $display("* Q: %x, C: %x, R: %d, X: %d", q, c, r, x);
                     $display(" R0: %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
                     $display(" R8: %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
