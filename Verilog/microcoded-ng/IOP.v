@@ -112,7 +112,7 @@ module PapertapeIOP(input wire reset, input wire clock, input wire active, outpu
     // memory write enables
     reg [0:3] wr_en;
     reg [0:31] tape[0:MAX_WORD_LEN-1];
-    reg [15:31] p;
+    reg [15:33] p, ba;
 
     assign memory_address = active ? lb : 17'bZ;
     assign memory_data_out = active ? mb : 32'bZ;
@@ -121,6 +121,7 @@ module PapertapeIOP(input wire reset, input wire clock, input wire active, outpu
     reg [0:3] phase;
     reg [0:2] iop;
     reg [0:7] device;
+    reg [0:13] word_count;
 
     // Guideline #3: When modeling combinational logic with an "always" block, use blocking assignments ( = ).
     // Order matters here!!!
@@ -128,12 +129,12 @@ module PapertapeIOP(input wire reset, input wire clock, input wire active, outpu
         iop = iop_device[21:23];
         device = iop_device[24:31];
         wr_en = 0;
-        lb = p;
+        lb = p[15:31];
         mb = tape[lb];
         case (phase)
             0: ;
-            1: begin wr_en = 4'hf; end
-            2: begin lb = 17'h21; mb = 32'h0E000000; wr_en = 4'hf; end
+            5: begin wr_en = 4'hf; end
+            6: begin lb = 17'h21; mb = 32'h0E000000; wr_en = 4'hf; end
         endcase
     end
 
@@ -141,26 +142,49 @@ module PapertapeIOP(input wire reset, input wire clock, input wire active, outpu
     always @(posedge clock, posedge reset) begin
         if (reset == 1) begin
             phase <= 0;
-            p <= 17'h2a;
+            p <= 0;
+            word_count <= 0;
         end else begin
             if (active) begin
                 phase <= phase + 1;
                 case (phase)
                     0: begin
-                        $display("IOP %x, Device %x: Papertape", iop, device);
+                        // Load pointer to command double word address
+                        p <= { 17'h20, 2'h0 };
                     end
                     1: begin
-                        if (p != 17'h90) phase <= phase;
-                        p <= p + 1;
+                        // Load command double word address
+                        p <= { memory_data_in[16:31], 3'h0 };
                     end
                     2: begin
+                        // Load memory byte address
+                        ba <= memory_data_in[13:31];
+                        p <= p + 4;
+                    end
+                    3: begin
+                        // Load word count
+                        word_count <= memory_data_in[16:29];
+                        p <= ba;
+                    end
+                    4: begin
+                        $display("IOP %x, Device %x: Papertape loading %d words to 0x%x word address", iop, device, word_count, ba[15:31]);
+                    end
+
+                    5: begin
+                        if (word_count != 0) phase <= phase;
+                        word_count <= word_count - 1;
+                        p <= p + 4;
+                        // $display("p: %x:%x, word_count: %d", p[15:31], p[32:33], word_count);
+                    end
+                    6: begin
                         phase <= phase;
                     end
                 endcase
                 // if (wr_en) $display("PH%d: addr: %x, data: %x, p: %x", phase, lb, mb, p);
             end else begin
                 phase <= 0;
-                p <= 17'h2a;
+                p <= 0;
+                word_count <= 0;
             end
         end
     end

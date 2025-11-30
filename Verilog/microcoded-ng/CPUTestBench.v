@@ -84,7 +84,7 @@ module Memory(input wire clock, input wire [15:31] address, input wire [0:3] wri
 endmodule
 
 module CPUTestBench;
-    localparam CYCLE_LIMIT = 300;
+    localparam CYCLE_LIMIT = 200;
     localparam TIME_LIMIT = 101*CYCLE_LIMIT;
 
     reg reset;
