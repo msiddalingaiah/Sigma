@@ -361,6 +361,8 @@ class Directive(object):
             return ORG(defs, line, tree, lineNumber, pc)
         if cf0 == 'GEN':
             return GEN(defs, line, tree, lineNumber, pc)
+        if cf0 == 'BOUND':
+            return Bound(defs, line, tree, lineNumber, pc)
         if cf0 in OPCODE_MAP:
             if (OPCODE_MAP[cf0] & 0x1c) == 0:
                 return ImmInstruction(defs, line, tree, lineNumber, pc)
@@ -420,6 +422,24 @@ class GEN(Directive):
             word <<= w
             word |= v & ~(-1 << w)
         return [f'{word:08x} // {self.pc:04x} {self.line}']
+
+class Bound(Directive):
+    def __init__(self, defs, line, tree, lineNumber, pc):
+        super().__init__(defs, line, tree, lineNumber, pc)
+        af = tree[2]
+        if len(af) != 1 or af[0].value.name != 'INT':
+            raise Exception(f'line {lineNumber}: one integer argument expected')
+        self.bound = int(af[0].value.value)
+        if self.bound & 3 != 0:
+            raise Exception(f'line {lineNumber}: {self.bound} is not a multiple of 4')
+
+    def getNextPC(self):
+        self.setLabels()
+        pc = self.pc
+        wb = self.bound >> 2
+        while pc % wb != 0:
+            pc += 1
+        return pc
 
 class Instruction(Directive):
     def __init__(self, defs, line, tree, lineNumber, pc):
