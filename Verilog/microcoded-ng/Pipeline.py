@@ -211,6 +211,7 @@ if __name__ == '__main__':
 
     constants['CCXNONE'] = 0
     constants['CCXD'] = 1
+    constants['CCXIOP'] = 2
 
     constants['CSXNONE'] = 0
     constants['CSXCONST'] = 1
@@ -272,6 +273,7 @@ if __name__ == '__main__':
     constants['COND_CC_POS'] = 3
     constants['COND_OP_INDIRECT'] = 4
     constants['COND_R_10'] = 5
+    constants['COND_R_AND_CC'] = 6
 
     constants['WR_NONE'] = 0
     constants['WR_BYTE'] = 1

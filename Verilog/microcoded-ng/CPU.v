@@ -107,6 +107,7 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
     localparam CXS = 4;
     localparam CCXNONE = 0;
     localparam CCXD = 1;
+    localparam CCXIOP = 2;
     localparam CSXNONE = 0;
     localparam CSXCONST = 1;
     localparam CSXK00 = 2;
@@ -158,6 +159,7 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
     localparam COND_CC_POS = 3;
     localparam COND_OP_INDIRECT = 4;
     localparam COND_R_10 = 5;
+    localparam COND_R_AND_CC = 6;
     localparam WR_NONE = 0;
     localparam WR_BYTE = 1;
     localparam WR_HALF = 2;
@@ -300,6 +302,7 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
             COND_CC_POS: branch = (cc[3]) & (~cc[4]);
             COND_OP_INDIRECT: branch = c[0];
             COND_R_10: branch = r[10]; // r[8:11], check
+            COND_R_AND_CC: branch = (r & cc) != 0;
         endcase
         uc_op = seq_op;
         case (seq_op)
@@ -369,6 +372,7 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
                 case (ccx)
                     CCXNONE: ; // do nothing
                     CCXD: cc <= d[24:27];
+                    CCXIOP: cc[1:2] <= iop_cc;
                 endcase
                 case (dx)
                     DXNONE: ; // do nothing

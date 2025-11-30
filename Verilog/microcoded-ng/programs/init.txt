@@ -39,7 +39,7 @@
 32000024 // 0026             LW,0        0x24       ; Load Word instruction. Loads the contents of location X'24' (X'11') into private memory register 0
 cc000025 // 0027             SIO,0       *0x25      ; Indirectly-addressed Start Input/Output instruction. Takes command doubleword from location specified in private memory register 0 and specifies device pointed to by address in location 25
 cd000025 // 0028             TIO,0       *0x25      ; Indirectly-addressed Test Input/Output instruction
-69c0001c // 0029             BCS,12      28         ; Loop until I/O complete. Program execution continues at next instruction address at 0x2A
+69c00028 // 0029             BCS,12      0x28         ; Loop until I/O complete. Program execution continues at next instruction address at 0x2A
 00000000
 00000000
 00000000

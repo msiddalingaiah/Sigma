@@ -46,6 +46,7 @@ const CXRR = 3
 const CXS = 4
 const CCXNONE = 0
 const CCXD = 1
+const CCXIOP = 2
 const CSXNONE = 0
 const CSXCONST = 1
 const CSXK00 = 2
@@ -97,6 +98,7 @@ const COND_CC_NEG = 2
 const COND_CC_POS = 3
 const COND_OP_INDIRECT = 4
 const COND_R_10 = 5
+const COND_R_AND_CC = 6
 const WR_NONE = 0
 const WR_BYTE = 1
 const WR_HALF = 2
@@ -356,11 +358,15 @@ def sigma:
             _const12 = 0x80, px = PXCONST
             sx = SXA, lmx = LMXP, write_size = WR_WORD
             px = PXQ, lmx = LMXQ
-            cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
+            cx = CXMB, dx = DXC, px = PCTP1, ccx = CCXIOP, ende = 1, continue prep
 
         OP_TIO:
+            sx = SXP, bx = BXS, ax = AXRR0
+            _const12 = 0, px = PXCONST # B contains IO address
+            _const12 = 0x80, px = PXCONST
+            sx = SXA, lmx = LMXP, write_size = WR_WORD
             px = PXQ, lmx = LMXQ
-            cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
+            cx = CXMB, dx = DXC, px = PCTP1, ccx = CCXIOP, ende = 1, continue prep
 
         OP_TDV:
             trap = 1
@@ -441,10 +447,15 @@ def sigma:
             trap = 1
 
         OP_BCR:
-            trap = 1
+            sx = SXADD
+            lmx = LMXP, if COND_R_AND_CC:
+                px = PXQ, lmx = LMXQ
+            cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_BCS:
-            px = PXQ, lmx = LMXQ
+            sx = SXADD
+            lmx = LMXP, if not COND_R_AND_CC:
+                px = PXQ, lmx = LMXQ
             cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_BAL:
