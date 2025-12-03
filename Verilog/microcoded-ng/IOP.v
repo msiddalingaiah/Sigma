@@ -183,7 +183,7 @@ module PapertapeIOP(input wire reset, input wire clock, input wire active, outpu
                         p <= ba;
                     end
                     4: begin
-                        $display("IOP %x, Device %x: Papertape loading %d words to 0x%x word address", iop, device, word_count, ba[15:31]);
+                        $display("IOP %x, Device %x: Papertape loading %d words to word address 0x%x", iop, device, word_count, ba[15:31]);
                     end
 
                     5: begin

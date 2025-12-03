@@ -116,7 +116,7 @@ def sigma:
 
     prep: lmx = LMXC, qx = QXP, if COND_OP_INDIRECT:
         cx = CXMB, dx = DXC
-    sx = SXADD, px = PXS, switch ADDR_MUX_OPCODE:
+    sx = SXADD, px = PXS, nswitch ADDR_MUX_OPCODE, 16:
         OP_NAO_00:
             trap = 1
 
@@ -124,8 +124,8 @@ def sigma:
             trap = 1
 
         OP_LCFI:
-            sx = SXADD # Delay slot due to implicit case branch
-            if COND_R_10:
+            # sx = SXADD # Delay slot due to implicit case branch
+            sx = SXADD, if COND_R_10:
                 ccx = CCXD
             px = PXQ, lmx = LMXQ
             cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
@@ -447,14 +447,14 @@ def sigma:
             trap = 1
 
         OP_BCR:
-            sx = SXADD
-            lmx = LMXP, if COND_R_AND_CC:
+            # sx = SXADD # Delay slot due to implicit case branch
+            sx = SXADD, lmx = LMXP, if COND_R_AND_CC:
                 px = PXQ, lmx = LMXQ
             cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_BCS:
-            sx = SXADD
-            lmx = LMXP, if not COND_R_AND_CC:
+            # sx = SXADD # Delay slot due to implicit case branch
+            sx = SXADD, lmx = LMXP, if not COND_R_AND_CC:
                 px = PXQ, lmx = LMXQ
             cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 

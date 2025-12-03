@@ -240,7 +240,7 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
         uc_din = seq_address;
         case (seq_address_mux)
             ADDR_MUX_SEQ: uc_din = seq_address; // jump or call
-            ADDR_MUX_OPCODE: uc_din = { 5'h0, o }; // instruction op code
+            ADDR_MUX_OPCODE: uc_din = { 1'h0, o, 4'h0 }; // instruction op code
             ADDR_MUX_OPROM: uc_din = op_switch[o]; // instruction op code
         endcase
         s = 0;

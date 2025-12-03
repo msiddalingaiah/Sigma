@@ -336,6 +336,7 @@ class Parser(object):
         if self.sc.matches('nswitch'):
             tree.add(self.sc.terminal)
             tree.add(self.parseExp())
+            self.sc.expect(',')
             tree.add(self.parseExp())
             tree.add(self.parseSwitchBlock('nswitch'))
             return tree
