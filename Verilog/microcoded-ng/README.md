@@ -1,8 +1,4 @@
 
-# Microcode NG
-* Next generation
-* Python-like microprogram syntax
-
 # License
 
 MIT License
@@ -26,6 +22,57 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+# Microcode NG Sigma 7
+
+This is a microcoded implementation of the Sigma 7 CPU. Registers and datapath of the original CPU are preserved.
+Cycle accuracy is not guaranteed. The original Sigma 7 used a hardwired control unit based on DTL SSI logic.
+Scientific Data Systems (SDS) was one of the first computer companies to use silicon transistors for all logic circuits.
+
+![Sigma 7 Registers](images/sig7_registers.png)
+
+* A - ALU input and general computation register (32 bits)
+* B - Appended to A to form a 64 bit register during multiply/divide instructions (32 bits)
+* C - Memory data input, transparent latch to reduce cycles (32 bits)
+* D - ALU input (32 bits)
+* E - Counter (8 bits)
+* CC - Condition codes (4 bits)
+* CS - Carry save (32 bits)
+* O - Opcode register (7 bits)
+* P - Byte address and counter register (19 bits)
+* Q - Program word address register (17 bits)
+* R - General purpose (R0-R15) register index (4 bits)
+
+The ALU performs basic arithmetic and logical 32-bit operations, such as addition, negation, and, or, exclusive or. Multiply and divide are implemented using bit pair multiplication and non-restoring division. Bit shifts are perform in single and four bit increments.
+
+All instructions are 32-bit fixed width. Indirect and indexed addressing modes are supported. General purpose registers
+occupy word memory locations 0-15.
+
+Instruction fetch overlaps with the last cycle of the previous instruction (ENDE). The Q register holds the next instruction word
+address. During instruction fetch, the following operations are performed:
+
+* Q is transferred to P, P is incremented by 1 word
+* C is loaded with the next instruction
+* Opcode O and register index R are loaded from C
+* D is loaded with the contents of C
+
+The PREP phase performs instruction decoding. At the end of PREP, prior to individual instruction execution, the following
+registers are populated:
+
+* Q contains the next instruction word address
+* P is loaded with the effective byte address of the operand
+* D contains the instruction or effective word
+
+Upon reset, the Q register is loaded with word location 0x25, and the C register is loaded with 0x02000000. ENDE is asserted,
+resulting the execution of the no-operation instruction LCFI, 0 0 in the C register. The first consequential instruction
+is loaded from word address 0x26, which contains a four instruction boot sequence:
+
+```
+    LW,0        0x24       ; Loads the contents of location X'24' (X'11') containing the address of the I/O unit
+    SIO,0       *0x25      ; Indirectly-addressed Start Input/Output instruction.
+    TIO,0       *0x25      ; Indirectly-addressed Test Input/Output instruction
+    BCS,12      0x28       ; Loop until I/O complete. Program execution continues at next instruction address at 0x2A
+```
 
 # Microcode Sequencer
 
