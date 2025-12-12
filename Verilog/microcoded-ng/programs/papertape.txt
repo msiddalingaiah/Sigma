@@ -40,7 +40,7 @@
 00000000
 00000000
 00000000
-32000032 // 002a             LW,0        dwaddr     ; Loads the contents of location X'24' (X'11') into private memory register 0
+32000032 // 002a start       LW,0        dwaddr     ; Loads the contents of location X'24' (X'11') into private memory register 0
 4c000001 // 002b             SIO,0       1          ; Write to IOP0, device 1 (console)
 02200090 // 002c             LCFI,2      0x90
 4c000001 // 002d             SIO,0       1          ; Write to IOP0, device 1 (console)
@@ -49,11 +49,11 @@
 010000cc // 0030 siodw       GEN,32      0x01000000 | (message << 2) ; Bits 0 through 31 of I/O command doubleword. Specifies write order (01) and starting byte location.
 020000ff // 0031             GEN,32      0x020000FF ; No flags, suppress incorrect length. X'FF' specifies writing up to 255 bytes
 00000018 // 0032 dwaddr      GEN,32      siodw>>1
-10496e69 // 0033 message     TEXTC       "Initial message\n"
-7469616c
-206d6573
-73616765
-0a202020
+134d6963 // 0033 message     TEXTC       "Microcode-NG here.\n"
+726f636f
+64652d4e
+47206865
+72652e0a
 00000000
 00000000
 00000000

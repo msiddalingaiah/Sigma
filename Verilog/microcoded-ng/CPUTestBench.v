@@ -159,7 +159,7 @@ module CPUTestBench;
                 $finish;
             end
             if (cpu.trap) begin
-                $display("\nTrap encountered at %x, c = %x.", cpu.q - 1, cpu.c);
+                $display("\nTrap encountered at IA %x, c = %x.", cpu.q - 1, cpu.c);
                 cycles_per_inst = 100*cycle_count / instruction_count;
                 $display("%4d cycles, %4d instructions, %1.2f cycles per instruction.",
                     cycle_count, instruction_count, cycles_per_inst/100);

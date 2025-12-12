@@ -1,7 +1,7 @@
 
             ORG         0x2A       ; Boot start
 
-            LW,0        dwaddr     ; Loads the contents of location X'24' (X'11') into private memory register 0
+start       LW,0        dwaddr     ; Loads the contents of location X'24' (X'11') into private memory register 0
             SIO,0       1          ; Write to IOP0, device 1 (console)
             LCFI,2      0x90
             SIO,0       1          ; Write to IOP0, device 1 (console)
@@ -13,4 +13,4 @@ siodw       GEN,32      0x01000000 | (message << 2) ; Bits 0 through 31 of I/O c
 
 dwaddr      GEN,32      siodw>>1
 
-message     TEXTC       "Initial message\n"
+message     TEXTC       "Microcode-NG here.\n"

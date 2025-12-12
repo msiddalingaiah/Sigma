@@ -62,7 +62,12 @@ cd000025 // 0028             TIO,0       *0x25      ; Indirectly-addressed Test 
 00000000
 00000000
 00000000
+0f000042 // 0040             XPSD,0      trap40_p
 00000000
+00000000 // 0042 trap40_p    GEN,32      0
+00000000 // 0043             GEN,32      0
+00000100 // 0044             GEN,32      trap40
+00000000 // 0045             GEN,32      0
 00000000
 00000000
 00000000
@@ -249,7 +254,22 @@ cd000025 // 0028             TIO,0       *0x25      ; Indirectly-addressed Test 
 00000000
 00000000
 00000000
+32000106 // 0100 trap40      LW,0        dwaddr     ; Loads the command I/O double word address
+4c000001 // 0101             SIO,0       1          ; Write to IOP0, device 1 (console)
+2e000000 // 0102             WAIT,0      0
 00000000
+0100041c // 0104 siodw       GEN,32      0x01000000 | (message << 2) ; I/O command doubleword 1, write order (01) | starting byte location.
+020000ff // 0105             GEN,32      0x020000FF ; No flags, suppress incorrect length. X'FF' specifies writing up to 255 bytes
+00000082 // 0106 dwaddr      GEN,32      siodw>>1
+23547261 // 0107 message     TEXTC       "Trap 40 - Nonexistent instruction.\n"
+70203430
+202d204e
+6f6e6578
+69737465
+6e742069
+6e737472
+75637469
+6f6e2e0a
 00000000
 00000000
 00000000
@@ -943,26 +963,6 @@ cd000025 // 0028             TIO,0       *0x25      ; Indirectly-addressed Test 
 00000000
 00000000
 00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-10496e69 // 03c0 message     TEXTC       "Initial message\n"
-7469616c
-206d6573
-73616765
-0a202020
 00000000
 00000000
 00000000

@@ -77,7 +77,7 @@ class Scanner(object):
     def expect(self, *types):
         if self.matches(*types):
             return self.terminal
-        raise Exception(f'line: {self.lineNumber}: expected {",".join(types)}, found {self.lookAhead}')
+        raise Exception(f'line: {self.lookAhead.lineNumber}: expected {",".join(types)}, found {self.lookAhead}')
 
     def atEnd(self):
         return self.lookAhead == None

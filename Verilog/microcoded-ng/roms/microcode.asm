@@ -113,15 +113,27 @@ def main:
 
 def sigma:
     call reset
+    continue prep
+
+    trap_NAO: px = PXQ, dx = DXCONST, _const12 = 0xfff # P = Q
+    sx = SXP, ax = AXS, dx = DXCONST, _const12 = 0xfff # A = P
+    dx = DXCONST, _const12 = 0xfff # D = -1
+    csx = CSXCONST, _const12 = 0 # CS = 0
+    sx = SXADD, px = PXS # P = A - 1 (e.g. P = Q - 1)
+    qx = QXP, px = PXCONST, _const12 = 0 # Q = P (e.g. Q = Q - 1)
+    px = PXCONST, _const12 = 0
+    px = PXCONST, _const12 = 0x100
+    lmx = LMXP
+    cx = CXMB, dx = DXC, ende = 1
 
     prep: lmx = LMXC, qx = QXP, if COND_OP_INDIRECT:
         cx = CXMB, dx = DXC
     sx = SXADD, px = PXS, nswitch ADDR_MUX_OPCODE, 16:
         OP_NAO_00:
-            trap = 1
+            continue trap_NAO
 
         OP_NAO_01:
-            trap = 1
+            continue trap_NAO
 
         OP_LCFI:
             # sx = SXADD # Delay slot due to implicit case branch
@@ -167,7 +179,13 @@ def sigma:
             trap = 1
 
         OP_XPSD:
-            trap = 1
+            px = PCTP1 # TODO: store PSD 0/1, load CC, other XPSD logic
+            px = PCTP1
+            lmx = LMXP
+            cx = CXMB, dx = DXC
+            sx = SXD, px = PXS
+            qx = QXP, lmx = LMXP
+            cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_AD:
             trap = 1
