@@ -213,12 +213,22 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
     assign iop_device = b[21:31];
 
     // Address family decode, see ANLZ instruction
-    wire fa_b = c[1] & c[2] & c[3];
-    wire fa_h = c[1] & ~c[2] & c[3];
-    wire ou3 = (~c[1]) & c[2] & c[3];
-    wire fa_w = ou3 | (~c[3] & ~c[4] & c[5]) | (c[1] & ~c[3] & c[4]) | (c[2] & ~c[3] & c[4]); // pp 3-182
-    // TODO: doubleword decode
-    // wire fa_d = ...
+    wire fa_row_00 = c[1:5] == 0;
+    wire fa_rows_10_1f = c[3];
+    wire fa_rows_08_0f = c[3:4] == 1;
+    wire fa_col_00 = c[1:2] == 0;
+    wire fa_col_20 = c[1:2] == 1;
+    wire fa_col_40 = c[1:2] == 2;
+    wire fa_col_60 = c[1:2] == 3;
+
+    wire fa_b = fa_col_60 & fa_rows_10_1f;
+    wire fa_h = fa_col_40 & fa_rows_10_1f;
+    wire fa_d = fa_col_00 & (fa_rows_08_0f | fa_rows_10_1f);
+    wire fa_imm = fa_row_00 & (fa_col_00 | fa_col_20);
+    wire fa_imm_b = fa_row_00 & (fa_col_40 | fa_col_60);
+    // fa_w is none of the above
+    wire fa_w = ~fa_b & ~fa_h & ~fa_d & ~fa_imm & ~fa_imm_b;
+
     wire [0:31] indx_offset = {32{(c[12] | c[13] | c[14])}} & rr[c[12:14]];
 
     wire [0:31] constant32 = { 20'h0, _const12[0:11] };
@@ -280,8 +290,14 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
         case (write_size)
             WR_NONE: wr_en = 4'h0;
             // TODO: complete byte/half word write
-            WR_BYTE: wr_en = 4'h0;
-            WR_HALF: wr_en = 4'h0;
+            WR_BYTE:
+                case (p[32:33])
+                    0: wr_en = 4'b1000;
+                    1: wr_en = 4'b0100;
+                    2: wr_en = 4'b0010;
+                    3: wr_en = 4'b0001;
+                endcase
+            WR_HALF: wr_en = p[32] ? 4'b0011 : 4'b1100;
             WR_WORD: wr_en = 4'hf;
         endcase
 
@@ -352,6 +368,17 @@ module CPU(input wire reset, input wire clock, input wire active, output wire [1
                         a <= indx_offset;
                         p[32:33] <= 2'h0;
                     end
+                    if (fa_d) begin
+                        a <= { indx_offset[1:31], 1'h0 };
+                        p[32:33] <= 2'h0;
+                    end
+`ifdef TRACE_I
+                    $display("%4d: A: %x, B: %x, C: %x, D: %x, CC: %b, CS: %d, O: %2x, P: %x:%1d, Q: %x, R: %1x",
+                        seq.pc-1, a, b, c, d, cc, cs, o, p>>2, p&3, q, r);
+                    $display("* Q: %x, C: %x, R: %d", q, c, r);
+                    $display(" R0: %x %x %x %x %x %x %x %x", rr[0], rr[1], rr[2], rr[3], rr[4], rr[5], rr[6], rr[7]);
+                    $display(" R8: %x %x %x %x %x %x %x %x", rr[8], rr[9], rr[10], rr[11], rr[12], rr[13], rr[14], rr[15]);
+`endif
                 end
                 case (ax)
                     AXNONE: ; // do nothing

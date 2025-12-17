@@ -302,7 +302,10 @@ def sigma:
             trap = 1
 
         OP_STW:
-            trap = 1
+            ax = AXRR
+            lmx = LMXP, sx = SXA, write_size = WR_WORD
+            lmx = LMXQ, px = PXQ
+            testa = 1, cx = CXMB, dx = DXC, px = PCTP1, ende = 1, continue prep
 
         OP_DW:
             trap = 1
