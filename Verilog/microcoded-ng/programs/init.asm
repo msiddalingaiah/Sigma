@@ -8,7 +8,6 @@
             GEN,32      0x00000011 ; Command address of I/O command doubleword (shifted one bit position to the left in lOP to specify word location X'22')
             GEN,32      0x00000005 ; 0x00000XXX Address of I/O unit. (XXX represents address taken from UNIT ADDRESS switches)
             LW,0        0x24       ; Load Word instruction. Loads the contents of location X'24' (X'11') into private memory register 0
-            ; GEN,32      0x01000000
             SIO,0       *0x25      ; Indirectly-addressed Start Input/Output instruction. Takes command doubleword from location specified in private memory register 0 and specifies device pointed to by address in location 25
             TIO,0       *0x25      ; Indirectly-addressed Test Input/Output instruction
             BCS,12      0x28         ; Loop until I/O complete. Program execution continues at next instruction address at 0x2A

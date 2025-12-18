@@ -40,14 +40,21 @@
 00000000
 00000000
 00000000
-32000030 // 002a start       LW,0        dwaddr     ; Loads the contents of location X'24' (X'11') into private memory register 0
+32000037 // 002a start       LW,0        dwaddr     ; Loads the contents of location X'24' (X'11') into private memory register 0
 4c000001 // 002b             SIO,0       1          ; Write to IOP0, device 1 (console)
-4c000001 // 002c             SIO,0       1          ; Write to IOP0, device 1 (console)
-2e000000 // 002d             WAIT,0      0
-010000c4 // 002e siodw       GEN,32      0x01000000 | (message << 2) ; Bits 0 through 31 of I/O command doubleword. Specifies write order (01) and starting byte location.
-020000ff // 002f             GEN,32      0x020000FF ; No flags, suppress incorrect length. X'FF' specifies writing up to 255 bytes
-00000017 // 0030 dwaddr      GEN,32      siodw>>1
-134d6963 // 0031 message     TEXTC       "Microcode-NG here.\n"
+32000036 // 002c             LW,0        st_dw      ; Load Word instruction. Loads the contents of location X'24' (X'11') into private memory register 0
+4c000005 // 002d             SIO,0       5          ; Indirectly-addressed Start Input/Output instruction. Takes command doubleword from location specified in private memory register 0 and specifies device pointed to by address in location 25
+4d000005 // 002e st_tio      TIO,0       5          ; Indirectly-addressed Test Input/Output instruction
+69c0002e // 002f             BCS,12      st_tio     ; Loop until I/O complete. Program execution continues at next instruction address at 0x2A
+68000100 // 0030             BCR,0       start2
+2e000000 // 0031             WAIT,0      0
+020000a8 // 0032 st_sio      GEN,32      0x020000A8 ; I/O command 0. Read order (02), byte location X'A8'. Word location is X'A8'/4, or X'2A'
+0e000400 // 0033             GEN,32      0x0E000400 ; I/O command 1. X'1000' specifies reading 4096 bytes, 1024 words
+010000e0 // 0034 siodw       GEN,32      0x01000000 | (message << 2) ; Bits 0 through 31 of I/O command doubleword. Specifies write order (01) and starting byte location.
+020000ff // 0035             GEN,32      0x020000FF ; No flags, suppress incorrect length. X'FF' specifies writing up to 255 bytes
+00000019 // 0036 st_dw       GEN,32      st_sio>>1  ; DW address of I/O command doubleword
+0000001a // 0037 dwaddr      GEN,32      siodw>>1
+134d6963 // 0038 message     TEXTC       "Microcode-NG here.\n"
 726f636f
 64652d4e
 47206865
@@ -55,7 +62,12 @@
 00000000
 00000000
 00000000
+0f000042 // 0040             XPSD,0      trap40_p
 00000000
+00000000 // 0042 trap40_p    GEN,32      0
+00000000 // 0043             GEN,32      0
+00000107 // 0044             GEN,32      trap40
+00000000 // 0045             GEN,32      0
 00000000
 00000000
 00000000
@@ -242,40 +254,28 @@
 00000000
 00000000
 00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
-00000000
+32000037 // 0100 start2      LW,0        dwaddr
+4c000001 // 0101             SIO,0       1          ; Write to IOP0, device 1 (console)
+32100040 // 0102             LW,1        0x40
+35100200 // 0103             STW,1       0x200
+32200200 // 0104             LW,2        0x200
+35200200 // 0105             STW,2       0x200
+2e000000 // 0106             WAIT,0      0
+3200010c // 0107 trap40      LW,0        t40_dw     ; Loads the command I/O double word address
+4c000001 // 0108             SIO,0       1          ; Write to IOP0, device 1 (console)
+2e000000 // 0109             WAIT,0      0
+01000434 // 010a t40_sio     GEN,32      0x01000000 | (t40_msg << 2) ; I/O command doubleword 1, write order (01) | starting byte location.
+020000ff // 010b             GEN,32      0x020000FF ; No flags, suppress incorrect length. X'FF' specifies writing up to 255 bytes
+00000085 // 010c t40_dw      GEN,32      t40_sio>>1
+23547261 // 010d t40_msg     TEXTC       "Trap 40 - Nonexistent instruction.\n"
+70203430
+202d204e
+6f6e6578
+69737465
+6e742069
+6e737472
+75637469
+6f6e2e0a
 00000000
 00000000
 00000000
