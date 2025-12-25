@@ -1,8 +1,8 @@
 
 `timescale 1 ns/10 ps  // time-unit = 1 ns, precision = 10 ps
 
-`include "CPU.v"
-`include "IOP.v"
+`include "verilog/CPU.v"
+`include "verilog/IOP.v"
 
 // `define TRACE_WR 1
 
