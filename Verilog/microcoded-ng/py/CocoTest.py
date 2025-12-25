@@ -43,19 +43,20 @@ async def sigma_test(dut):
     dut.reset.value = 1
     await Timer(100, unit='ns')
     dut.reset.value = 0
-    await RisingEdge(dut.clock)
 
     for i in range(610):
+        await RisingEdge(dut.clock)
         time = int(get_sim_time(unit="ns"))
         upc = int(dut.cpu.seq.pc.value)
         if dut.cpu.ende.value:
             o = int(dut.cpu.o.value)
-            if OPCODES[o] != 'WAIT':
-                print(f"{time} ns, uPC: {upc:3x}, {OPCODES[o]}")
+            c = int(dut.cpu.c.value)
+            c17 = (c >> 24) & 0x7f
+            if OPCODES[c17] != 'WAIT':
+                print(f"{time} ns, uPC: {upc:3x}, {OPCODES[c17]} ({c17:2x})")
             else:
                 print(f"{time} ns, uPC: {upc:3x}, WAIT encountered.")
                 break
-        await RisingEdge(dut.clock)
     print("That's all folks!")
 
 
@@ -68,7 +69,7 @@ if __name__ == "__main__":
         hdl_toplevel="Sigma",
         build_dir="vcd",
         always=True,
-        defines={"PROJ_DIR": proj_dir}
+        defines={"PROJ_DIR": proj_dir},
     )
 
-    runner.test(hdl_toplevel="Sigma", test_module="CocoTest,")
+    runner.test(hdl_toplevel="Sigma", test_module="CocoTest,", waves=True)

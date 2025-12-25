@@ -84,6 +84,9 @@ module Sigma(input reset, input clock);
     integer i;
     reg [0:31] temp;
     initial begin
+        $dumpfile({`PROJ_DIR, "/vcd/sigma.vcd"});
+        $dumpvars(0, Sigma);
+
         $readmemh({`PROJ_DIR, "/programs/init.txt"}, ram.temp);
         for (i=0; i<ram.MAX_WORD_LEN; i=i+1) begin
             temp = ram.temp[i];
@@ -96,7 +99,6 @@ module Sigma(input reset, input clock);
         $readmemh({`PROJ_DIR, "/roms/microcode.txt"}, cpu.uc_rom.memory);
 
         $readmemh({`PROJ_DIR, "/programs/papertape.txt"}, iop.papertape.tape);
-        // #0 reset = 0; #25 reset = 1; #90 reset = 0;
     end
 
     wire [0:31] memory_data_in, memory_data_out;
@@ -105,6 +107,7 @@ module Sigma(input reset, input clock);
     wire [0:2] iop_func;
     wire [0:10] iop_device;
     wire [0:1] iop_cc;
+    
     Memory ram(clock, memory_address, mem_write_en, memory_data_in, memory_data_out);
 
     reg cpu_active;
@@ -114,7 +117,7 @@ module Sigma(input reset, input clock);
     IOP iop(reset, clock, ~cpu_active, memory_address, memory_data_out, memory_data_in, mem_write_en,
         iop_func, iop_device, iop_cc);
 
-    always @(posedge clock, posedge reset) begin
+    always @(posedge clock) begin
         if (reset == 1) begin
             cpu_active <= 1;
         end else begin

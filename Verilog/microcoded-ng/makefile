@@ -29,5 +29,5 @@ test:
 	python py/CompilerTest.py
 
 clean:
-	del vcd\CPUTestBench.vvp vcd\sim.vvp
+	del vcd\CPUTestBench.vvp vcd\sim.vvp vcd\sigma.vcd vcd\CPUTestBench.vcd
 	del programs\init.txt programs\papertape.txt roms\microcode.txt
