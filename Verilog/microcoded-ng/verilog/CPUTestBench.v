@@ -1,9 +1,6 @@
 
 `timescale 1 ns/10 ps  // time-unit = 1 ns, precision = 10 ps
 
-`include "verilog/CPU.v"
-`include "verilog/IOP.v"
-
 // `define TRACE_WR 1
 
 /**
@@ -79,6 +76,50 @@ module Memory(input wire clock, input wire [15:31] address, input wire [0:3] wri
                 $display("WR3: %x, %x", addr, data_in[24:31]);
             `endif
             cells3[addr] <= data_in[24:31];
+        end
+    end
+endmodule
+
+module Sigma(input reset, input clock);
+    integer i;
+    reg [0:31] temp;
+    initial begin
+        $readmemh({`PROJ_DIR, "/programs/init.txt"}, ram.temp);
+        for (i=0; i<ram.MAX_WORD_LEN; i=i+1) begin
+            temp = ram.temp[i];
+            ram.cells0[i] = temp[0:7];
+            ram.cells1[i] = temp[8:15];
+            ram.cells2[i] = temp[16:23];
+            ram.cells3[i] = temp[24:31];
+        end
+
+        $readmemh({`PROJ_DIR, "/roms/microcode.txt"}, cpu.uc_rom.memory);
+
+        $readmemh({`PROJ_DIR, "/programs/papertape.txt"}, iop.papertape.tape);
+        // #0 reset = 0; #25 reset = 1; #90 reset = 0;
+    end
+
+    wire [0:31] memory_data_in, memory_data_out;
+    wire [15:31] memory_address;
+    wire [0:3] mem_write_en;
+    wire [0:2] iop_func;
+    wire [0:10] iop_device;
+    wire [0:1] iop_cc;
+    Memory ram(clock, memory_address, mem_write_en, memory_data_in, memory_data_out);
+
+    reg cpu_active;
+
+    CPU cpu(reset, clock, cpu_active, memory_address, memory_data_out, memory_data_in, mem_write_en,
+        iop_func, iop_device, iop_cc);
+    IOP iop(reset, clock, ~cpu_active, memory_address, memory_data_out, memory_data_in, mem_write_en,
+        iop_func, iop_device, iop_cc);
+
+    always @(posedge clock, posedge reset) begin
+        if (reset == 1) begin
+            cpu_active <= 1;
+        end else begin
+            if ((memory_address == 17'h20) & cpu_active & mem_write_en[0]) cpu_active <= 0;
+            if ((memory_address == 17'h21) & ~cpu_active & mem_write_en[0]) cpu_active <= 1;
         end
     end
 endmodule

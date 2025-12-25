@@ -118,10 +118,11 @@ def sigma:
 
 # Tools
 
-* Python 3
+* [Miniconda](https://www.anaconda.com/docs/getting-started/miniconda/main) Python 3.13
 * make (winget install ezwinports.make)
 * [OSS Cad Suite](https://github.com/YosysHQ/oss-cad-suite-build) contains pre-built binaries for Windows
 * Install [OSS Cad Suite](https://github.com/YosysHQ/oss-cad-suite-build)
+* pip install [cocotb](https://www.cocotb.org/) - works with miniconda Python 3.13
 * Run ```oss-cad-suite\environment.ps1``` or ```oss-cad-suite\environment.bat``` to set up paths and environment variables
 
 Create the vcd directory if it does not exist:

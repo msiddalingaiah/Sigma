@@ -1,6 +1,4 @@
 
-`include "verilog/Sequencer.v"
-
 // `define TRACE_I 1
 
 /**

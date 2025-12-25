@@ -278,6 +278,8 @@ def sigma:
             trap = 1
 
         OP_WAIT:
+            px = PXQ, lmx = LMXQ
+            cx = CXMB, dx = DXC, px = PCTP1, ende = 1
             wait: continue wait
 
         OP_LRP:

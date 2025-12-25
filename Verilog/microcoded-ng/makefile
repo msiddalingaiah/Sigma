@@ -1,9 +1,9 @@
 
 vcd/CPUTestBench: verilog/CPU.v verilog/IOP.v verilog/CPUTestBench.v roms/microcode.txt programs/init.txt programs/papertape.txt
-	iverilog -g2009 -o vcd/CPUTestBench.vvp verilog/CPUTestBench.v
+	iverilog -g2009 -DPROJ_DIR=\".\" -o vcd/CPUTestBench.vvp verilog/CPUTestBench.v verilog/CPU.v verilog/IOP.v verilog/Sequencer.v
 	vvp vcd/CPUTestBench.vvp
 
-CPU.v roms/microcode.asm: py/Pipeline.py
+verilog/CPU.v roms/microcode.asm: py/Pipeline.py
 	python py/Pipeline.py verilog/CPU.v roms/microcode.asm
 
 roms/microcode.txt: roms/microcode.asm py/Compiler.py py/Generator.py
@@ -15,6 +15,11 @@ programs/init.txt: programs/init.asm py/Assembler.py
 programs/papertape.txt: programs/papertape.asm py/Assembler.py
 	python py/Assembler.py programs/papertape.asm programs/papertape.txt
 
+vcd/sim.vvp: py/CocoTest.py verilog/CPU.v verilog/IOP.v verilog/CPUTestBench.v roms/microcode.txt programs/init.txt programs/papertape.txt
+	python py/CocoTest.py
+
+coco: vcd/sim.vvp
+
 run:
 	vvp vcd/CPUTestBench
 
@@ -24,4 +29,5 @@ test:
 	python py/CompilerTest.py
 
 clean:
-	del vcd\CPUTestBench
+	del vcd\CPUTestBench.vvp vcd\sim.vvp
+	del programs\init.txt programs\papertape.txt roms\microcode.txt
