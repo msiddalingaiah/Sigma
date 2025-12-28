@@ -15,10 +15,11 @@ programs/init.txt: programs/init.asm py/Assembler.py
 programs/papertape.txt: programs/papertape.asm py/Assembler.py
 	python py/Assembler.py programs/papertape.asm programs/papertape.txt
 
-vcd/sim.vvp: py/CocoTest.py verilog/CPU.v verilog/IOP.v verilog/CPUTestBench.v roms/microcode.txt programs/init.txt programs/papertape.txt
+coco: py/CocoTest.py verilog/CPU.v verilog/IOP.v verilog/CPUTestBench.v roms/microcode.txt programs/init.txt programs/papertape.txt
 	python py/CocoTest.py
 
-coco: vcd/sim.vvp
+gui: py/ControlPanel.py verilog/CPU.v verilog/IOP.v verilog/CPUTestBench.v roms/microcode.txt programs/init.txt programs/papertape.txt
+	python py/ControlPanel.py
 
 run:
 	vvp vcd/CPUTestBench
