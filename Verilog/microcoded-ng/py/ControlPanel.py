@@ -22,13 +22,38 @@ from cocotb.simtime import get_sim_time
 import wx
 import time
 import os
-import socket
 import threading
 import traceback
 from dataclasses import dataclass
+import queue
 
-HOST = "127.0.0.1"
-PORT = 8001
+import Pipeline as pipe
+
+OPCODES = ['NAO00', 'NAO01', 'LCFI', 'NAO03', 'CAL1', 'CAL2', 'CAL3', 'CAL4', 'PLW', 'PSW', 'PLM', 'PSM', 'NAO0C',
+           'NAO0D', 'LPSD', 'XPSD', 'AD', 'CD', 'LD', 'MSP', 'NAO14', 'STD', 'NAO16', 'NAO17', 'SD', 'CLM', 'LCD',
+           'LAD', 'FSL', 'FAL', 'FDL', 'FML', 'AI', 'CI', 'LI', 'MI', 'SF', 'S', 'NAO26', 'NAO27', 'CVS', 'CVA',
+           'LM', 'STM', 'NAO2C', 'NAO2D', 'WAIT', 'LRP', 'AW', 'CW', 'LW', 'MTW', 'NAO34', 'STW', 'DW', 'MW', 'SW',
+           'CLR', 'LCW', 'LAW', 'FSS', 'FAS', 'FDS', 'FMS', 'TTBS', 'TBS', 'NAO42', 'NAO43', 'ANLZ', 'CS', 'XW',
+           'STS', 'EOR', 'OR', 'LS', 'AND', 'SIO', 'TIO', 'TDV', 'HIO', 'AH', 'CH', 'LH', 'MTH', 'NAO54', 'STH',
+           'DH', 'MH', 'SH', 'NAO59', 'LCH', 'LAH', 'NAO5C', 'NAO5D', 'NAO5E', 'NAO5F', 'CBS', 'MBS', 'NAO62', 'EBS',
+           'BDR', 'BIR', 'AWM', 'EXU', 'BCR', 'BCS', 'BAL', 'INT', 'RD', 'WD', 'AIO', 'MMC', 'LCF', 'CB', 'LB',
+           'MTB', 'STFC', 'STB', 'PACK', 'UNPK', 'DS', 'DA', 'DD', 'DM', 'DSA', 'DC', 'DL', 'DST']
+
+class CommandQueue(object):
+    def __init__(self, q1 = queue.Queue(), q2 = queue.Queue()):
+        self.q1 = q1
+        self.q2 = q2
+
+    def getReverseQueue(self):
+        return CommandQueue(self.q2, self.q1)
+
+    def readline(self):
+        return self.q2.get()
+
+    def writeline(self, line):
+        self.q1.put(line)
+
+commandQueue = CommandQueue()
 
 @cocotb.test()
 async def sigma_test(dut):
@@ -50,15 +75,15 @@ async def sigma_test(dut):
     dut.clock.value = 0
     await Timer(50, unit='ns')
 
-    server = TCPServer()
-    line = server.readline()
-    while line != "quit":
-        # print(line)
-        await execute_line(server, dut, line)
-        line = server.readline()
-    server.close()
+    t = MainApp()
+    t.start()
 
-async def execute_line(server, dut, line):
+    line = commandQueue.readline()
+    while line != "quit":
+        await execute_line(commandQueue, dut, line)
+        line = commandQueue.readline()
+
+async def execute_line(commandQueue, dut, line):
     parts = line.split()
     if len(parts) == 0:
         return
@@ -79,9 +104,27 @@ async def execute_line(server, dut, line):
             await Timer(50, unit='ns')
             dut.clock.value = 0
             await Timer(50, unit='ns')
+        case "run" if len(parts) == 2:
+            count = int(parts[1])
+            while count > 0:
+                dut.clock.value = 1
+                await Timer(50, unit='ns')
+                dut.clock.value = 0
+                await Timer(50, unit='ns')
+                count -= 1
+                time = int(get_sim_time(unit="ns"))
+                upc = int(dut.cpu.seq.pc.value)
+                if dut.cpu.ende.value:
+                    o = int(dut.cpu.o.value)
+                    c = int(dut.cpu.c.value)
+                    c17 = (c >> 24) & 0x7f
+                    if OPCODES[c17] == 'WAIT':
+                        print(f"{time} ns, uPC: {upc:3x}, WAIT encountered.")
+                        break
+
         case "get" if len(parts) == 2:
             value = int(dut[parts[1]].value)
-            server.writeline(f"{value}")
+            commandQueue.writeline(f"{value}")
 
 def run_verilog():
     proj_dir = os.getcwd().replace('\\', '/')
@@ -94,69 +137,7 @@ def run_verilog():
         always=True,
         defines={"PROJ_DIR": proj_dir},
     )
-    runner.test(hdl_toplevel="Sigma", test_module="ControlPanel,", waves=False)
-
-class TCPServer(object):
-    def __init__(self, port=PORT):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.bind((HOST, port))
-        self.sock.listen()
-        print(f"Waiting on port {port}")
-        self.conn, addr = self.sock.accept()
-        print(f"Server connected to {addr}")
-    
-    def readline(self):
-        line = ""
-        data = self.conn.recv(1024)
-        while True:
-            for b in data:
-                if b == ord('\n'):
-                    return line
-                if b < 0x80 and b >= 0x20:
-                    line += chr(b)
-            data = self.conn.recv(1024)
-
-    def writeline(self, line):
-        line += '\n'
-        self.conn.sendall(line.encode())
-
-    def close(self):
-        self.conn.close()
-        self.sock.close()
-
-class TCPClient(object):
-    def __init__(self, host=HOST, port=PORT):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        n = 5
-        while n > 1:
-            try:
-                self.sock.connect((HOST, PORT))
-                print(f"Client connected to {host}")
-                n = 0
-            except Exception as e:
-                print("Client connect failed, retrying...")
-                time.sleep(1)
-                n -= 1
-                if n == 0:
-                    raise e
-    
-    def readline(self):
-        line = ""
-        data = self.sock.recv(1024)
-        while True:
-            for b in data:
-                if b == ord('\n'):
-                    return line
-                if b < 0x80 and b >= 0x20:
-                    line += chr(b)
-            data = self.sock.recv(1024)
-
-    def writeline(self, line):
-        line += '\n'
-        self.sock.sendall(line.encode())
-
-    def close(self):
-        self.sock.close()
+    runner.test(hdl_toplevel="Sigma", test_module="ControlPanel,", waves=False, extra_env={"PROJ_DIR": proj_dir})
 
 class ButtonPanel(wx.Panel):
     def __init__(self, client, parent):
@@ -174,6 +155,16 @@ class ButtonPanel(wx.Panel):
         self.step.Bind(wx.EVT_BUTTON, self.do_step)
         gs.Add(self.step, 0, wx.ALIGN_LEFT)
 
+        self.step = wx.Button(self, wx.ID_ANY, 'Run')
+        self.step.Bind(wx.EVT_BUTTON, self.do_run)
+        gs.Add(self.step, 0, wx.ALIGN_LEFT)
+
+        self.clockCount = wx.TextCtrl(self, value="500", size=(50, -1))
+        gs.Add(self.clockCount, 0, wx.ALIGN_LEFT)
+
+        countLabel = wx.StaticText(self, label="clocks")
+        gs.Add(countLabel, 0, wx.ALIGN_LEFT)
+
         self.quit = wx.Button(self, wx.ID_ANY, 'Quit')
         self.quit.Bind(wx.EVT_BUTTON, self.do_quit)
         gs.Add(self.quit, 0, wx.ALIGN_LEFT)
@@ -189,6 +180,14 @@ class ButtonPanel(wx.Panel):
     def do_step(self, event):
         self.client.writeline("clock")
         self.parent.update()
+
+    def do_run(self, event):
+        value = self.clockCount.GetValue()
+        if value.isnumeric():
+            self.client.writeline(f"run {value}")
+            self.parent.update()
+        else:
+            wx.MessageBox('clock value must be a positive integer', 'Info', wx.OK | wx.ICON_INFORMATION)
 
     def do_quit(self, event):
         self.client.writeline("quit")
@@ -305,9 +304,9 @@ class ControlPanel(wx.Frame):
 
 class MainApp(threading.Thread):
     def run(self):
-        client = TCPClient()
+        client = commandQueue.getReverseQueue()
         try:
-            fontDir = "fonts"
+            fontDir = os.getenv("PROJ_DIR") + "/fonts"
             font = "DSEG14Classic-BoldItalic.ttf"
             wx.Font.AddPrivateFont(f"{fontDir}/{font}")
             app = wx.App(False) 
@@ -317,11 +316,8 @@ class MainApp(threading.Thread):
             wx._core._wxPyCleanup()
         except Exception as e:
             client.writeline("quit")
-            client.close()
             print(traceback.format_exc())
             wx.Exit()
 
 if __name__ == "__main__":
-    t = MainApp()
-    t.start()
     run_verilog()
