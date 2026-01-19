@@ -218,17 +218,23 @@ class SignalPanel(wx.Panel):
         font = wx.Font(20, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         ledFont = wx.Font(18, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL, False, 'DSEG14 Classic')
         for r in names:
-            st = wx.StaticText(self, label = r.label)
-            st.SetForegroundColour(wx.Colour(128, 128, 0))
-            st.SetFont(font)
-            gs.Add(st, 0, wx.ALIGN_RIGHT)
+            if r is None:
+                st = wx.StaticText(self, label = "")
+                gs.Add(st, 0, wx.ALIGN_RIGHT)
+                st = wx.StaticText(self, label = "")
+                gs.Add(st, 0, wx.ALIGN_RIGHT)
+            else:
+                st = wx.StaticText(self, label = r.label)
+                st.SetForegroundColour(wx.Colour(128, 128, 0))
+                st.SetFont(font)
+                gs.Add(st, 0, wx.ALIGN_RIGHT)
 
-            reg = wx.StaticText(self, label = r.init)
-            #reg.SetMinSize((100, -1))
-            reg.SetForegroundColour(r.color)
-            reg.SetFont(ledFont)
-            gs.Add(reg, 0, wx.ALIGN_RIGHT)
-            self.registers[r.name] = reg
+                reg = wx.StaticText(self, label = r.init)
+                #reg.SetMinSize((100, -1))
+                reg.SetForegroundColour(r.color)
+                reg.SetFont(ledFont)
+                gs.Add(reg, 0, wx.ALIGN_RIGHT)
+                self.registers[r.name] = reg
         
         # for i in range(columns):
         #     gs.AddGrowableCol(2*i, 1)
@@ -241,11 +247,12 @@ class SignalPanel(wx.Panel):
     def update(self):
         time.sleep(0.01)
         for r in self.names:
-            reg = self.registers[r.name]
-            self.client.writeline(f"get {r.name}")
-            value = int(self.client.readline())
-            fmt = "{:" + r.format + "}"
-            reg.SetLabel(fmt.format(value))
+            if r is not None:
+                reg = self.registers[r.name]
+                self.client.writeline(f"get {r.name}")
+                value = int(self.client.readline())
+                fmt = "{:" + r.format + "}"
+                reg.SetLabel(fmt.format(value))
 
 class ControlPanel(wx.Frame):
     def __init__(self, client, parent=None):
@@ -268,15 +275,13 @@ class ControlPanel(wx.Frame):
         gs.Add(self.seqPanel, 0, wx.EXPAND | wx.ALL)
 
         names = [
+            None, RInfo("cpu.a", "A", "00000000", "08X", green), RInfo("cpu.b", "B", "00000000", "08X", green), None,
+            RInfo("cpu.c", "C", "00000000", "08X", green), RInfo("cpu.d", "D", "00000000", "08X", green), None, None,
+            None, RInfo("cpu.s", "Sum Bus", "00000000", "08X", blue), None, None,
             RInfo("cpu.p", "P", "00000", "05X", green),
             RInfo("cpu.q", "Q", "00000", "05X", green),
             RInfo("cpu.o", "O", "00", "02X", green),
-            RInfo("cpu.r", "R", "0", "01X", green),
-            RInfo("cpu.b", "B", "00000000", "08X", green),
-            RInfo("cpu.c", "C", "00000000", "08X", green),
-            RInfo("cpu.a", "A", "00000000", "08X", green),
-            RInfo("cpu.d", "D", "00000000", "08X", green),
-            RInfo("cpu.s", "Sum", "00000000", "08X", blue),
+            # RInfo("cpu.r", "R", "0", "01X", green),
             RInfo("cpu.cc", "CC", "0", "01X", green),
         ]
         self.intPanel = SignalPanel("Internal", self.client, names, 4, self)

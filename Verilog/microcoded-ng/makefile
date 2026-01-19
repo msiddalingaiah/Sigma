@@ -1,5 +1,5 @@
 
-vcd/CPUTestBench: verilog/CPU.v verilog/IOP.v verilog/CPUTestBench.v roms/microcode.txt programs/init.txt programs/papertape.txt
+vcd/CPUTestBench.vvp: verilog/CPU.v verilog/IOP.v verilog/CPUTestBench.v roms/microcode.txt programs/init.txt programs/papertape.txt
 	iverilog -g2009 -DPROJ_DIR=\".\" -o vcd/CPUTestBench.vvp verilog/CPUTestBench.v verilog/CPU.v verilog/IOP.v verilog/Sequencer.v
 	vvp vcd/CPUTestBench.vvp
 
@@ -21,10 +21,10 @@ coco: py/CocoTest.py verilog/CPU.v verilog/IOP.v verilog/CPUTestBench.v roms/mic
 gui: py/ControlPanel.py verilog/CPU.v verilog/IOP.v verilog/CPUTestBench.v roms/microcode.txt programs/init.txt programs/papertape.txt
 	python py/ControlPanel.py
 
-run:
-	vvp vcd/CPUTestBench
+run: vcd/CPUTestBench.vvp
+	vvp vcd/CPUTestBench.vvp
 
-all: CPU.v roms/microcode.asm vcd/CPUTestBench
+all: verilog/CPU.v roms/microcode.asm vcd/CPUTestBench.vvp
 
 test:
 	python py/CompilerTest.py
