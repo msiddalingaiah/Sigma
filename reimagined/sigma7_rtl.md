@@ -18,12 +18,51 @@
 | P | 19-bit effective address register (bits 15–33) |
 | Q | 17-bit next instruction address register (bits 15–31) |
 | CC | 4-bit condition code register (bits 1–4) |
+
+### Condition Code Encoding
+
+**Arithmetic, Load, and Logical instructions (AW, SW, AI, LW, AND, OR, EOR, AH, SH, LH, etc.):**
+| Bit | Name | Set when |
+|-----|------|----------|
+| CC1 | Carry | Carry out of ALU |
+| CC2 | Overflow | Fixed point overflow |
+| CC3 | Positive | Result bit 0 = 0 AND result ≠ 0 |
+| CC4 | Negative | Result bit 0 = 1 |
+Zero result: CC1–CC4 all clear.
+
+**Compare instructions (CW, CH, CB, CD, CI):**
+| Bit | Name | Set when |
+|-----|------|----------|
+| CC2 | Bits compare | Bitwise AND of operands is non-zero |
+| CC3 | Greater | Register value > operand value |
+| CC4 | Less | Register value < operand value |
+Equal result: CC2–CC4 all clear (CC2 may still be set independently).
+
+**Load Complement instructions (LCW, LCH, LCD):**
+- Follows arithmetic encoding
+- CC2 and CC4 are both set on fixed point overflow (negating most-negative value)
+
+**Load Absolute instructions (LAW, LAH, LAD):**
+- CC3 set if result is non-zero
+- CC2 and CC4 both set on fixed point overflow (negating most-negative value)
+- CC4 never set in normal (non-overflow) case
+
+**Load Byte (LB) and Modify and Test Byte (MTB):**
+- CC3 set if byte result is non-zero
+- CC4 never set (bytes are always unsigned/zero-extended)
+
+**Doubleword instructions:**
+- CC1 — carry from high word adder
+- CC2 — overflow from high word adder
+- CC3 — full 64-bit result is non-zero AND non-negative (high word bit 0 = 0)
+- CC4 — high word bit 0 = 1 (negative)
 | S | Sum bus — combinational ALU output, no dedicated register |
 | M[addr] | 32-bit word memory access at byte address addr |
 | M.H[addr] | 16-bit halfword memory access |
 | M.B[addr] | 8-bit byte memory access |
 | EA | Effective byte address, held in P after prep phases |
 | sext(v) | Sign extend v to 32 bits |
+| AWZ | A Was Zero flip-flop; set when low word result is zero during doubleword operations; used in combination with high word result to set CC for full 64-bit zero detection |
 | ENDE | End-of-instruction signal; fires in last execute phase |
 | >> n | Right shift by n bits |
 | << n | Left shift by n bits |
@@ -233,4 +272,155 @@ EX2: if D[0]=0: S ← D;       A ← S; RR[r] ← S; goto EX4
      if D[0]=1: S ← ~D + 1;  A ← S; RR[r] ← S
 EX3: RR[r] ← S
 EX4: CC ← test(A); ENDE
+```
+
+---
+
+## Doubleword Load/Store Instructions
+
+Doubleword operands must be doubleword-aligned: P[32:33] = 00.
+Register operands use an even/odd pair: RR[r] = high word, RR[r+1] = low word.
+The **AWZ (A Was Zero)** flip-flop captures whether the low word result was zero,
+enabling CC to reflect the full 64-bit result:
+- **Zero:** AWZ=1 AND high word result is zero
+- **Negative:** A[0] of high word result
+- **Overflow/Carry:** from high word adder
+
+### LD — Load Doubleword (0x12)
+```
+PREP1-3: EA → P                              ; P[32:33] = 00 (doubleword aligned)
+EX1: C ← M[P+4]; A ← C                      ; load low word
+EX2: S ← A; RR[r+1] ← S; AWZ ← (S=0)       ; store low word, capture AWZ
+EX3: C ← M[P]; A ← C                        ; load high word
+EX4: S ← A; RR[r] ← S
+EX5: CC ← test(A, AWZ); ENDE                 ; CC reflects full 64-bit result
+```
+
+### STD — Store Doubleword (0x15)
+```
+PREP1-3: EA → P
+EX1: A ← RR[r]
+EX2: S ← A; M[P] ← S                        ; store high word
+EX3: A ← RR[r+1]
+EX4: S ← A; M[P+4] ← S                      ; store low word
+```
+*Note: STD does not update CC.*
+
+### AD — Add Doubleword (0x10)
+```
+PREP1-3: EA → P
+EX1: A ← RR[r+1]                             ; low word of register pair
+EX2: C ← M[P+4]; D ← C
+     S ← A + D; A ← S; RR[r+1] ← S; AWZ ← (S=0)  ; add low words, capture AWZ
+EX3: A ← RR[r]                               ; high word of register pair
+EX4: C ← M[P]; D ← C
+     S ← A + D + carry; A ← S; RR[r] ← S   ; add high words with carry
+EX5: CC ← test(A, AWZ); ENDE
+```
+
+### SD — Subtract Doubleword (0x18)
+```
+PREP1-3: EA → P
+EX1: A ← RR[r+1]
+EX2: C ← M[P+4]; D ← C
+     S ← A + ~D + 1; A ← S; RR[r+1] ← S; AWZ ← (S=0)  ; subtract low words
+EX3: A ← RR[r]
+EX4: C ← M[P]; D ← C
+     S ← A + ~D + borrow; A ← S; RR[r] ← S  ; subtract high words with borrow
+EX5: CC ← test(A, AWZ); ENDE
+```
+
+### CD — Compare Doubleword (0x11)
+```
+PREP1-3: EA → P
+EX1: A ← RR[r+1]
+EX2: C ← M[P+4]; D ← C
+     S ← A + ~D + 1; A ← S; AWZ ← (S=0)    ; compare low words
+EX3: A ← RR[r]
+EX4: C ← M[P]; D ← C
+     S ← A + ~D + borrow; A ← S             ; compare high words with borrow
+EX5: CC ← test(A, AWZ); ENDE                 ; result not written back
+```
+
+### LCD — Load Complemented Doubleword (0x1A)
+```
+PREP1-3: EA → P
+EX1: C ← M[P+4]; D ← C
+     S ← ~D + 1; A ← S; RR[r+1] ← S; AWZ ← (S=0)  ; complement low word
+EX2: C ← M[P]; D ← C
+     S ← ~D + carry; A ← S; RR[r] ← S      ; complement high word with carry
+EX3: CC ← test(A, AWZ); ENDE
+```
+
+### LAD — Load Absolute Doubleword (0x1B)
+```
+PREP1-3: EA → P
+EX1: C ← M[P]; D ← C                        ; load high word to check sign
+EX2: if D[0]=0: goto EX5                     ; positive: load both words directly
+EX3: C ← M[P+4]; D ← C
+     S ← ~D + 1; A ← S; RR[r+1] ← S; AWZ ← (S=0)  ; negate low word
+EX4: C ← M[P]; D ← C
+     S ← ~D + carry; A ← S; RR[r] ← S      ; negate high word with carry
+     goto EX7
+EX5: C ← M[P+4]; A ← C; RR[r+1] ← S; AWZ ← (S=0)  ; load low word, positive case
+EX6: C ← M[P]; A ← C; RR[r] ← S            ; load high word, positive case
+EX7: CC ← test(A, AWZ); ENDE
+```
+
+### AND (0x4B)
+```
+PREP1-3: EA → P
+EX1: A ← RR[r]
+EX2: C ← M[P]; D ← C; S ← A AND D; A ← S; RR[r] ← S
+EX3: CC ← test(A); ENDE
+```
+
+### OR (0x49)
+```
+PREP1-3: EA → P
+EX1: A ← RR[r]
+EX2: C ← M[P]; D ← C; S ← A OR D; A ← S; RR[r] ← S
+EX3: CC ← test(A); ENDE
+```
+
+### EOR — Exclusive OR (0x48)
+```
+PREP1-3: EA → P
+EX1: A ← RR[r]
+EX2: C ← M[P]; D ← C; S ← A XOR D; A ← S; RR[r] ← S
+EX3: CC ← test(A); ENDE
+```
+
+### LB — Load Byte (0x72)
+```
+PREP1-3: EA → P
+EX1: C ← M.B[P]; A ← zero_extend(C[24:31])  ; zero extend byte to 32 bits, upper 24 bits = 0
+EX2: S ← A; RR[r] ← S
+EX3: CC ← test(A); ENDE
+```
+
+### STB — Store Byte (0x75)
+```
+PREP1-3: EA → P
+EX1: A ← RR[r]
+EX2: S ← upward_align_byte(A)                ; replicate low byte to all four byte positions
+     M.B[P] ← S                               ; write mask selects correct byte
+```
+*Note: STB does not update CC.*
+
+### CB — Compare Byte (0x71)
+```
+PREP1-3: EA → P
+EX1: A ← zero_extend(RR[r][24:31])           ; low byte of register, zero extended
+EX2: C ← M.B[P]; D ← zero_extend(C[24:31]); S ← A + ~D + 1; A ← S
+EX3: CC ← test(A); ENDE
+```
+
+### MTB — Modify and Test Byte (0x73)
+```
+PREP1-3: EA → P
+EX1: C ← M.B[P]; A ← zero_extend(C[24:31])  ; load byte, zero extend to 32 bits
+EX2: D ← sext(R, 8); S ← A + D; A ← S       ; add sign-extended 4-bit R field as 8-bit increment
+EX3: M.B[P] ← S                               ; write back modified byte
+EX4: CC ← test(A[24:31]); ENDE               ; CC set from byte result only
 ```
