@@ -420,7 +420,7 @@ class Sigma7CPU:
         else:
             s = self.D
         self.A = s; self.RR[r] = s
-        self.set_cc_compare(self.RR[r], self.D)
+        self.set_cc_abs(self.A, self.CC2)
 
     # ------------------------------------------------------------------
     # Halfword arithmetic
@@ -441,7 +441,7 @@ class Sigma7CPU:
         self.C = hw; self.D = sext(hw, 16)
         s = self.alu_sub(self.A, self.D)
         self.A = s; self.RR[r] = s
-        self.set_cc_compare(self.RR[r], mask32(self.D))
+        self.set_cc_arith(self.A, self.carry, self.CC2)
 
     def _CH(self, i, r, x, addr):
         ea = self._prep(i, x, addr, 'halfword')
@@ -450,7 +450,7 @@ class Sigma7CPU:
         self.C = hw; self.D = sext(hw, 16)
         s = self.alu_sub(self.A, self.D)
         self.A = s
-        self.set_cc_arith(self.A)
+        self.set_cc_compare(self.RR[r], mask32(self.D))
 
     # ------------------------------------------------------------------
     # Halfword load / store
@@ -504,7 +504,7 @@ class Sigma7CPU:
         b = self.mem.read_byte(ea)
         self.C = b; self.A = b   # zero extend
         self.RR[r] = self.A
-        self.set_cc_arith(self.A, self.carry, self.CC2)
+        self.set_cc_byte(self.A)
 
     def _STB(self, i, r, x, addr):
         ea = self._prep(i, x, addr, 'byte')
@@ -547,7 +547,7 @@ class Sigma7CPU:
         self.C = self.mem.read_word(ea); self.D = self.C
         s = mask32(self.A | self.D)
         self.A = s; self.RR[r] = s
-        self.set_cc_complement(self.A, self.carry, self.CC2)
+        self.set_cc_arith(self.A)
 
     def _EOR(self, i, r, x, addr):
         ea = self._prep(i, x, addr, 'word')
@@ -555,7 +555,7 @@ class Sigma7CPU:
         self.C = self.mem.read_word(ea); self.D = self.C
         s = mask32(self.A ^ self.D)
         self.A = s; self.RR[r] = s
-        self.set_cc_abs(self.A, self.CC2)
+        self.set_cc_arith(self.A)
 
     # ------------------------------------------------------------------
     # Doubleword
