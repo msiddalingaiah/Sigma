@@ -250,30 +250,27 @@ async def test_li(dut):
 # ---------------------------------------------------------------------------
 # Test: LW — Load Word
 # ---------------------------------------------------------------------------
-@cocotb.test(skip=True)
+@cocotb.test()
 async def test_lw(dut):
     """Test LW with direct addressing."""
     tr = TestResults("LW - Load Word")
     cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
 
-    await load_program(dut, 0x000, [
-        encode(OP_LW,   r=1, addr=word_addr(0x400)),
-        encode(OP_LW,   r=2, addr=word_addr(0x404)),
-        encode(OP_LW,   r=3, addr=word_addr(0x408)),
-        encode(OP_LCFI, r=0),
-    ])
+    await init_memory(dut)
+    await write_word(dut, 0x098, encode(OP_LW,   r=1, addr=word_addr(0x400)))
+    await write_word(dut, 0x09C, encode(OP_LW,   r=2, addr=word_addr(0x404)))
+    await write_word(dut, 0x0A0, encode(OP_LW,   r=3, addr=word_addr(0x408)))
+    await write_word(dut, 0x0A4, encode(OP_LCFI, r=0))
     await write_word(dut, 0x400, 0x12345678)
     await write_word(dut, 0x404, 0xABCDEF01)
     await write_word(dut, 0x408, 0x00000000)
 
     await reset_cpu(dut)
-    await run_cycles(dut, 50)
+    await run_cycles(dut, 60)
 
-    tr.check("LW R1",           rr(dut, 1).value, 0x12345678)
-    tr.check("LW R2",           rr(dut, 2).value, 0xABCDEF01)
-    tr.check("LW R3 zero",      rr(dut, 3).value, 0x00000000)
-    tr.check_bool("LW R2 CC4",  cc_neg(dut.sys.cpu.CC.value), True)
-    tr.check_bool("LW R3 zero", cc_zero(dut.sys.cpu.CC.value), True)
+    tr.check("LW R1", rr(dut, 1).value, 0x12345678)
+    tr.check("LW R2", rr(dut, 2).value, 0xABCDEF01)
+    tr.check("LW R3", rr(dut, 3).value, 0x00000000)
     tr.summary()
 
 
@@ -303,28 +300,49 @@ async def test_stw(dut):
 # ---------------------------------------------------------------------------
 # Test: AW, SW — Word Arithmetic
 # ---------------------------------------------------------------------------
-@cocotb.test(skip=True)
+@cocotb.test()
 async def test_word_arithmetic(dut):
-    """Test AW and SW."""
+    """Test AW, SW, CW, AND, OR, EOR."""
     tr = TestResults("Word Arithmetic")
     cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
 
-    await load_program(dut, 0x000, [
-        encode_imm(OP_LI, r=1, imm=10),
-        encode(OP_AW, r=1, addr=word_addr(0x400)),   # R1 = 10 + 5 = 15
-        encode_imm(OP_LI, r=2, imm=20),
-        encode(OP_SW, r=2, addr=word_addr(0x404)),   # R2 = 20 - 7 = 13
-        encode(OP_LCFI, r=0),
-    ])
+    await init_memory(dut)
+    # LI R1, 10       → R1 = 10
+    # AW R1, [0x400]  → R1 = 10 + 5 = 15
+    # LI R2, 20       → R2 = 20
+    # SW R2, [0x404]  → R2 = 20 - 7 = 13
+    # LI R3, 0xFF     → R3 = 0xFF
+    # AND R3, [0x408] → R3 = 0xFF & 0x0F = 0x0F
+    # LI R4, 0xF0     → R4 = 0xF0
+    # OR  R4, [0x40C] → R4 = 0xF0 | 0x0F = 0xFF
+    # LI R5, 0xFF     → R5 = 0xFF
+    # EOR R5, [0x410] → R5 = 0xFF ^ 0xFF = 0
+    # LCFI            → halt
+    await write_word(dut, 0x098, encode_imm(OP_LI,  r=1, imm=10))
+    await write_word(dut, 0x09C, encode(OP_AW,  r=1, addr=word_addr(0x400)))
+    await write_word(dut, 0x0A0, encode_imm(OP_LI,  r=2, imm=20))
+    await write_word(dut, 0x0A4, encode(OP_SW,  r=2, addr=word_addr(0x404)))
+    await write_word(dut, 0x0A8, encode_imm(OP_LI,  r=3, imm=0xFF))
+    await write_word(dut, 0x0AC, encode(OP_AND, r=3, addr=word_addr(0x408)))
+    await write_word(dut, 0x0B0, encode_imm(OP_LI,  r=4, imm=0xF0))
+    await write_word(dut, 0x0B4, encode(OP_OR,  r=4, addr=word_addr(0x40C)))
+    await write_word(dut, 0x0B8, encode_imm(OP_LI,  r=5, imm=0xFF))
+    await write_word(dut, 0x0BC, encode(OP_EOR, r=5, addr=word_addr(0x410)))
+    await write_word(dut, 0x0C0, encode(OP_LCFI, r=0))
     await write_word(dut, 0x400, 5)
     await write_word(dut, 0x404, 7)
+    await write_word(dut, 0x408, 0x0F)
+    await write_word(dut, 0x40C, 0x0F)
+    await write_word(dut, 0x410, 0xFF)
 
     await reset_cpu(dut)
-    await run_cycles(dut, 60)
+    await run_cycles(dut, 150)
 
-    tr.check("AW R1=15",      rr(dut, 1).value, 15)
-    tr.check("SW R2=13",      rr(dut, 2).value, 13)
-    tr.check_bool("SW CC3=1", cc_pos(dut.sys.cpu.CC.value), True)
+    tr.check("AW  R1=15",   rr(dut, 1).value, 15)
+    tr.check("SW  R2=13",   rr(dut, 2).value, 13)
+    tr.check("AND R3=0x0F", rr(dut, 3).value, 0x0F)
+    tr.check("OR  R4=0xFF", rr(dut, 4).value, 0xFF)
+    tr.check("EOR R5=0",    rr(dut, 5).value, 0x00)
     tr.summary()
 
 

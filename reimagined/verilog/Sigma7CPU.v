@@ -1,6 +1,8 @@
-// SDS/Xerox Sigma 7 CPU — Minimal implementation: LCFI and LW only
-// Synchronous memory: address presented on cycle N, data valid on cycle N+1
+// SDS/Xerox Sigma 7 CPU
 // Big-endian: bit 0 is MSB throughout
+// Synchronous memory: address on cycle N → data on cycle N+1
+//
+// Supported instructions: LCFI, LI, LW, STW, AW, SW, CW, AND, OR, EOR
 
 module Sigma7CPU (
     input  wire        clock,
@@ -9,15 +11,24 @@ module Sigma7CPU (
     output wire        cpu_release,
     output reg  [15:33] bus_addr,
     input  wire [0:31] bus_data_r,
-    output wire [0:31] bus_data_w,
-    output wire        cpu_write,
+    output reg  [0:31] bus_data_w,
+    output reg         cpu_write,
     output wire [0:1]  bus_size
 );
 
+// ---------------------------------------------------------------------------
+// Opcodes
+// ---------------------------------------------------------------------------
 localparam OP_LCFI = 7'h02;
+localparam OP_LI   = 7'h22;
+localparam OP_AW   = 7'h30;
+localparam OP_CW   = 7'h31;
 localparam OP_LW   = 7'h32;
 localparam OP_STW  = 7'h35;
-localparam OP_LI   = 7'h22;
+localparam OP_SW   = 7'h38;
+localparam OP_AND  = 7'h4B;
+localparam OP_OR   = 7'h49;
+localparam OP_EOR  = 7'h48;
 
 // ---------------------------------------------------------------------------
 // Phase register (one-hot, bit 0 = PCP5 = MSB)
@@ -31,10 +42,10 @@ localparam PREP3 = 20'b00010000000000000000;
 localparam EX1   = 20'b00001000000000000000;
 localparam EX2   = 20'b00000100000000000000;
 localparam EX3   = 20'b00000010000000000000;
+localparam EX4   = 20'b00000001000000000000;
 
-// Phase name string for GTKWave ASCII display
-// Right-click signal → Data Format → ASCII
-reg [0:63] phase_name;  // 8 characters × 8 bits
+// Phase name for GTKWave (right-click → Data Format → ASCII)
+reg [0:63] phase_name;
 always @(*) begin
     casez (phase)
         20'b1???????????????????: phase_name = "PCP5    ";
@@ -44,6 +55,7 @@ always @(*) begin
         20'b00001???????????????: phase_name = "EX1     ";
         20'b000001??????????????: phase_name = "EX2     ";
         20'b0000001?????????????: phase_name = "EX3     ";
+        20'b00000001????????????: phase_name = "EX4     ";
         default:                  phase_name = "UNKNOWN ";
     endcase
 end
@@ -51,8 +63,8 @@ end
 // ---------------------------------------------------------------------------
 // Internal registers
 // ---------------------------------------------------------------------------
-reg [0:31]  A;
-reg [0:31]  C;          // memory interface register (transparent latch)
+reg [0:31]  A;          // primary ALU input / result
+reg [0:31]  C;          // memory interface (transparent latch)
 reg [0:31]  D;          // current instruction word
 reg [1:7]   O;          // opcode
 reg [8:11]  R;          // register field
@@ -62,29 +74,19 @@ reg [0:31]  RR [0:15];  // user register file
 
 initial begin
     A = 32'b0;
-    C = 32'h02000000;   // LCFI no-op
-    D = 32'h02000000;   // LCFI no-op
+    C = 32'h02000000;
+    D = 32'h02000000;
     O = 7'h02;
     R = 4'h0;
-    P = 19'h00094;      // byte address 0x94 = {word 0x25, 2'b00}
-    Q = 17'h25;         // word address 0x25 → p_inc = 0x98 = word 0x26
+    P = 19'h00094;      // byte 0x94 → p_inc = 0x98 = word 0x26
+    Q = 17'h25;
 end
 
 // ---------------------------------------------------------------------------
-// C register — synchronous with transparent mux
-// When C_load=1, C_mux presents bus_data_r immediately (before clock edge)
-// On clock edge, C is latched with bus_data_r
+// Transparent C latch
 // ---------------------------------------------------------------------------
 reg C_load;
 wire [0:31] C_mux = C_load ? bus_data_r : C;
-
-// ---------------------------------------------------------------------------
-// RR file — NOR decode for addresses 0-15
-// ---------------------------------------------------------------------------
-wire        rr_access  = ~|bus_addr[15:29];
-wire [0:3]  rr_index   = bus_addr[30:33];
-// mem_data_in: RR file or external memory (registered output)
-wire [0:31] mem_data_in = rr_access ? RR[rr_index] : bus_data_r;
 
 // ---------------------------------------------------------------------------
 // Computed values
@@ -92,34 +94,80 @@ wire [0:31] mem_data_in = rr_access ? RR[rr_index] : bus_data_r;
 wire [15:33] p_inc   = P + 19'd4;
 wire [15:31] ea_word = A[15:31] + {14'b0, D[15:31]};
 wire [15:33] ea      = {ea_word, P[32:33]};
-wire [0:31]  imm20   = {{12{D[12]}}, D[12:31]};  // sign-extended 20-bit immediate
+wire [0:31]  imm20   = {{12{D[12]}}, D[12:31]};
 
 // ---------------------------------------------------------------------------
-// Bus outputs
+// ALU
 // ---------------------------------------------------------------------------
-reg         write_r;
-reg [0:31]  data_w_r;
-reg [0:1]   size_r;
+localparam ALU_ADD = 3'd0;
+localparam ALU_SUB = 3'd1;
+localparam ALU_AND = 3'd2;
+localparam ALU_OR  = 3'd3;
+localparam ALU_XOR = 3'd4;
 
-assign bus_data_w  = data_w_r;
-assign cpu_write   = write_r;
-assign bus_size    = size_r;
-assign cpu_release = 1'b0;
+reg [2:0]  alu_op;
+reg [0:31] alu_out;
+reg        alu_carry;
+reg        alu_overflow;
+
+always @(*) begin
+    alu_carry    = 1'b0;
+    alu_overflow = 1'b0;
+    case (alu_op)
+        ALU_ADD: begin
+            {alu_carry, alu_out} = {1'b0, A} + {1'b0, C_mux};
+            alu_overflow = (A[0] == C_mux[0]) && (alu_out[0] != A[0]);
+        end
+        ALU_SUB: begin
+            {alu_carry, alu_out} = {1'b0, A} + {1'b0, ~C_mux} + 33'd1;
+            alu_overflow = (A[0] != C_mux[0]) && (alu_out[0] != A[0]);
+        end
+        ALU_AND: alu_out = A & C_mux;
+        ALU_OR:  alu_out = A | C_mux;
+        ALU_XOR: alu_out = A ^ C_mux;
+        default: alu_out = A;
+    endcase
+end
+
+// ---------------------------------------------------------------------------
+// Sel signal constants
+// ---------------------------------------------------------------------------
+// A_sel
+localparam A_HOLD = 3'd0;
+localparam A_RR   = 3'd1;  // A ← RR[R]
+localparam A_CMUX = 3'd2;  // A ← C_mux
+localparam A_ALU  = 3'd3;  // A ← alu_out
+localparam A_ZERO = 3'd4;  // A ← 0
+
+// P_sel
+localparam P_HOLD = 2'd0;
+localparam P_EA   = 2'd1;  // P ← ea
+localparam P_Q    = 2'd2;  // P ← {Q, 2'b00}
+localparam P_INC  = 2'd3;  // P ← p_inc
+
+// Single-source sels (0=hold, 1=load)
+// D, O, R, Q, C all load from one source only
 
 // ---------------------------------------------------------------------------
 // Control signals
 // ---------------------------------------------------------------------------
+reg [2:0]  A_sel;
+reg [1:0]  P_sel;
+reg        D_sel;   // 0=hold, 1=bus_data_r
+reg        O_sel;   // 0=hold, 1=bus_data_r[1:7]
+reg        R_sel;   // 0=hold, 1=bus_data_r[8:11]
+reg        Q_sel;   // 0=hold, 1=P[15:31]
+reg        rr_write;
+reg [0:31] rr_data;
 reg        ende;
 reg        phase_jump;
 reg [0:19] phase_target;
-reg        D_load;
-reg        O_load;
-reg        R_load;
-reg        A_load;   reg [0:31]  A_in;
-reg        P_load;   reg [15:33] P_in;
-reg        Q_load;
-reg        rr_write;
-// rr_data declared above with RR file write block
+
+// ---------------------------------------------------------------------------
+// Bus outputs
+// ---------------------------------------------------------------------------
+assign bus_size    = 2'b10;   // always word for now
+assign cpu_release = 1'b0;
 
 // ---------------------------------------------------------------------------
 // Phase sequencer
@@ -128,12 +176,11 @@ always @(posedge clock) begin
     if (reset)
         phase <= PCP5;
     else if (!cpu_grant)
-        phase <= phase;          // stall
+        phase <= phase;
     else if (phase_jump)
-        phase <= phase_target;   // jump (includes ENDE → PREP1)
-    else if (!phase[0])          // only shift if not in PCP5
+        phase <= phase_target;
+    else if (!phase[0])         // don't auto-shift out of PCP5
         phase <= {1'b0, phase[0:18]};
-    // else stay in PCP5
 end
 
 // ---------------------------------------------------------------------------
@@ -146,22 +193,31 @@ always @(posedge clock) begin
         D <= 32'h02000000;
         O <= 7'h02;
         R <= 4'h0;
-        P <= 19'h00094;   // byte 0x94 so p_inc = 0x98 = word 0x26
-        Q <= 17'h25;      // word 0x25
+        P <= 19'h00094;
+        Q <= 17'h25;
     end else begin
-        if (C_load) C <= bus_data_r;       // C latches memory data
-        if (D_load) D <= C_mux;            // D ← C_mux (transparent)
-        if (O_load) O <= C_mux[1:7];       // O ← C_mux (transparent)
-        if (R_load) R <= C_mux[8:11];      // R ← C_mux (transparent)
-        if (A_load) A <= A_in;
-        if (P_load) P <= P_in;
-        if (Q_load) Q <= P[15:31];
+        if (C_load) C <= bus_data_r;
+        case (A_sel)
+            A_RR:   A <= RR[R];
+            A_CMUX: A <= C_mux;
+            A_ALU:  A <= alu_out;
+            A_ZERO: A <= 32'b0;
+            default: ;
+        endcase
+        case (P_sel)
+            P_EA:  P <= ea;
+            P_Q:   P <= {Q, 2'b00};
+            P_INC: P <= p_inc;
+            default: ;
+        endcase
+        if (D_sel) D <= bus_data_r;
+        if (O_sel) O <= bus_data_r[1:7];
+        if (R_sel) R <= bus_data_r[8:11];
+        if (Q_sel) Q <= P[15:31];
     end
 end
 
-// RR file write
-reg [0:31] rr_data;  // data to write to RR file
-
+// RR file
 always @(posedge clock) begin
     if (reset) begin : rr_reset
         integer i;
@@ -173,116 +229,92 @@ end
 
 // ---------------------------------------------------------------------------
 // Control unit — combinatorial
-//
-// Synchronous memory timing:
-//   Address on bus_addr in phase N → data in mem_data_in in phase N+1
-//
-// Phase sequence for LCFI (no indirect):
-//   ENDE:  bus_addr=p_inc → instruction arrives at PREP1
-//   PREP1: read instr (mem_data_in=M[p_inc]), load D/O/R/Q
-//          bus_addr={D[15:31],0} → not used (no indirect), present for PREP2
-//          jump to PREP3 (not indirect)
-//   PREP3: bus_addr=ea → M[ea] arrives at EX1 (not needed for LCFI)
-//          P ← ea
-//   EX1:   bus_addr={Q,0} → next instr arrives at PREP1 of next instruction
-//   EX2:   ende=1 → P←p_inc, bus_addr=p_inc (next instr addr)
-//
-// Phase sequence for LW (no indirect):
-//   Same PREP1/PREP3 as above
-//   EX1:   A ← mem_data_in = M[ea] (from PREP3 address), bus_addr={Q,0}
-//   EX2:   RR[r] ← A, bus_addr={Q,0}
-//   EX3:   ende=1 → P←p_inc, bus_addr=p_inc
 // ---------------------------------------------------------------------------
 always @(*) begin
-    // Defaults
+    // Defaults — all signals inactive
     ende         = 1'b0;
-    rr_write     = 1'b0;
-    rr_data      = A;     // default: write A to RR
-    write_r      = 1'b0;
-    data_w_r     = 32'b0;
-    size_r       = 2'b10;  // word
     phase_jump   = 1'b0;
     phase_target = PREP1;
     C_load       = 1'b0;
-    D_load       = 1'b0;
-    O_load       = 1'b0;
-    R_load       = 1'b0;
-    A_load       = 1'b0;  A_in = 32'b0;
-    P_load       = 1'b0;  P_in = P;
-    Q_load       = 1'b0;
-    bus_addr     = {Q, 2'b00};  // default: present Q so instruction ready next cycle
+    A_sel        = A_HOLD;
+    P_sel        = P_HOLD;
+    D_sel        = 1'b0;
+    O_sel        = 1'b0;
+    R_sel        = 1'b0;
+    Q_sel        = 1'b0;
+    rr_write     = 1'b0;
+    rr_data      = 32'b0;
+    alu_op       = ALU_ADD;
+    bus_addr     = {Q, 2'b00};
+    bus_data_w   = 32'b0;
+    cpu_write    = 1'b0;
 
     case (1'b1)
 
         // ------------------------------------------------------------------
-        // PCP5: assert ENDE only when not in reset
-        // Holds here during reset, fires once reset is released
+        // PCP5: assert ENDE to fetch first instruction and move to PREP1
         // ------------------------------------------------------------------
         phase[0]: begin
             if (!reset) ende = 1'b1;
         end
 
         // ------------------------------------------------------------------
-        // PREP1: bus_data_r = next instruction from memory
+        // PREP1: instruction arrives on bus_data_r
+        // Load C, D, O, R. Save P to Q.
+        // Jump to EX1 for immediate instructions, PREP3 otherwise.
         // ------------------------------------------------------------------
         phase[1]: begin
             C_load = 1'b1;
-            D_load = 1'b1;
-            O_load = 1'b1;
-            R_load = 1'b1;
-            Q_load = 1'b1;
-            A_load = 1'b1;
-            A_in   = 32'b0;
-            // bus_addr stays as default {Q,2'b00} — no need to change here
-            // For indirect: PREP2 will present {D[15:31],2'b00} using registered D
+            D_sel  = 1'b1;
+            O_sel  = 1'b1;
+            R_sel  = 1'b1;
+            Q_sel  = 1'b1;
+            A_sel  = A_ZERO;            // A ← 0 (no indexing for now)
             if (!bus_data_r[0]) begin
-                phase_jump   = 1'b1;
-                // Immediate instructions skip PREP3 EA calc
-                if (bus_data_r[1:7] == OP_LCFI ||
-                    bus_data_r[1:7] == OP_LI)
-                    phase_target = EX1;
-                else
-                    phase_target = PREP3;
+                phase_jump = 1'b1;
+                case (bus_data_r[1:7])
+                    OP_LCFI,
+                    OP_LI:   phase_target = EX1;
+                    default: phase_target = PREP3;
+                endcase
             end
         end
 
         // ------------------------------------------------------------------
-        // PREP2: indirect resolution — D has instruction addr field
+        // PREP2: indirect resolution — D has instruction (registered)
         // ------------------------------------------------------------------
         phase[2]: begin
             C_load   = 1'b1;
-            D_load   = 1'b1;
-            bus_addr = {D[15:31], 2'b00};     // D now registered from PREP1
+            D_sel    = 1'b1;
+            bus_addr = {D[15:31], 2'b00};
         end
 
         // ------------------------------------------------------------------
-        // PREP3: EA → P, present to memory so M[EA] ready at EX1
+        // PREP3: EA → P, present EA to memory so M[EA] ready at EX1
         // ------------------------------------------------------------------
         phase[3]: begin
-            P_load   = 1'b1;
-            P_in     = ea;
+            P_sel    = P_EA;
             bus_addr = ea;
         end
 
         // ------------------------------------------------------------------
-        // EX1: bus_data_r = M[EA] (from PREP3)
+        // EX1
         // ------------------------------------------------------------------
         phase[4]: begin
             case (O)
-                OP_LCFI: bus_addr = {Q, 2'b00};
-                OP_LI:   bus_addr = {Q, 2'b00};  // immediate in D, nothing to fetch
+                OP_LCFI: ;                        // no-op
+                OP_LI:   ;                        // immediate in D, nothing to do
                 OP_LW: begin
-                    C_load   = 1'b1;
-                    A_load   = 1'b1;
-                    A_in     = C_mux;
-                    bus_addr = {Q, 2'b00};
+                    C_load = 1'b1;                // C ← M[EA]
+                    A_sel  = A_CMUX;              // A ← C_mux (transparent)
                 end
-                OP_STW: begin
-                    A_load   = 1'b1;
-                    A_in     = RR[R];
-                    bus_addr = {Q, 2'b00};
+                OP_STW: A_sel = A_RR;             // A ← RR[R]
+                OP_AW, OP_SW, OP_CW,
+                OP_AND, OP_OR, OP_EOR: begin
+                    C_load = 1'b1;                // C ← M[EA] (operand)
+                    A_sel  = A_RR;                // A ← RR[R]
                 end
-                default: bus_addr = {Q, 2'b00};
+                default: ;
             endcase
         end
 
@@ -292,50 +324,97 @@ always @(*) begin
         phase[5]: begin
             case (O)
                 OP_LCFI: ende = 1'b1;
+
                 OP_LI: begin
-                    rr_data  = imm20;         // RR[R] ← imm20 directly
+                    rr_data  = imm20;
                     rr_write = 1'b1;
                     ende     = 1'b1;
                 end
+
                 OP_LW: begin
+                    rr_data  = A;
                     rr_write = 1'b1;
-                    P_load   = 1'b1;
-                    P_in     = {Q, 2'b00};
-                    bus_addr = {Q, 2'b00};
+                    P_sel    = P_Q;               // restore P ← {Q,00}
                 end
+
                 OP_STW: begin
-                    write_r  = 1'b1;
-                    data_w_r = A;
-                    size_r   = 2'b10;
-                    bus_addr = P;
-                    P_load   = 1'b1;
-                    P_in     = {Q, 2'b00};
+                    bus_addr  = P;                // EA still in P
+                    bus_data_w = A;
+                    cpu_write = 1'b1;
+                    P_sel     = P_Q;              // restore P ← {Q,00}
                 end
-                default: bus_addr = {Q, 2'b00};
+
+                OP_AW: begin
+                    alu_op   = ALU_ADD;
+                    A_sel    = A_ALU;             // A ← A + C_mux
+                    rr_data  = alu_out;
+                    rr_write = 1'b1;
+                    P_sel    = P_Q;
+                end
+
+                OP_SW: begin
+                    alu_op   = ALU_SUB;
+                    A_sel    = A_ALU;
+                    rr_data  = alu_out;
+                    rr_write = 1'b1;
+                    P_sel    = P_Q;
+                end
+
+                OP_CW: begin
+                    alu_op   = ALU_SUB;           // compare: subtract but don't write
+                    A_sel    = A_ALU;
+                    P_sel    = P_Q;
+                end
+
+                OP_AND: begin
+                    alu_op   = ALU_AND;
+                    A_sel    = A_ALU;
+                    rr_data  = alu_out;
+                    rr_write = 1'b1;
+                    P_sel    = P_Q;
+                end
+
+                OP_OR: begin
+                    alu_op   = ALU_OR;
+                    A_sel    = A_ALU;
+                    rr_data  = alu_out;
+                    rr_write = 1'b1;
+                    P_sel    = P_Q;
+                end
+
+                OP_EOR: begin
+                    alu_op   = ALU_XOR;
+                    A_sel    = A_ALU;
+                    rr_data  = alu_out;
+                    rr_write = 1'b1;
+                    P_sel    = P_Q;
+                end
+
+                default: ;
             endcase
         end
 
         // ------------------------------------------------------------------
-        // EX3: LW and STW ENDE
+        // EX3: ENDE for memory-reference instructions
         // ------------------------------------------------------------------
         phase[6]: begin
             case (O)
-                OP_LW:   ende = 1'b1;
-                OP_STW:  ende = 1'b1;
-                default: bus_addr = {Q, 2'b00};
+                OP_LW, OP_STW,
+                OP_AW, OP_SW, OP_CW,
+                OP_AND, OP_OR, OP_EOR: ende = 1'b1;
+                default: ;
             endcase
         end
 
-        default: bus_addr = {Q, 2'b00};
+        default: ;
 
     endcase
 
     // ------------------------------------------------------------------
-    // ENDE: P ← P+4, present p_inc → M[p_inc] ready at PREP1
+    // ENDE: P ← p_inc, present p_inc to memory → instruction at PREP1
     // ------------------------------------------------------------------
     if (ende) begin
-        P_load       = 1'b1;
-        P_in         = p_inc;
+        P_sel        = P_INC;
         bus_addr     = p_inc;
         phase_jump   = 1'b1;
         phase_target = PREP1;
