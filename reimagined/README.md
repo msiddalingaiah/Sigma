@@ -6,6 +6,7 @@ A Verilog RTL implementation of the SDS/Xerox Sigma 7 CPU, a 32-bit mainframe pr
 
 - [CPU Design Reference](sigma7_cpu_design.md) — architecture overview, register descriptions, instruction formats, addressing modes, and condition code encoding
 - [RTL Equations](sigma7_rtl.md) — register transfer level description of all implemented instructions, phase-by-phase
+- [Prep Phase Optimization](sigma7_prep_optimization.md) — proposed restructuring of ENDE and prep phases to absorb instruction load into ENDE, with cycle count analysis and open questions
 
 ## Architecture Highlights
 
