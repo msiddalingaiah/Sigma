@@ -431,47 +431,61 @@ EX4:     CC ← CC_ABS(A)
          ENDE
 ```
 
-### BCR — Branch on Condition Register (0x68)
+### BCR — Branch on Conditions Reset (0x68)
+
+Word-index instruction (EA computed through PREP3).
+Branch taken when `CC AND R = 0` (no condition bits match mask).
+If R=0, always branches — unconditional branch.
 
 ```
-PREP1: (immediate) phase → EX1
-EX1:   if CC AND R ≠ 0: P ← {D[15:31], 2'b00}; bus_addr ← P; ENDE
-       else: ENDE                         ; fall through to next instruction
+PREP1-3: EA → P
+EX1:   if (CC AND R) = 0: P ← ea; ENDE  ; branch taken
+       else: P ← {Q, 2'b00}; ENDE       ; fall through
 ```
 
-### BCS — Branch on Condition and Skip (0x69)
+### BCS — Branch on Conditions Set (0x69)
+
+Word-index instruction (EA computed through PREP3).
+Branch taken when `CC AND R ≠ 0` (at least one condition bit matches mask).
+If R=0, never branches — effective no-op.
 
 ```
-PREP1: (immediate) phase → EX1
-EX1:   if CC AND R ≠ 0: ENDE             ; branch not taken: skip next instruction
-       else: P ← P + 4; ENDE             ; branch taken: skip next word
+PREP1-3: EA → P
+EX1:   if (CC AND R) ≠ 0: P ← ea; ENDE ; branch taken
+       else: P ← {Q, 2'b00}; ENDE       ; fall through
 ```
 
 ### BAL — Branch and Link (0x6A)
 
 ```
 PREP1-3: EA → P
-EX1:   RR[r] ← {0, Q}                   ; save return address (Q = next instruction)
+EX1:   RR[r] ← {15'b0, Q}               ; R[0:14]=0, R[15:31]=next instruction word addr
        P ← ea
        ENDE
 ```
 
-### BDR — Branch and Decrement Register (0x64)
+### BDR — Branch on Decrementing Register (0x64)
+
+Branch taken when result is **positive** (R[0]=0 and R≠0).
+Zero and negative results fall through.
 
 ```
 PREP1-3: EA → P
 EX1:   RR[r] ← RR[r] - 1
-       if RR[r] ≠ 0: P ← ea; ENDE       ; branch taken
-       else: P ← {Q, 2'b00}; ENDE       ; branch not taken
+       if RR[r][0]=0 and RR[r]≠0: P ← ea; ENDE   ; positive → branch taken
+       else: P ← {Q, 2'b00}; ENDE                 ; zero or negative → fall through
 ```
 
-### BIR — Branch and Increment Register (0x65)
+### BIR — Branch on Incrementing Register (0x65)
+
+Branch taken when result is **negative** (R[0]=1).
+Zero and positive results fall through.
 
 ```
 PREP1-3: EA → P
 EX1:   RR[r] ← RR[r] + 1
-       if RR[r] ≠ 0: P ← ea; ENDE       ; branch taken
-       else: P ← {Q, 2'b00}; ENDE       ; branch not taken
+       if RR[r][0]=1: P ← ea; ENDE      ; negative → branch taken
+       else: P ← {Q, 2'b00}; ENDE       ; zero or positive → fall through
 ```
 
 ### LD — Load Doubleword (0x12)

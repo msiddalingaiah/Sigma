@@ -144,13 +144,13 @@ This allows STB and STH to use the standard 32-bit word memory bus without requi
 
 ### P/Q Sequencing Per Instruction Cycle
 
-1. **ENDE (last execute phase):** Q used to fetch next instruction into C; O ← C[1:7]; D ← C; R ← C[8:11]; P incremented by 4; A and P[32:33] set up for EA calculation
-2. **PREP1:** P[15:31] → Q (next instruction address saved to Q, freeing P for EA calculation)
-3. **PREP2 (if indirect):** C ← M[C[15:31]]; D ← C (hardware masks C to bits 15–31 for address)
-4. **PREP3:** P[15:31] ← A + D[15:31]; P[32:33] retains byte offset from ENDE
-5. **Execute:** P holds complete effective byte address; Q holds next instruction address
-6. **EX(n-1):** P[15:31] ← Q (restore next instruction address to P)
-7. **EX(n):** P ← P + 4; ENDE fires, overlapping fetch of next instruction
+1. **ENDE (last execute phase):** P ← P+4; bus_addr ← p_inc (next instruction presented to memory); phase → PREP1
+2. **PREP1:** instruction arrives on bus (presented during ENDE); C/D/O/R ← bus_data_r; Q ← P[15:31] (save next instruction word address); A ← 0 (clear for EA calc); phase → PREP3 (or EX1 for immediate instructions)
+3. **PREP2 (if indirect):** C ← bus_data_r; D ← bus_data_r (resolved indirect pointer)
+4. **PREP3:** P ← ea (EA = {A[15:31] + D[15:31], P[32:33]}); bus_addr ← ea (operand presented to memory)
+5. **EX1–EX(n-1):** instruction executes; operand arrives from memory at EX1
+6. **EX(n-1):** P ← {Q, 2'b00} (restore next instruction byte address to P)
+7. **EX(n):** ENDE fires; cycle repeats
 
 ---
 
@@ -174,16 +174,17 @@ Indirect + indexing fits within the 4-phase prep budget without timing concerns.
 
 The **4-bit CC register** captures:
 
-| Bit | Condition | Detection |
-|-----|-----------|-----------|
-| Negative | A[0] = 1 | MSB of A register |
-| Zero | All bits 0 | NOR of all 32 bits of A |
-| Overflow | Carry/overflow from adder | Captured directly from ALU |
-| Carry | Carry out of adder | Captured directly from ALU |
+| Bit | Name | Set when |
+|-----|------|----------|
+| CC1 | Carry | Carry out of the adder (sign-bit carry) |
+| CC2 | Overflow | Fixed-point overflow (result is arithmetically incorrect) |
+| CC3 | Positive | Result bit 0 = 0 AND result ≠ 0 |
+| CC4 | Negative | Result bit 0 = 1 |
 
-- CC is **set by testing A** at the end of an instruction (not S directly)
-- This implies S → A is the penultimate execution step, with CC testing as the final step
-- CC can be loaded into D or E for arithmetic use
+Zero result: CC1–CC4 all clear (CC3 and CC4 both 0 implicitly indicates zero).
+
+- CC is **set at the end of an instruction** based on alu_out
+- CC can be loaded directly via LCFI (bits 24–27 of instruction word)
 
 ---
 
