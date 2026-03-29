@@ -110,12 +110,18 @@ async def load_program(dut, byte_addr, words):
 # ---------------------------------------------------------------------------
 # Clock and reset helpers
 # ---------------------------------------------------------------------------
+async def init_memory(dut, size=0x500):
+    """Initialize memory to zero to avoid X values."""
+    for addr in range(0, size, 4):
+        await write_word(dut, addr, 0x00000000)
+
 async def reset_cpu(dut):
+    """Reset CPU for 2 cycles then release."""
     dut.reset.value = 1
-    for _ in range(10):   # hold reset long enough for memory to produce valid output
+    for _ in range(2):
         await RisingEdge(dut.clock)
     dut.reset.value = 0
-    await RisingEdge(dut.clock)
+
 
 async def run_cycles(dut, n):
     for _ in range(n):
@@ -171,29 +177,22 @@ async def test_boot_sequence(dut):
     cocotb.log.info("\n=== Boot Sequence Debug ===")
     cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
 
-    # Initialize memory to zero
-    for addr in range(0, 0x500, 4):
-        await write_word(dut, addr, 0x00000000)
-
-    # Program at word 0x26 = byte 0x98 (fetched by ENDE of first LCFI)
+    # Initialize memory and reset
+    await init_memory(dut)
     await write_word(dut, 0x098, encode(OP_LW, r=1, addr=word_addr(0x400)))
-    await write_word(dut, 0x09C, encode(OP_LCFI, r=0))   # halt
+    await write_word(dut, 0x09C, encode(OP_LCFI, r=0))
     await write_word(dut, 0x400, 0xDEADBEEF)
     cocotb.log.info(f"  M[0x098] = 0x{encode(OP_LW, r=1, addr=word_addr(0x400)):08X} (LW R1,[0x400])")
     cocotb.log.info(f"  M[0x09C] = 0x{encode(OP_LCFI, r=0):08X} (LCFI halt)")
     cocotb.log.info(f"  M[0x400] = 0xDEADBEEF")
 
-    # Hold reset for 10 cycles
-    dut.reset.value = 1
-    for _ in range(10):
-        await RisingEdge(dut.clock)
-    dut.reset.value = 0
+    await reset_cpu(dut)
 
     # Trace 30 cycles
     for i in range(30):
         await RisingEdge(dut.clock)
         try:
-            phase = int(dut.sys.cpu.phase_enc.value)
+            phase = str(dut.sys.cpu.phase_name.value)
             O     = int(dut.sys.cpu.O.value)
             P     = int(dut.sys.cpu.P.value)
             Q     = int(dut.sys.cpu.Q.value)
@@ -218,6 +217,34 @@ async def test_boot_sequence(dut):
             cocotb.log.error("  FAIL")
     except Exception as e:
         cocotb.log.warning(f"  RR[1] read error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Test: LI — Load Immediate
+# ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_li(dut):
+    """Test LI — load immediate."""
+    tr = TestResults("LI - Load Immediate")
+    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
+
+    await init_memory(dut)
+    # LI R1, 42        → RR[1] = 42
+    # LI R2, -1        → RR[2] = 0xFFFFFFFF
+    # LI R3, 0x7FFFF   → RR[3] = 0x0007FFFF (max positive 20-bit)
+    # LCFI             → halt
+    await write_word(dut, 0x098, encode_imm(OP_LI, r=1, imm=42))
+    await write_word(dut, 0x09C, encode_imm(OP_LI, r=2, imm=-1))
+    await write_word(dut, 0x0A0, encode_imm(OP_LI, r=3, imm=0x7FFFF))
+    await write_word(dut, 0x0A4, encode(OP_LCFI, r=0))
+
+    await reset_cpu(dut)
+    await run_cycles(dut, 40)
+
+    tr.check("LI R1=42",         rr(dut, 1).value, 42)
+    tr.check("LI R2=-1",         rr(dut, 2).value, 0xFFFFFFFF)
+    tr.check("LI R3=0x7FFFF",    rr(dut, 3).value, 0x0007FFFF)
+    tr.summary()
 
 
 # ---------------------------------------------------------------------------
@@ -253,23 +280,23 @@ async def test_lw(dut):
 # ---------------------------------------------------------------------------
 # Test: STW — Store Word
 # ---------------------------------------------------------------------------
-@cocotb.test(skip=True)
+@cocotb.test()
 async def test_stw(dut):
     """Test STW — store word."""
     tr = TestResults("STW - Store Word")
     cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
 
-    await load_program(dut, 0x000, [
-        encode_imm(OP_LI,  r=1, imm=0xCAFE),
-        encode(OP_STW, r=1, addr=word_addr(0x400)),
-        encode(OP_LCFI, r=0),
-    ])
+    await init_memory(dut)
+    await write_word(dut, 0x098, encode(OP_LW,   r=1, addr=word_addr(0x400)))
+    await write_word(dut, 0x09C, encode(OP_STW,  r=1, addr=word_addr(0x404)))
+    await write_word(dut, 0x0A0, encode(OP_LCFI, r=0))
+    await write_word(dut, 0x400, 0xDEADBEEF)
 
     await reset_cpu(dut)
-    await run_cycles(dut, 40)
+    await run_cycles(dut, 60)
 
-    result = await read_word(dut, 0x400)
-    tr.check("STW M[0x400]=0xCAFE", result, 0xCAFE)
+    result = await read_word(dut, 0x404)
+    tr.check("STW M[0x404]=0xDEADBEEF", result, 0xDEADBEEF)
     tr.summary()
 
 
