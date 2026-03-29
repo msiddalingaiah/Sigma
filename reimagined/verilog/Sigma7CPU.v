@@ -70,16 +70,18 @@ reg [1:7]   O;          // opcode
 reg [8:11]  R;          // register field
 reg [15:33] P;          // effective byte address
 reg [15:31] Q;          // next instruction word address
+reg [1:4]   CC;         // condition codes: CC1=carry, CC2=overflow, CC3=pos, CC4=neg
 reg [0:31]  RR [0:15];  // user register file
 
 initial begin
-    A = 32'b0;
-    C = 32'h02000000;
-    D = 32'h02000000;
-    O = 7'h02;
-    R = 4'h0;
-    P = 19'h00094;      // byte 0x94 → p_inc = 0x98 = word 0x26
-    Q = 17'h25;
+    A  = 32'b0;
+    C  = 32'h02000000;
+    D  = 32'h02000000;
+    O  = 7'h02;
+    R  = 4'h0;
+    P  = 19'h00094;      // byte 0x94 → p_inc = 0x98 = word 0x26
+    Q  = 17'h25;
+    CC = 4'b0;
 end
 
 // ---------------------------------------------------------------------------
@@ -99,11 +101,12 @@ wire [0:31]  imm20   = {{12{D[12]}}, D[12:31]};
 // ---------------------------------------------------------------------------
 // ALU
 // ---------------------------------------------------------------------------
-localparam ALU_ADD = 3'd0;
-localparam ALU_SUB = 3'd1;
-localparam ALU_AND = 3'd2;
-localparam ALU_OR  = 3'd3;
-localparam ALU_XOR = 3'd4;
+localparam ALU_ADD   = 3'd0;
+localparam ALU_SUB   = 3'd1;
+localparam ALU_AND   = 3'd2;
+localparam ALU_OR    = 3'd3;
+localparam ALU_XOR   = 3'd4;
+localparam ALU_PASSA = 3'd5;  // pass A through (for LW, LI CC update)
 
 reg [2:0]  alu_op;
 reg [0:31] alu_out;
@@ -122,10 +125,11 @@ always @(*) begin
             {alu_carry, alu_out} = {1'b0, A} + {1'b0, ~C_mux} + 33'd1;
             alu_overflow = (A[0] != C_mux[0]) && (alu_out[0] != A[0]);
         end
-        ALU_AND: alu_out = A & C_mux;
-        ALU_OR:  alu_out = A | C_mux;
-        ALU_XOR: alu_out = A ^ C_mux;
-        default: alu_out = A;
+        ALU_AND:   alu_out = A & C_mux;
+        ALU_OR:    alu_out = A | C_mux;
+        ALU_XOR:   alu_out = A ^ C_mux;
+        ALU_PASSA: alu_out = A;
+        default:   alu_out = A;
     endcase
 end
 
@@ -138,12 +142,18 @@ localparam A_RR   = 3'd1;  // A ← RR[R]
 localparam A_CMUX = 3'd2;  // A ← C_mux
 localparam A_ALU  = 3'd3;  // A ← alu_out
 localparam A_ZERO = 3'd4;  // A ← 0
+localparam A_IMM  = 3'd5;  // A ← imm20
 
 // P_sel
 localparam P_HOLD = 2'd0;
 localparam P_EA   = 2'd1;  // P ← ea
 localparam P_Q    = 2'd2;  // P ← {Q, 2'b00}
 localparam P_INC  = 2'd3;  // P ← p_inc
+
+// CC_sel
+localparam CC_HOLD    = 2'd0;  // no update
+localparam CC_ARITH   = 2'd1;  // carry, overflow, pos/neg from alu_out
+localparam CC_COMPARE = 2'd2;  // no carry, CC2=AND nonzero, CC3/4 from alu_out
 
 // Single-source sels (0=hold, 1=load)
 // D, O, R, Q, C all load from one source only
@@ -153,6 +163,7 @@ localparam P_INC  = 2'd3;  // P ← p_inc
 // ---------------------------------------------------------------------------
 reg [2:0]  A_sel;
 reg [1:0]  P_sel;
+reg [1:0]  CC_sel;
 reg        D_sel;   // 0=hold, 1=bus_data_r
 reg        O_sel;   // 0=hold, 1=bus_data_r[1:7]
 reg        R_sel;   // 0=hold, 1=bus_data_r[8:11]
@@ -188,13 +199,14 @@ end
 // ---------------------------------------------------------------------------
 always @(posedge clock) begin
     if (reset) begin
-        A <= 32'b0;
-        C <= 32'h02000000;
-        D <= 32'h02000000;
-        O <= 7'h02;
-        R <= 4'h0;
-        P <= 19'h00094;
-        Q <= 17'h25;
+        A  <= 32'b0;
+        C  <= 32'h02000000;
+        D  <= 32'h02000000;
+        O  <= 7'h02;
+        R  <= 4'h0;
+        P  <= 19'h00094;
+        Q  <= 17'h25;
+        CC <= 4'b0;
     end else begin
         if (C_load) C <= bus_data_r;
         case (A_sel)
@@ -202,12 +214,28 @@ always @(posedge clock) begin
             A_CMUX: A <= C_mux;
             A_ALU:  A <= alu_out;
             A_ZERO: A <= 32'b0;
+            A_IMM:  A <= imm20;
             default: ;
         endcase
         case (P_sel)
             P_EA:  P <= ea;
             P_Q:   P <= {Q, 2'b00};
             P_INC: P <= p_inc;
+            default: ;
+        endcase
+        case (CC_sel)
+            CC_ARITH: begin
+                CC[1] <= alu_carry;
+                CC[2] <= alu_overflow;
+                CC[3] <= !alu_out[0] && |alu_out;
+                CC[4] <= alu_out[0];
+            end
+            CC_COMPARE: begin
+                CC[1] <= 1'b0;
+                CC[2] <= |(A & C_mux);
+                CC[3] <= !alu_out[0] && |alu_out;
+                CC[4] <= alu_out[0];
+            end
             default: ;
         endcase
         if (D_sel) D <= bus_data_r;
@@ -238,13 +266,14 @@ always @(*) begin
     C_load       = 1'b0;
     A_sel        = A_HOLD;
     P_sel        = P_HOLD;
+    CC_sel       = CC_HOLD;
     D_sel        = 1'b0;
     O_sel        = 1'b0;
     R_sel        = 1'b0;
     Q_sel        = 1'b0;
     rr_write     = 1'b0;
     rr_data      = 32'b0;
-    alu_op       = ALU_ADD;
+    alu_op       = ALU_PASSA;
     bus_addr     = {Q, 2'b00};
     bus_data_w   = 32'b0;
     cpu_write    = 1'b0;
@@ -326,27 +355,33 @@ always @(*) begin
                 OP_LCFI: ende = 1'b1;
 
                 OP_LI: begin
+                    A_sel    = A_IMM;         // A ← imm20
+                    alu_op   = ALU_PASSA;     // alu_out = A = imm20
+                    CC_sel   = CC_ARITH;
                     rr_data  = imm20;
                     rr_write = 1'b1;
                     ende     = 1'b1;
                 end
 
                 OP_LW: begin
+                    alu_op   = ALU_PASSA;     // alu_out = A = loaded value
+                    CC_sel   = CC_ARITH;
                     rr_data  = A;
                     rr_write = 1'b1;
-                    P_sel    = P_Q;               // restore P ← {Q,00}
+                    P_sel    = P_Q;
                 end
 
                 OP_STW: begin
-                    bus_addr  = P;                // EA still in P
+                    bus_addr   = P;
                     bus_data_w = A;
-                    cpu_write = 1'b1;
-                    P_sel     = P_Q;              // restore P ← {Q,00}
+                    cpu_write  = 1'b1;
+                    P_sel      = P_Q;
                 end
 
                 OP_AW: begin
                     alu_op   = ALU_ADD;
-                    A_sel    = A_ALU;             // A ← A + C_mux
+                    A_sel    = A_ALU;
+                    CC_sel   = CC_ARITH;
                     rr_data  = alu_out;
                     rr_write = 1'b1;
                     P_sel    = P_Q;
@@ -355,20 +390,23 @@ always @(*) begin
                 OP_SW: begin
                     alu_op   = ALU_SUB;
                     A_sel    = A_ALU;
+                    CC_sel   = CC_ARITH;
                     rr_data  = alu_out;
                     rr_write = 1'b1;
                     P_sel    = P_Q;
                 end
 
                 OP_CW: begin
-                    alu_op   = ALU_SUB;           // compare: subtract but don't write
-                    A_sel    = A_ALU;
-                    P_sel    = P_Q;
+                    alu_op = ALU_SUB;
+                    A_sel  = A_ALU;
+                    CC_sel = CC_COMPARE;
+                    P_sel  = P_Q;
                 end
 
                 OP_AND: begin
                     alu_op   = ALU_AND;
                     A_sel    = A_ALU;
+                    CC_sel   = CC_ARITH;
                     rr_data  = alu_out;
                     rr_write = 1'b1;
                     P_sel    = P_Q;
@@ -377,6 +415,7 @@ always @(*) begin
                 OP_OR: begin
                     alu_op   = ALU_OR;
                     A_sel    = A_ALU;
+                    CC_sel   = CC_ARITH;
                     rr_data  = alu_out;
                     rr_write = 1'b1;
                     P_sel    = P_Q;
@@ -385,6 +424,7 @@ always @(*) begin
                 OP_EOR: begin
                     alu_op   = ALU_XOR;
                     A_sel    = A_ALU;
+                    CC_sel   = CC_ARITH;
                     rr_data  = alu_out;
                     rr_write = 1'b1;
                     P_sel    = P_Q;

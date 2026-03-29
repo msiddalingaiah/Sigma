@@ -343,6 +343,42 @@ async def test_word_arithmetic(dut):
     tr.check("AND R3=0x0F", rr(dut, 3).value, 0x0F)
     tr.check("OR  R4=0xFF", rr(dut, 4).value, 0xFF)
     tr.check("EOR R5=0",    rr(dut, 5).value, 0x00)
+    # After EOR: result=0, CC3=0 (not positive), CC4=0 (not negative)
+    tr.check_bool("EOR CC3=0", cc_pos(dut.sys.cpu.CC.value), False)
+    tr.check_bool("EOR CC4=0", cc_neg(dut.sys.cpu.CC.value), False)
+    tr.summary()
+
+
+# ---------------------------------------------------------------------------
+# Test: CW — Compare Word
+# ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_cw(dut):
+    """Test CW — compare word, checks CC bits."""
+    tr = TestResults("CW - Compare Word")
+    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
+
+    await init_memory(dut)
+    # LI R1, 10       → R1 = 10
+    # CW R1, [0x400]  → compare 10 vs 10 → equal (CC3=0, CC4=0)
+    # CW R1, [0x404]  → compare 10 vs 5  → R1>mem → CC3=1
+    # CW R1, [0x408]  → compare 10 vs 20 → R1<mem → CC4=1
+    # LCFI            → halt
+    await write_word(dut, 0x098, encode_imm(OP_LI,  r=1, imm=10))
+    await write_word(dut, 0x09C, encode(OP_CW, r=1, addr=word_addr(0x400)))
+    await write_word(dut, 0x0A0, encode(OP_CW, r=1, addr=word_addr(0x404)))
+    await write_word(dut, 0x0A4, encode(OP_CW, r=1, addr=word_addr(0x408)))
+    await write_word(dut, 0x0A8, encode(OP_LCFI, r=0))
+    await write_word(dut, 0x400, 10)   # equal
+    await write_word(dut, 0x404, 5)    # R1 > mem
+    await write_word(dut, 0x408, 20)   # R1 < mem
+
+    await reset_cpu(dut)
+    await run_cycles(dut, 80)
+
+    # After last CW (10 vs 20): CC3=0, CC4=1
+    tr.check_bool("CW R1<mem CC4=1", cc_neg(dut.sys.cpu.CC.value), True)
+    tr.check_bool("CW R1<mem CC3=0", cc_pos(dut.sys.cpu.CC.value), False)
     tr.summary()
 
 
