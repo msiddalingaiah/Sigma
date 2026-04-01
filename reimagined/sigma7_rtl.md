@@ -26,6 +26,7 @@
 | EA | Effective byte address, held in P after prep phases |
 | ea | Combinatorial EA wire: {A[15:31] + D[15:31], P[32:33]} |
 | p_inc | Combinatorial P+4 wire |
+| next_ia | {Q+1, 2'b00} — next instruction byte address (Q = current instruction word address, set in PREP1) |
 | imm20 | Sign-extended 20-bit immediate: {{12{D[12]}}, D[12:31]} |
 | sext(v) | Sign extend v to 32 bits |
 | ENDE | End-of-instruction signal; fires in last execute phase |
@@ -73,52 +74,62 @@ Equal result: CC1–CC4 all clear.
 
 ## Boot Sequence and Common Phases
 
-### PCP5 — Stable Reset/Halt State
+### PCP4 — Stable Reset/Halt State
 
-Phase held during reset. On release of reset, ENDE is asserted immediately:
+Held during reset. On release, presents the initial instruction address on the
+bus and jumps to PCP5:
 
 ```
-PCP5: if !reset: ENDE
-      ; otherwise hold in PCP5
+PCP4: if !reset: bus_addr ← p_inc; phase → PCP5
+      ; otherwise hold in PCP4
 ```
+
+### PCP5 — Boot ENDE
+
+Fires ENDE when the instruction fetched by PCP4 arrives on the bus:
+
+```
+PCP5: ENDE
+```
+
+After boot, ENDE jumps to PREP1 (memory-reference) or EX1 (immediate).
 
 ### ENDE Signal
 
-ENDE fires at the last execute phase of every instruction. It increments P
-and presents the next instruction address to memory, then jumps to PREP1:
+ENDE fires at the last execute phase of every instruction, and from PCP5 on
+boot. It loads the arriving instruction, updates registers, and presents the
+instruction's reference address to memory:
 
 ```
-ENDE: P ← P + 4                          ; increment to next instruction byte address
-      bus_addr ← p_inc                   ; present to memory: instruction arrives at PREP1
-      phase → PREP1
+ENDE: C/D/O/R ← bus_data_r              ; load arriving instruction
+      A ← 0                             ; clear for EA calculation
+      P ← P + 4                         ; increment to next instruction byte address
+      bus_addr ← {C_mux[15:31], 2'b00}  ; present reference address field (transparent latch)
+      if immediate: phase → EX1         ; skip prep phases
+      if memory:    phase → PREP1       ; compute EA
 ```
+
+The cycle **before** ENDE must always present the next instruction byte address
+(`next_ia = {Q+1, 2'b00}`) on bus_addr so the instruction arrives in time.
+For immediate instructions the cycle before ENDE uses `p_inc` (P still holds
+the current instruction's byte address). For taken branches, the target address
+is presented instead.
 
 ### Prep Phases
 
-PREP1 loads the instruction that arrived from memory (presented during previous ENDE),
-decodes it, saves P to Q, and resets A to 0 for EA calculation:
-
 ```
-PREP1: C ← bus_data_r                    ; instruction word into C (transparent latch)
-       D ← bus_data_r                    ; instruction word into D (for EA calc)
-       O ← bus_data_r[1:7]               ; opcode
-       R ← bus_data_r[8:11]              ; R field
-       Q ← P[15:31]                      ; save next instruction word address
-       A ← 0                             ; clear A for EA calculation (no indexing yet)
-       if i=0 and immediate: phase → EX1 ; LCFI, LI skip EA calc
-       if i=0 and memory:    phase → PREP3
-       ; else fall through to PREP2 (indirect)
+PREP1: Q ← P[15:31]                     ; save next instruction word address
+       S ← D (ALU_PASSD)                ; S = reference address field
+       bus_addr ← {S[15:31], 2'b00}     ; present EA (A=0 for non-indexed)
+       phase → PREP3
 ```
 
-```
-PREP2: C ← bus_data_r                    ; indirect pointer word (D[15:31] was on bus)
-       D ← bus_data_r                    ; resolved pointer into D
-       bus_addr ← {D[15:31], 2'b00}      ; present resolved address for PREP3/EX1
-```
+When indexing is added: A=RR[X] from ENDE, alu_op=ALU_ADD → S=A+D = indexed EA.
 
 ```
-PREP3: P ← ea                            ; EA = {A[15:31] + D[15:31], P[32:33]}
-       bus_addr ← ea                     ; present EA: M[EA] arrives at EX1
+PREP3: P[15:31] ← S[15:31]              ; register EA into P
+       bus_addr ← {S[15:31], P[32:33]}  ; hold on bus: operand arrives at EX1
+       ; auto-shifts to EX1
 ```
 
 After PREP3, P holds the complete effective byte address.
@@ -129,14 +140,12 @@ After PREP3, P holds the complete effective byte address.
 
 ### LCFI — Load Conditions and FP Immediate (0x02)
 
-Immediate instruction (skips PREP3). With all-zero fields, acts as a no-op.
+Immediate instruction (ENDE → EX1 directly). With all-zero fields, acts as a no-op.
 Loaded into C/D/O on reset as the first instruction to execute.
 
 ```
-PREP1: (immediate) phase → EX1
-EX1:   (no-op)
-EX2:   if D[10]: CC ← D[24:27]           ; direct CC load
-       ENDE
+EX1:   Q ← P[15:31]; bus_addr ← p_inc   ; save Q, present next instruction
+EX2/ENDE: if D[10]: CC ← D[24:27]       ; direct CC load
 ```
 
 ### LI — Load Immediate (0x22)
@@ -144,90 +153,81 @@ EX2:   if D[10]: CC ← D[24:27]           ; direct CC load
 Immediate instruction. imm20 = sign-extended D[12:31].
 
 ```
-PREP1: (immediate) phase → EX1
-EX1:   (no-op)
-EX2:   RR[r] ← imm20
-       CC ← CC_ARITH(imm20)              ; alu_op=PASSA, alu_out=imm20
-       ENDE
+EX1:   Q ← P[15:31]; bus_addr ← p_inc   ; save Q, present next instruction
+EX2/ENDE: RR[r] ← imm20
+           CC ← CC_ARITH(imm20)
 ```
 
 ### LW — Load Word (0x32)
 
 ```
-PREP1-3: EA → P; bus_addr=EA             ; M[EA] arrives at EX1
-EX1:     C ← bus_data_r                  ; C_mux = M[EA]
-         A ← C_mux
-EX2:     RR[r] ← A
-         CC ← CC_ARITH(A)               ; alu_op=PASSA, alu_out=A
-         P ← {Q, 2'b00}                 ; restore next instruction address to P
-EX3:     ENDE
+PREP1: Q←P; bus_addr←EA                 ; M[EA] arrives at EX1 via PREP3
+PREP3: P[15:31]←EA
+EX1:   C ← bus_data_r; A ← C_mux
+EX2:   RR[r] ← A; CC ← CC_ARITH(A)
+       P_sel←P_Q; bus_addr ← next_ia    ; present next instruction
+EX3/ENDE:
 ```
 
 ### STW — Store Word (0x35)
 
 ```
-PREP1-3: EA → P
-EX1:     A ← RR[r]
-EX2:     M[P] ← A                        ; write to EA (still in P)
-         P ← {Q, 2'b00}                 ; restore next instruction address to P
-EX3:     ENDE
+PREP1: Q←P; bus_addr←EA
+PREP3: P[15:31]←EA
+EX1:   A ← RR[r]
+EX2:   M[P] ← A                         ; bus busy with write
+EX3:   P_sel←P_Q; bus_addr ← next_ia   ; bus free, present next instruction
+EX4/ENDE:
 ```
-*Note: STW does not update CC.*
+*Note: STW does not update CC. One extra EX cycle because bus is busy in EX2.*
 
 ### AW — Add Word (0x30)
 
 ```
-PREP1-3: EA → P; bus_addr=EA
-EX1:     C ← bus_data_r                  ; C_mux = M[EA]
-         A ← RR[r]
-EX2:     alu_out ← A + C_mux
-         A ← alu_out
-         RR[r] ← alu_out
-         CC ← CC_ARITH(alu_out)
-         P ← {Q, 2'b00}
-EX3:     ENDE
+PREP1: Q←P; bus_addr←EA
+PREP3: P[15:31]←EA
+EX1:   C ← bus_data_r; A ← RR[r]
+EX2:   alu_out ← A + C_mux; RR[r] ← alu_out
+       CC ← CC_ARITH(alu_out)
+       P_sel←P_Q; bus_addr ← next_ia
+EX3/ENDE:
 ```
 
 ### SW — Subtract Word (0x38)
 
 ```
-PREP1-3: EA → P; bus_addr=EA
-EX1:     C ← bus_data_r
-         A ← RR[r]
-EX2:     alu_out ← A + ~C_mux + 1
-         A ← alu_out
-         RR[r] ← alu_out
-         CC ← CC_ARITH(alu_out)
-         P ← {Q, 2'b00}
-EX3:     ENDE
+PREP1: Q←P; bus_addr←EA
+PREP3: P[15:31]←EA
+EX1:   C ← bus_data_r; A ← RR[r]
+EX2:   alu_out ← A + ~C_mux + 1; RR[r] ← alu_out
+       CC ← CC_ARITH(alu_out)
+       P_sel←P_Q; bus_addr ← next_ia
+EX3/ENDE:
 ```
 
 ### CW — Compare Word (0x31)
 
 ```
-PREP1-3: EA → P; bus_addr=EA
-EX1:     C ← bus_data_r
-         A ← RR[r]
-EX2:     alu_out ← A + ~C_mux + 1
-         A ← alu_out
-         CC ← CC_COMPARE(A, C_mux, alu_out)
-         P ← {Q, 2'b00}
-EX3:     ENDE
+PREP1: Q←P; bus_addr←EA
+PREP3: P[15:31]←EA
+EX1:   C ← bus_data_r; A ← RR[r]
+EX2:   alu_out ← A + ~C_mux + 1
+       CC ← CC_COMPARE(A, C_mux, alu_out)
+       P_sel←P_Q; bus_addr ← next_ia
+EX3/ENDE:
 ```
 *Note: CW does not write back to RR.*
 
 ### AND (0x4B), OR (0x49), EOR (0x48)
 
 ```
-PREP1-3: EA → P; bus_addr=EA
-EX1:     C ← bus_data_r
-         A ← RR[r]
-EX2:     alu_out ← A AND/OR/XOR C_mux
-         A ← alu_out
-         RR[r] ← alu_out
-         CC ← CC_ARITH(alu_out)
-         P ← {Q, 2'b00}
-EX3:     ENDE
+PREP1: Q←P; bus_addr←EA
+PREP3: P[15:31]←EA
+EX1:   C ← bus_data_r; A ← RR[r]
+EX2:   alu_out ← A AND/OR/XOR C_mux; RR[r] ← alu_out
+       CC ← CC_ARITH(alu_out)
+       P_sel←P_Q; bus_addr ← next_ia
+EX3/ENDE:
 ```
 
 ---

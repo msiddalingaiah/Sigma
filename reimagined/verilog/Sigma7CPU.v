@@ -8,8 +8,8 @@
 // Phase sequence (memory-reference instruction):
 //   EX(n-1): P←{Q,00}, bus_addr←next_ia  — present next instruction address
 //   EX(n)/ENDE: C/D/O/R/Q/A←bus_data_r, P←p_inc, bus_addr←{D[15:31],00} → PREP1
-//   PREP1: bus_addr←ea                                                     → PREP3
-//   PREP3: P←ea                                                            → EX1
+//   PREP1: Q←P, alu_op=PASSD, bus_addr←S[15:31]                           → PREP3
+//   PREP3: P[15:31]←S[15:31], bus_addr←{S[15:31],P[32:33]}                → EX1
 //   EX1:   operand arrives
 //
 // Phase sequence (immediate instruction):
@@ -17,8 +17,8 @@
 //   EX(n)/ENDE: C/D/O/R/Q/A←bus_data_r, P←p_inc, bus_addr←{D[15:31],00} → EX1
 //
 // Boot sequence:
-//   PCP5: bus_addr←p_inc                                                   → PREP2
-//   PREP2/BOOT_ENDE: ENDE fires (instruction arrives from PCP5 fetch)      → PREP1/EX1
+//   PCP4: bus_addr←p_inc                                                   → PCP5
+//   PCP5: ENDE fires (instruction arrives from PCP4 fetch)                 → PREP1/EX1
 //
 // Supported instructions: LCFI, LI, LW, STW, AW, SW, CW, AND, OR, EOR
 
@@ -49,14 +49,14 @@ localparam OP_OR   = 7'h49;
 localparam OP_EOR  = 7'h48;
 
 // ---------------------------------------------------------------------------
-// Phase register (one-hot, bit 0 = PCP5 = MSB)
+// Phase register (one-hot, bit 0 = PCP4 = MSB)
 // ---------------------------------------------------------------------------
 reg [0:19] phase;
 
-localparam PCP5  = 20'b10000000000000000000;
-localparam PREP1 = 20'b01000000000000000000;  // present EA on bus
-localparam PREP2 = 20'b00100000000000000000;  // boot ENDE / future indirect
-localparam PREP3 = 20'b00010000000000000000;  // P ← ea
+localparam PCP4  = 20'b10000000000000000000;
+localparam PCP5  = 20'b01000000000000000000;  // fires ENDE on instruction arrival
+localparam PREP1 = 20'b00100000000000000000;  // Q←P, S←D, present EA on bus
+localparam PREP3 = 20'b00010000000000000000;  // P[15:31] ← S[15:31]
 localparam EX1   = 20'b00001000000000000000;
 localparam EX2   = 20'b00000100000000000000;
 localparam EX3   = 20'b00000010000000000000;
@@ -66,9 +66,9 @@ localparam EX4   = 20'b00000001000000000000;
 reg [0:63] phase_name;
 always @(*) begin
     casez (phase)
-        20'b1???????????????????: phase_name = "PCP5    ";
-        20'b01??????????????????: phase_name = "PREP1   ";
-        20'b001?????????????????: phase_name = "PREP2   ";
+        20'b1???????????????????: phase_name = "PCP4    ";
+        20'b01??????????????????: phase_name = "PCP5    ";
+        20'b001?????????????????: phase_name = "PREP1   ";
         20'b0001????????????????: phase_name = "PREP3   ";
         20'b00001???????????????: phase_name = "EX1     ";
         20'b000001??????????????: phase_name = "EX2     ";
@@ -112,9 +112,7 @@ wire [0:31] C_mux = C_load ? bus_data_r : C;
 // Computed values
 // ---------------------------------------------------------------------------
 wire [15:33] p_inc   = P + 19'd4;
-wire [15:33] next_ia = {Q + 17'd1, 2'b00};  // next instruction byte address
-wire [15:31] ea_word = A[15:31] + D[15:31];
-wire [15:33] ea      = {ea_word, P[32:33]};
+wire [15:33] next_ia = {Q + 17'd1, 2'b00};  // next instruction byte addr (Q = current instr word addr after PREP1)
 wire [0:31]  imm20   = {{12{D[12]}}, D[12:31]};
 
 // ---------------------------------------------------------------------------
@@ -125,7 +123,8 @@ localparam ALU_SUB   = 3'd1;
 localparam ALU_AND   = 3'd2;
 localparam ALU_OR    = 3'd3;
 localparam ALU_XOR   = 3'd4;
-localparam ALU_PASSA = 3'd5;
+localparam ALU_PASSA = 3'd5;  // S ← A
+localparam ALU_PASSD = 3'd6;  // S ← D (via C_mux)
 
 reg [2:0]  alu_op;
 reg [0:31] alu_out;
@@ -148,6 +147,7 @@ always @(*) begin
         ALU_OR:    alu_out = A | C_mux;
         ALU_XOR:   alu_out = A ^ C_mux;
         ALU_PASSA: alu_out = A;
+        ALU_PASSD: alu_out = D;
         default:   alu_out = A;
     endcase
 end
@@ -198,12 +198,12 @@ assign cpu_release = 1'b0;
 // ---------------------------------------------------------------------------
 always @(posedge clock) begin
     if (reset)
-        phase <= PCP5;
+        phase <= PCP4;
     else if (!cpu_grant)
         phase <= phase;
     else if (phase_jump)
         phase <= phase_target;
-    else if (!phase[0])
+    else if (!phase[0])         // don't auto-shift out of PCP4
         phase <= {1'b0, phase[0:18]};
 end
 
@@ -231,7 +231,7 @@ always @(posedge clock) begin
             default: ;
         endcase
         case (P_sel)
-            P_EA:  P <= ea;
+            P_EA:  P <= {alu_out[15:31], P[32:33]};  // EA from S[15:31]
             P_Q:   P <= {Q, 2'b00};
             P_INC: P <= p_inc;
             default: ;
@@ -254,7 +254,7 @@ always @(posedge clock) begin
         if (D_sel) D <= bus_data_r;
         if (O_sel) O <= bus_data_r[1:7];
         if (R_sel) R <= bus_data_r[8:11];
-        if (Q_sel) Q <= p_inc[15:31];   // Q ← word address of next instruction
+        if (Q_sel) Q <= P[15:31];   // Q ← next instruction word address (from P after increment)
     end
 end
 
@@ -294,39 +294,42 @@ always @(*) begin
     case (1'b1)
 
         // ------------------------------------------------------------------
-        // PCP5: present initial instruction address, jump to PREP2 (boot ENDE)
+        // PCP4: stable reset/halt state. On release present p_inc, jump to PCP5
         // ------------------------------------------------------------------
         phase[0]: begin
             if (!reset) begin
                 bus_addr     = p_inc;   // present 0x098 to memory
                 phase_jump   = 1'b1;
-                phase_target = PREP2;
+                phase_target = PCP5;
             end
         end
 
         // ------------------------------------------------------------------
-        // PREP1: present EA on bus (D has instruction from ENDE)
+        // PCP5: ENDE fires — instruction arrived from PCP4 fetch
         // ------------------------------------------------------------------
         phase[1]: begin
-            bus_addr     = {D[15:31], 2'b00};   // EA (A=0 for non-indexed)
+            ende = 1'b1;
+        end
+
+        // ------------------------------------------------------------------
+        // PREP1: Q ← P, S ← D (ALU_PASSD), present S[15:31] as EA on bus
+        //        When indexing added: A=RR[X], alu_op=ALU_ADD → S=A+D
+        // ------------------------------------------------------------------
+        phase[2]: begin
+            Q_sel        = 1'b1;
+            alu_op       = ALU_PASSD;
+            bus_addr     = {alu_out[15:31], 2'b00};
             phase_jump   = 1'b1;
             phase_target = PREP3;
         end
 
         // ------------------------------------------------------------------
-        // PREP2: BOOT_ENDE — fires ENDE so instruction loaded from bus
-        //        (future: also indirect address resolution)
-        // ------------------------------------------------------------------
-        phase[2]: begin
-            ende = 1'b1;
-        end
-
-        // ------------------------------------------------------------------
-        // PREP3: P ← ea, hold EA on bus so operand arrives at EX1
+        // PREP3: P[15:31] ← S[15:31], hold EA on bus → operand arrives EX1
         // ------------------------------------------------------------------
         phase[3]: begin
+            alu_op   = ALU_PASSD;
             P_sel    = P_EA;
-            bus_addr = ea;
+            bus_addr = {alu_out[15:31], P[32:33]};
             // auto-shifts to EX1
         end
 
@@ -337,9 +340,10 @@ always @(*) begin
             case (O)
                 OP_LCFI,
                 OP_LI: begin
-                    // Restore P and present next instruction (one cycle before ENDE)
-                    P_sel    = P_Q;
-                    bus_addr = next_ia;
+                    // Q ← P (save current instr word addr), present next instruction
+                    // Use p_inc (not next_ia) since Q is being loaded this cycle
+                    Q_sel    = 1'b1;
+                    bus_addr = p_inc;
                 end
                 OP_LW: begin
                     C_load = 1'b1;    // C ← M[EA]
@@ -360,7 +364,7 @@ always @(*) begin
         // ------------------------------------------------------------------
         phase[5]: begin
             case (O)
-                OP_LCFI: ende = 1'b1;   // fires ENDE; CC load handled below
+                OP_LCFI: ende = 1'b1;
 
                 OP_LI: begin
                     A_sel    = A_IMM;
@@ -381,7 +385,6 @@ always @(*) begin
                 end
 
                 OP_STW: begin
-                    // Bus busy with write — cannot present next_ia yet
                     bus_addr   = P;
                     bus_data_w = A;
                     cpu_write  = 1'b1;
@@ -484,7 +487,7 @@ always @(*) begin
 
     // ------------------------------------------------------------------
     // ENDE: load next instruction, update P/Q/A, present reference address.
-    // Fires from PREP2 (boot), or from EX phases (normal operation).
+    // Fires from PCP5 (boot ENDE) or from EX phases (normal operation).
     // ------------------------------------------------------------------
     if (ende) begin
         // Load incoming instruction
@@ -493,7 +496,6 @@ always @(*) begin
         O_sel  = 1'b1;
         R_sel  = 1'b1;
         A_sel  = A_ZERO;    // A ← 0 for EA calculation
-        Q_sel  = 1'b1;      // Q ← p_inc[15:31]
         P_sel  = P_INC;     // P ← p_inc
 
         // C_mux is transparent: bus_data_r[15:31] available combinatorially

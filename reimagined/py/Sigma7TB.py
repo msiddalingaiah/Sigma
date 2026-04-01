@@ -165,7 +165,7 @@ class TestResults:
         total = self.passed + self.failed
         cocotb.log.info(f"  --- {self.name}: {self.passed}/{total} passed ---")
         if self.failed > 0:
-            cocotb.log.warning(f"{self.name}: {self.failed} test(s) failed")
+            raise cocotb.result.TestFailure(f"{self.name}: {self.failed} test(s) failed")
 
 
 # ---------------------------------------------------------------------------
