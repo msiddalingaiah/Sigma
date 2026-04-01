@@ -184,8 +184,7 @@ reg        Q_sel;
 reg        rr_write;
 reg [0:31] rr_data;
 reg        ende;
-reg        phase_jump;
-reg [0:19] phase_target;
+reg [0:19] phase_next;
 
 // ---------------------------------------------------------------------------
 // Bus outputs
@@ -199,12 +198,8 @@ assign cpu_release = 1'b0;
 always @(posedge clock) begin
     if (reset)
         phase <= PCP4;
-    else if (!cpu_grant)
-        phase <= phase;
-    else if (phase_jump)
-        phase <= phase_target;
-    else if (!phase[0])         // don't auto-shift out of PCP4
-        phase <= {1'b0, phase[0:18]};
+    else if (cpu_grant)
+        phase <= phase_next;
 end
 
 // ---------------------------------------------------------------------------
@@ -274,8 +269,7 @@ end
 always @(*) begin
     // Defaults
     ende         = 1'b0;
-    phase_jump   = 1'b0;
-    phase_target = PREP1;
+    phase_next   = {1'b0, phase[0:18]};  // default: advance to next phase
     C_load       = 1'b0;
     A_sel        = A_HOLD;
     P_sel        = P_HOLD;
@@ -298,10 +292,10 @@ always @(*) begin
         // ------------------------------------------------------------------
         phase[0]: begin
             if (!reset) begin
-                bus_addr     = p_inc;   // present 0x098 to memory
-                phase_jump   = 1'b1;
-                phase_target = PCP5;
-            end
+                bus_addr   = p_inc;
+                phase_next = PCP5;
+            end else
+                phase_next = PCP4;  // hold in PCP4 during reset
         end
 
         // ------------------------------------------------------------------
@@ -316,11 +310,10 @@ always @(*) begin
         //        When indexing added: A=RR[X], alu_op=ALU_ADD → S=A+D
         // ------------------------------------------------------------------
         phase[2]: begin
-            Q_sel        = 1'b1;
-            alu_op       = ALU_PASSD;
-            bus_addr     = {alu_out[15:31], 2'b00};
-            phase_jump   = 1'b1;
-            phase_target = PREP3;
+            Q_sel      = 1'b1;
+            alu_op     = ALU_PASSD;
+            bus_addr   = {alu_out[15:31], 2'b00};
+            phase_next = PREP3;
         end
 
         // ------------------------------------------------------------------
@@ -502,11 +495,10 @@ always @(*) begin
         bus_addr = {C_mux[15:31], 2'b00};
 
         // Next phase based on incoming instruction opcode
-        phase_jump = 1'b1;
         casez (bus_data_r[1:7])
             OP_LCFI,
-            OP_LI:   phase_target = EX1;    // immediate: skip prep
-            default: phase_target = PREP1;  // memory-reference: compute EA
+            OP_LI:   phase_next = EX1;    // immediate: skip prep
+            default: phase_next = PREP1;  // memory-reference: compute EA
         endcase
     end
 
