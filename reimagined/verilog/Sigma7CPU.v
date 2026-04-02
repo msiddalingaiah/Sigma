@@ -559,8 +559,8 @@ always @(*) begin
         p_byte_offset = 2'b00;    // P[32:33] ← 00; byte offset set in PREP1
         P_sel         = P_INC;    // P[15:31] ← p_inc[15:31], P[32:33] ← 00
 
-        // C_mux is transparent: bus_data_r[15:31] available combinatorially
-        bus_addr = {C_mux[15:31], 2'b00};
+        // Use Q (registered) for bus_addr to avoid combinatorial path through C_mux
+        bus_addr = {Q, 2'b00};
 
         // Next phase based on incoming instruction opcode
         casez (bus_data_r[1:7])
