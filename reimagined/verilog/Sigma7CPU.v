@@ -5,20 +5,25 @@
 // Fetch optimization: instruction is loaded during ENDE rather than PREP1.
 // The cycle before ENDE always presents the next instruction address on bus_addr.
 //
-// Phase sequence (memory-reference instruction):
-//   EX(n-1): P←{Q,00}, bus_addr←next_ia  — present next instruction address
-//   EX(n)/ENDE: C/D/O/R/Q/A←bus_data_r, P←p_inc, bus_addr←{D[15:31],00} → PREP1
-//   PREP1: Q←P, alu_op=PASSD, bus_addr←S[15:31]                           → PREP3
-//   PREP3: P[15:31]←S[15:31], bus_addr←{S[15:31],P[32:33]}                → EX1
-//   EX1:   operand arrives
+// Phase sequence (direct memory-reference instruction):
+//   EX(n-1): P←{Q,00}, bus_addr←next_ia
+//   EX(n)/ENDE: C/D/O/R←instr, A←0, P←p_inc, bus_addr←{C[15:31],00} → PREP1
+//   PREP1: Q←P, A←idx(if indexed), bus_addr←{C[15:31],00} → PREP3
+//   PREP3: P[15:31]←A+D, bus_addr←{A+D[15:31],P[32:33]}   → EX1
+//   EX1:   C/D←M[EA], A←RR[R]                              → EX2
+//   EX2:   alu_out←A+D, RR[R]←alu_out, bus_addr←next_ia   → EX3/ENDE
+//
+// Phase sequence (indirect memory-reference instruction):
+//   ...ENDE → PREP1: as above but phase_next=PREP2
+//   PREP2: C/D←pointer, bus_addr←{C_mux[15:31],00}         → PREP3
+//   PREP3: P[15:31]←A+D(indexed EA), ...                    → EX1
 //
 // Phase sequence (immediate instruction):
-//   EX(n-1): P←{Q,00}, bus_addr←next_ia
-//   EX(n)/ENDE: C/D/O/R/Q/A←bus_data_r, P←p_inc, bus_addr←{D[15:31],00} → EX1
+//   ...ENDE → EX1: Q←P, bus_addr←p_inc                     → EX2/ENDE
 //
 // Boot sequence:
-//   PCP4: bus_addr←p_inc                                                   → PCP5
-//   PCP5: ENDE fires (instruction arrives from PCP4 fetch)                 → PREP1/EX1
+//   PCP4: bus_addr←p_inc                                    → PCP5
+//   PCP5: ENDE fires                                         → PREP1/EX1
 //
 // Supported instructions: LCFI, LI, LW, STW, AW, SW, CW, AND, OR, EOR
 
@@ -55,12 +60,13 @@ reg [0:19] phase;
 
 localparam PCP4  = 20'b10000000000000000000;
 localparam PCP5  = 20'b01000000000000000000;  // fires ENDE on instruction arrival
-localparam PREP1 = 20'b00100000000000000000;  // Q←P, S←D, present EA on bus
-localparam PREP3 = 20'b00010000000000000000;  // P[15:31] ← S[15:31]
-localparam EX1   = 20'b00001000000000000000;
-localparam EX2   = 20'b00000100000000000000;
-localparam EX3   = 20'b00000010000000000000;
-localparam EX4   = 20'b00000001000000000000;
+localparam PREP1 = 20'b00100000000000000000;  // Q←P, set up A from index, present ref addr
+localparam PREP2 = 20'b00010000000000000000;  // indirect: D←pointer, present EA base
+localparam PREP3 = 20'b00001000000000000000;  // P[15:31]←A+D, present EA
+localparam EX1   = 20'b00000100000000000000;
+localparam EX2   = 20'b00000010000000000000;
+localparam EX3   = 20'b00000001000000000000;
+localparam EX4   = 20'b00000000100000000000;
 
 // Phase name for GTKWave (right-click → Data Format → ASCII)
 reg [0:63] phase_name;
@@ -69,11 +75,12 @@ always @(*) begin
         20'b1???????????????????: phase_name = "PCP4    ";
         20'b01??????????????????: phase_name = "PCP5    ";
         20'b001?????????????????: phase_name = "PREP1   ";
-        20'b0001????????????????: phase_name = "PREP3   ";
-        20'b00001???????????????: phase_name = "EX1     ";
-        20'b000001??????????????: phase_name = "EX2     ";
-        20'b0000001?????????????: phase_name = "EX3     ";
-        20'b00000001????????????: phase_name = "EX4     ";
+        20'b0001????????????????: phase_name = "PREP2   ";
+        20'b00001???????????????: phase_name = "PREP3   ";
+        20'b000001??????????????: phase_name = "EX1     ";
+        20'b0000001?????????????: phase_name = "EX2     ";
+        20'b00000001????????????: phase_name = "EX3     ";
+        20'b000000001???????????: phase_name = "EX4     ";
         default:                  phase_name = "UNKNOWN ";
     endcase
 end
@@ -92,14 +99,14 @@ reg [1:4]   CC;         // CC1=carry, CC2=overflow, CC3=pos, CC4=neg
 reg [0:31]  RR [0:15];  // user register file
 
 initial begin
-    A  = 32'b0;
-    C  = 32'h02000000;
-    D  = 32'h02000000;
-    O  = 7'h02;
-    R  = 4'h0;
-    P  = 19'h00094;      // byte 0x94 → p_inc = 0x98 = word 0x26
-    Q  = 17'h25;
-    CC = 4'b0;
+    A         = 32'b0;
+    C         = 32'h02000000;
+    D         = 32'h02000000;
+    O         = 7'h02;
+    R         = 4'h0;
+    P         = 19'h00094;      // byte 0x94 → p_inc = 0x98 = word 0x26
+    Q         = 17'h25;
+    CC        = 4'b0;
 end
 
 // ---------------------------------------------------------------------------
@@ -112,11 +119,46 @@ wire [0:31] C_mux = C_load ? bus_data_r : C;
 // Computed values
 // ---------------------------------------------------------------------------
 wire [15:33] p_inc   = P + 19'd4;
-wire [15:33] next_ia = {Q + 17'd1, 2'b00};  // next instruction byte addr (Q = current instr word addr after PREP1)
+wire [15:33] next_ia = {Q + 17'd1, 2'b00};
 wire [0:31]  imm20   = {{12{D[12]}}, D[12:31]};
 
 // ---------------------------------------------------------------------------
-// ALU
+// Address family decode (based on C — registered instruction word)
+// C holds the instruction from ENDE through PREP1 and PREP2 (until clock edge
+// of PREP2 for indirect), so decode is always correct during prep phases.
+// Reflects the ANLZ instruction table layout — see sigma7_cpu_design.md
+// ---------------------------------------------------------------------------
+wire        fa_row_00     = C[1:5] == 5'b0;
+wire        fa_rows_10_1f = C[3];
+wire        fa_rows_08_0f = C[3:4] == 2'b01;
+wire        fa_col_00     = C[1:2] == 2'b00;
+wire        fa_col_20     = C[1:2] == 2'b01;
+wire        fa_col_40     = C[1:2] == 2'b10;
+wire        fa_col_60     = C[1:2] == 2'b11;
+wire        fa_b          = fa_col_60 & fa_rows_10_1f;
+wire        fa_h          = fa_col_40 & fa_rows_10_1f;
+wire        fa_d          = fa_col_00 & (fa_rows_08_0f | fa_rows_10_1f);
+wire        fa_imm        = fa_row_00 & (fa_col_00 | fa_col_20);
+wire        fa_imm_b      = fa_row_00 & (fa_col_40 | fa_col_60);
+wire        fa_w          = ~fa_b & ~fa_h & ~fa_d & ~fa_imm & ~fa_imm_b;
+
+// Index register setup — uses C[12:14] (instruction X field)
+wire [2:0]  x_field   = C[12:14];
+wire [0:31] idx_reg   = RR[x_field];
+wire        indexed   = (x_field != 3'b0) & ~fa_imm & ~fa_imm_b;
+
+// Index-shifted value for A
+wire [0:31] idx_data  = fa_b ? {2'b00, idx_reg[0:29]} :
+                        fa_h ? {1'b0,  idx_reg[0:30]} :
+                               idx_reg;
+
+// Byte offset for P[32:33]
+wire [0:1]  idx_boff  = fa_b ? idx_reg[30:31] :
+                        fa_h ? {1'b0, idx_reg[31]} :
+                               2'b00;
+
+// ---------------------------------------------------------------------------
+// ALU — inputs are A and D (not C_mux); C_mux is only used to load registers
 // ---------------------------------------------------------------------------
 localparam ALU_ADD   = 3'd0;
 localparam ALU_SUB   = 3'd1;
@@ -124,7 +166,7 @@ localparam ALU_AND   = 3'd2;
 localparam ALU_OR    = 3'd3;
 localparam ALU_XOR   = 3'd4;
 localparam ALU_PASSA = 3'd5;  // S ← A
-localparam ALU_PASSD = 3'd6;  // S ← D (via C_mux)
+localparam ALU_PASSD = 3'd6;  // S ← D
 
 reg [2:0]  alu_op;
 reg [0:31] alu_out;
@@ -136,16 +178,16 @@ always @(*) begin
     alu_overflow = 1'b0;
     case (alu_op)
         ALU_ADD: begin
-            {alu_carry, alu_out} = {1'b0, A} + {1'b0, C_mux};
-            alu_overflow = (A[0] == C_mux[0]) && (alu_out[0] != A[0]);
+            {alu_carry, alu_out} = {1'b0, A} + {1'b0, D};
+            alu_overflow = (A[0] == D[0]) && (alu_out[0] != A[0]);
         end
         ALU_SUB: begin
-            {alu_carry, alu_out} = {1'b0, A} + {1'b0, ~C_mux} + 33'd1;
-            alu_overflow = (A[0] != C_mux[0]) && (alu_out[0] != A[0]);
+            {alu_carry, alu_out} = {1'b0, A} + {1'b0, ~D} + 33'd1;
+            alu_overflow = (A[0] != D[0]) && (alu_out[0] != A[0]);
         end
-        ALU_AND:   alu_out = A & C_mux;
-        ALU_OR:    alu_out = A | C_mux;
-        ALU_XOR:   alu_out = A ^ C_mux;
+        ALU_AND:   alu_out = A & D;
+        ALU_OR:    alu_out = A | D;
+        ALU_XOR:   alu_out = A ^ D;
         ALU_PASSA: alu_out = A;
         ALU_PASSD: alu_out = D;
         default:   alu_out = A;
@@ -161,6 +203,7 @@ localparam A_CMUX = 3'd2;
 localparam A_ALU  = 3'd3;
 localparam A_ZERO = 3'd4;
 localparam A_IMM  = 3'd5;
+localparam A_IDX  = 3'd6;  // A ← idx_data (shifted index register)
 
 localparam P_HOLD = 2'd0;
 localparam P_EA   = 2'd1;
@@ -177,6 +220,7 @@ localparam CC_COMPARE = 2'd2;
 reg [2:0]  A_sel;
 reg [1:0]  P_sel;
 reg [1:0]  CC_sel;
+reg [0:1]  p_byte_offset;  // byte offset for P[32:33] set during ENDE
 reg        D_sel;
 reg        O_sel;
 reg        R_sel;
@@ -207,14 +251,14 @@ end
 // ---------------------------------------------------------------------------
 always @(posedge clock) begin
     if (reset) begin
-        A  <= 32'b0;
-        C  <= 32'h02000000;
-        D  <= 32'h02000000;
-        O  <= 7'h02;
-        R  <= 4'h0;
-        P  <= 19'h00094;
-        Q  <= 17'h25;
-        CC <= 4'b0;
+        A         <= 32'b0;
+        C         <= 32'h02000000;
+        D         <= 32'h02000000;
+        O         <= 7'h02;
+        R         <= 4'h0;
+        P         <= 19'h00094;
+        Q         <= 17'h25;
+        CC        <= 4'b0;
     end else begin
         if (C_load) C <= bus_data_r;
         case (A_sel)
@@ -223,12 +267,13 @@ always @(posedge clock) begin
             A_ALU:  A <= alu_out;
             A_ZERO: A <= 32'b0;
             A_IMM:  A <= imm20;
+            A_IDX:  A <= idx_data;
             default: ;
         endcase
         case (P_sel)
-            P_EA:  P <= {alu_out[15:31], P[32:33]};  // EA from S[15:31]
+            P_EA:  P <= {alu_out[15:31], P[32:33]};         // EA from S[15:31]
             P_Q:   P <= {Q, 2'b00};
-            P_INC: P <= p_inc;
+            P_INC: P <= {p_inc[15:31], p_byte_offset};      // byte offset set by ENDE
             default: ;
         endcase
         case (CC_sel)
@@ -240,13 +285,13 @@ always @(posedge clock) begin
             end
             CC_COMPARE: begin
                 CC[1] <= 1'b0;
-                CC[2] <= |(A & C_mux);
+                CC[2] <= |(A & D);
                 CC[3] <= !alu_out[0] && |alu_out;
                 CC[4] <= alu_out[0];
             end
             default: ;
         endcase
-        if (D_sel) D <= bus_data_r;
+        if (D_sel) D <= C_mux;  // D ← C_mux (instruction in ENDE, operand in EX1, pointer in PREP2)
         if (O_sel) O <= bus_data_r[1:7];
         if (R_sel) R <= bus_data_r[8:11];
         if (Q_sel) Q <= P[15:31];   // Q ← next instruction word address (from P after increment)
@@ -268,13 +313,14 @@ end
 // ---------------------------------------------------------------------------
 always @(*) begin
     // Defaults
-    ende         = 1'b0;
-    phase_next   = {1'b0, phase[0:18]};  // default: advance to next phase
-    C_load       = 1'b0;
-    A_sel        = A_HOLD;
-    P_sel        = P_HOLD;
-    CC_sel       = CC_HOLD;
-    D_sel        = 1'b0;
+    ende           = 1'b0;
+    phase_next     = {1'b0, phase[0:18]};  // default: advance to next phase
+    C_load         = 1'b0;
+    A_sel          = A_HOLD;
+    P_sel          = P_HOLD;
+    CC_sel         = CC_HOLD;
+    p_byte_offset  = 2'b00;
+    D_sel          = 1'b0;
     O_sel        = 1'b0;
     R_sel        = 1'b0;
     Q_sel        = 1'b0;
@@ -306,56 +352,77 @@ always @(*) begin
         end
 
         // ------------------------------------------------------------------
-        // PREP1: Q ← P, S ← D (ALU_PASSD), present S[15:31] as EA on bus
-        //        When indexing added: A=RR[X], alu_op=ALU_ADD → S=A+D
+        // PREP1: Q ← P; set up A from index (RR now fresh after any EX write);
+        //        present reference address on bus (works for direct and indirect);
+        //        check I bit to decide PREP2 (indirect) or PREP3 (direct).
         // ------------------------------------------------------------------
         phase[2]: begin
-            Q_sel      = 1'b1;
-            alu_op     = ALU_PASSD;
-            bus_addr   = {alu_out[15:31], 2'b00};
-            phase_next = PREP3;
+            Q_sel = 1'b1;
+            if (indexed) begin
+                A_sel         = A_IDX;
+                p_byte_offset = idx_boff;
+            end else begin
+                A_sel         = A_ZERO;
+                p_byte_offset = 2'b00;
+            end
+            bus_addr = {C[15:31], 2'b00};   // reference address field
+            if (C[0]) phase_next = PREP2;   // indirect: resolve pointer
+            else      phase_next = PREP3;   // direct: compute EA
         end
 
         // ------------------------------------------------------------------
-        // PREP3: P[15:31] ← S[15:31], hold EA on bus → operand arrives EX1
+        // PREP2: indirect resolution — pointer arrives on bus
+        //        C_load and D_sel both fire: C and D ← pointer word
+        //        A and P[32:33] already set correctly in PREP1
+        //        Use C (registered instruction) for bus_addr to avoid
+        //        combinatorial path through memory output → C_mux → bus_addr
         // ------------------------------------------------------------------
         phase[3]: begin
-            alu_op   = ALU_PASSD;
-            P_sel    = P_EA;
+            C_load   = 1'b1;
+            D_sel    = 1'b1;                    // D ← C_mux = indirect pointer
+            bus_addr = {C[15:31], 2'b00};       // safe: C=instruction, breaks comb. path
+            // auto-shifts to PREP3
+        end
+
+        // ------------------------------------------------------------------
+        // PREP3: P[15:31] ← A+D (EA); present EA on bus → operand at EX1
+        // ------------------------------------------------------------------
+        phase[4]: begin
+            alu_op   = ALU_ADD;         // A + D = index + base
+            P_sel    = P_EA;            // P[15:31] ← alu_out[15:31]
             bus_addr = {alu_out[15:31], P[32:33]};
             // auto-shifts to EX1
         end
 
         // ------------------------------------------------------------------
-        // EX1
+        // EX1: operand arrives on bus; load C and D; load A from RR[R]
         // ------------------------------------------------------------------
-        phase[4]: begin
+        phase[5]: begin
             case (O)
                 OP_LCFI,
                 OP_LI: begin
-                    // Q ← P (save current instr word addr), present next instruction
-                    // Use p_inc (not next_ia) since Q is being loaded this cycle
                     Q_sel    = 1'b1;
                     bus_addr = p_inc;
                 end
                 OP_LW: begin
-                    C_load = 1'b1;    // C ← M[EA]
-                    A_sel  = A_CMUX;  // A ← C_mux
+                    C_load = 1'b1;      // C ← M[EA]
+                    A_sel  = A_CMUX;    // A ← M[EA] directly (simple load)
                 end
-                OP_STW: A_sel = A_RR; // A ← RR[R]
+                OP_STW: A_sel = A_RR;  // A ← RR[R]
                 OP_AW, OP_SW, OP_CW,
                 OP_AND, OP_OR, OP_EOR: begin
-                    C_load = 1'b1;    // C ← M[EA]
-                    A_sel  = A_RR;    // A ← RR[R]
+                    C_load = 1'b1;      // C ← M[EA]
+                    D_sel  = 1'b1;      // D ← C_mux = M[EA] (ALU second input)
+                    A_sel  = A_RR;      // A ← RR[R]
                 end
                 default: ;
             endcase
         end
 
         // ------------------------------------------------------------------
-        // EX2
+        // EX2: compute result using A and D; write RR; set CC; present next_ia
         // ------------------------------------------------------------------
-        phase[5]: begin
+        phase[6]: begin
             case (O)
                 OP_LCFI: ende = 1'b1;
 
@@ -369,7 +436,7 @@ always @(*) begin
                 end
 
                 OP_LW: begin
-                    alu_op   = ALU_PASSA;
+                    alu_op   = ALU_PASSA;   // alu_out = A = M[EA]
                     CC_sel   = CC_ARITH;
                     rr_data  = A;
                     rr_write = 1'b1;
@@ -384,7 +451,7 @@ always @(*) begin
                 end
 
                 OP_AW: begin
-                    alu_op   = ALU_ADD;
+                    alu_op   = ALU_ADD;     // A+D = RR[R]+M[EA]
                     A_sel    = A_ALU;
                     CC_sel   = CC_ARITH;
                     rr_data  = alu_out;
@@ -394,7 +461,7 @@ always @(*) begin
                 end
 
                 OP_SW: begin
-                    alu_op   = ALU_SUB;
+                    alu_op   = ALU_SUB;     // A-D = RR[R]-M[EA]
                     A_sel    = A_ALU;
                     CC_sel   = CC_ARITH;
                     rr_data  = alu_out;
@@ -446,10 +513,9 @@ always @(*) begin
         end
 
         // ------------------------------------------------------------------
-        // EX3: ENDE for LW/AW/SW/CW/AND/OR/EOR
-        //      Present next_ia for STW (bus now free after write)
+        // EX3: ENDE for LW/AW/SW/CW/AND/OR/EOR; present next_ia for STW
         // ------------------------------------------------------------------
-        phase[6]: begin
+        phase[7]: begin
             case (O)
                 OP_LW,
                 OP_AW, OP_SW, OP_CW,
@@ -467,7 +533,7 @@ always @(*) begin
         // ------------------------------------------------------------------
         // EX4: ENDE for STW
         // ------------------------------------------------------------------
-        phase[7]: begin
+        phase[8]: begin
             case (O)
                 OP_STW: ende = 1'b1;
                 default: ;
@@ -481,15 +547,17 @@ always @(*) begin
     // ------------------------------------------------------------------
     // ENDE: load next instruction, update P/Q/A, present reference address.
     // Fires from PCP5 (boot ENDE) or from EX phases (normal operation).
+    // Index register setup moved to PREP1 so freshly-written RR is available.
     // ------------------------------------------------------------------
     if (ende) begin
         // Load incoming instruction
-        C_load = 1'b1;
-        D_sel  = 1'b1;
-        O_sel  = 1'b1;
-        R_sel  = 1'b1;
-        A_sel  = A_ZERO;    // A ← 0 for EA calculation
-        P_sel  = P_INC;     // P ← p_inc
+        C_load        = 1'b1;
+        D_sel         = 1'b1;
+        O_sel         = 1'b1;
+        R_sel         = 1'b1;
+        A_sel         = A_ZERO;   // A ← 0; index setup done in PREP1
+        p_byte_offset = 2'b00;    // P[32:33] ← 00; byte offset set in PREP1
+        P_sel         = P_INC;    // P[15:31] ← p_inc[15:31], P[32:33] ← 00
 
         // C_mux is transparent: bus_data_r[15:31] available combinatorially
         bus_addr = {C_mux[15:31], 2'b00};

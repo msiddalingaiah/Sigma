@@ -383,8 +383,47 @@ async def test_cw(dut):
 
 
 # ---------------------------------------------------------------------------
-# Test: AI, LI, CI — Immediate
+# Test: Indexed addressing (X field)
 # ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_indexed(dut):
+    """Test LW and STW with indexed addressing."""
+    tr = TestResults("Indexed Addressing")
+    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
+
+    await init_memory(dut)
+    base = word_addr(0x400)   # word address of 0x400 = 0x100
+
+    # LI R5, base      → R5 = 0x100
+    # LW R1, 0(R5)     → EA = R5+0 = 0x100 → M[0x400] = 0x11111111
+    # LW R2, 1(R5)     → EA = R5+1 = 0x101 → M[0x404] = 0x22222222
+    # LI R6, 2         → R6 = 2
+    # LW R3, base(R6)  → EA = R6+base = 2+0x100=0x102 → M[0x408] = 0x33333333
+    # STW R1, 2(R5)    → EA = R5+2 = 0x102 → M[0x408] = R1 = 0x11111111
+    # LCFI             → halt
+    await write_word(dut, 0x098, encode_imm(OP_LI,  r=5, imm=base))
+    await write_word(dut, 0x09C, encode(OP_LW,  r=1, x=5, addr=0))
+    await write_word(dut, 0x0A0, encode(OP_LW,  r=2, x=5, addr=1))
+    await write_word(dut, 0x0A4, encode_imm(OP_LI,  r=6, imm=2))
+    await write_word(dut, 0x0A8, encode(OP_LW,  r=3, x=6, addr=base))
+    await write_word(dut, 0x0AC, encode(OP_STW, r=1, x=5, addr=2))
+    await write_word(dut, 0x0B0, encode(OP_LCFI, r=0))
+    await write_word(dut, 0x400, 0x11111111)
+    await write_word(dut, 0x404, 0x22222222)
+    await write_word(dut, 0x408, 0x33333333)
+
+    await reset_cpu(dut)
+    await run_cycles(dut, 120)
+
+    tr.check("LW R1 indexed base+0",   rr(dut, 1).value, 0x11111111)
+    tr.check("LW R2 indexed base+1",   rr(dut, 2).value, 0x22222222)
+    tr.check("LW R3 indexed R6+base",  rr(dut, 3).value, 0x33333333)
+    result = await read_word(dut, 0x408)
+    tr.check("STW R1 indexed base+2",  result,            0x11111111)
+    tr.summary()
+
+
+
 @cocotb.test(skip=True)
 async def test_immediate(dut):
     """Test AI, LI, CI."""
