@@ -6,24 +6,16 @@
 // The cycle before ENDE always presents the next instruction address on bus_addr.
 //
 // Phase sequence (direct memory-reference instruction):
-//   EX(n-1): P←{Q,00}, bus_addr←next_ia
-//   EX(n)/ENDE: C/D/O/R←instr, A←0, P←p_inc, bus_addr←{C[15:31],00} → PREP1
-//   PREP1: Q←P, A←idx(if indexed), bus_addr←{C[15:31],00} → PREP3
-//   PREP3: P[15:31]←A+D, bus_addr←{A+D[15:31],P[32:33]}   → EX1
-//   EX1:   C/D←M[EA], A←RR[R]                              → EX2
-//   EX2:   alu_out←A+D, RR[R]←alu_out, bus_addr←next_ia   → EX3/ENDE
-//
-// Phase sequence (indirect memory-reference instruction):
-//   ...ENDE → PREP1: as above but phase_next=PREP2
-//   PREP2: C/D←pointer, bus_addr←{C_mux[15:31],00}         → PREP3
-//   PREP3: P[15:31]←A+D(indexed EA), ...                    → EX1
+//   EX1: C/D←M[EA], A←RR[R]
+//   EX2: P←{Q,00} (so p_inc=next instr in ENDE), alu_out←A+D, RR[R]←result → EX3/ENDE
+//   EX3/ENDE: p_inc=next instr, Q←P[15:31], bus_addr←{Q,00}
 //
 // Phase sequence (immediate instruction):
-//   ...ENDE → EX1: Q←P, bus_addr←p_inc                     → EX2/ENDE
+//   EX1: Q←P, P←{Q,00} (so p_inc=next instr in ENDE)          → EX2/ENDE
 //
 // Boot sequence:
-//   PCP4: bus_addr←p_inc                                    → PCP5
-//   PCP5: ENDE fires                                         → PREP1/EX1
+//   PCP4: bus_addr←p_inc                                        → PCP5
+//   PCP5: ENDE fires                                            → PREP1/EX1
 //
 // Supported instructions: LCFI, LI, LW, STW, AW, SW, CW, AND, OR, EOR
 
@@ -119,7 +111,6 @@ wire [0:31] C_mux = C_load ? bus_data_r : C;
 // Computed values
 // ---------------------------------------------------------------------------
 wire [15:33] p_inc   = P + 19'd4;
-wire [15:33] next_ia = {Q + 17'd1, 2'b00};
 wire [0:31]  imm20   = {{12{D[12]}}, D[12:31]};
 
 // ---------------------------------------------------------------------------
@@ -294,7 +285,7 @@ always @(posedge clock) begin
         if (D_sel) D <= C_mux;  // D ← C_mux (instruction in ENDE, operand in EX1, pointer in PREP2)
         if (O_sel) O <= bus_data_r[1:7];
         if (R_sel) R <= bus_data_r[8:11];
-        if (Q_sel) Q <= P[15:31];   // Q ← next instruction word address (from P after increment)
+        if (Q_sel) Q <= P[15:31];  // Q ← next instruction word address (P=p_inc after ENDE)
     end
 end
 
@@ -327,7 +318,7 @@ always @(*) begin
     rr_write     = 1'b0;
     rr_data      = 32'b0;
     alu_op       = ALU_PASSA;
-    bus_addr     = {Q, 2'b00};
+    bus_addr     = {P[15:31], 2'b00};   // default: hold current address
     bus_data_w   = 32'b0;
     cpu_write    = 1'b0;
 
@@ -357,7 +348,7 @@ always @(*) begin
         //        check I bit to decide PREP2 (indirect) or PREP3 (direct).
         // ------------------------------------------------------------------
         phase[2]: begin
-            Q_sel = 1'b1;
+            Q_sel = 1'b1;                   // Q ← P[15:31] = IA word address
             if (indexed) begin
                 A_sel         = A_IDX;
                 p_byte_offset = idx_boff;
@@ -401,8 +392,10 @@ always @(*) begin
             case (O)
                 OP_LCFI,
                 OP_LI: begin
+                    // P holds IA (set by previous ENDE, unchanged since immediate skips PREP3)
+                    // Q ← P[15:31] = IA word address; bus presents IA for ENDE fetch
                     Q_sel    = 1'b1;
-                    bus_addr = p_inc;
+                    bus_addr = {P[15:31], 2'b00};  // = IA; use P since Q not yet updated
                 end
                 OP_LW: begin
                     C_load = 1'b1;      // C ← M[EA]
@@ -420,7 +413,7 @@ always @(*) begin
         end
 
         // ------------------------------------------------------------------
-        // EX2: compute result using A and D; write RR; set CC; present next_ia
+        // EX2: compute result using A and D; write RR; set CC
         // ------------------------------------------------------------------
         phase[6]: begin
             case (O)
@@ -436,12 +429,12 @@ always @(*) begin
                 end
 
                 OP_LW: begin
-                    alu_op   = ALU_PASSA;   // alu_out = A = M[EA]
+                    alu_op   = ALU_PASSA;
                     CC_sel   = CC_ARITH;
                     rr_data  = A;
                     rr_write = 1'b1;
                     P_sel    = P_Q;
-                    bus_addr = next_ia;
+                    bus_addr = {Q, 2'b00};
                 end
 
                 OP_STW: begin
@@ -451,23 +444,23 @@ always @(*) begin
                 end
 
                 OP_AW: begin
-                    alu_op   = ALU_ADD;     // A+D = RR[R]+M[EA]
+                    alu_op   = ALU_ADD;
                     A_sel    = A_ALU;
                     CC_sel   = CC_ARITH;
                     rr_data  = alu_out;
                     rr_write = 1'b1;
                     P_sel    = P_Q;
-                    bus_addr = next_ia;
+                    bus_addr = {Q, 2'b00};
                 end
 
                 OP_SW: begin
-                    alu_op   = ALU_SUB;     // A-D = RR[R]-M[EA]
+                    alu_op   = ALU_SUB;
                     A_sel    = A_ALU;
                     CC_sel   = CC_ARITH;
                     rr_data  = alu_out;
                     rr_write = 1'b1;
                     P_sel    = P_Q;
-                    bus_addr = next_ia;
+                    bus_addr = {Q, 2'b00};
                 end
 
                 OP_CW: begin
@@ -475,7 +468,7 @@ always @(*) begin
                     A_sel    = A_ALU;
                     CC_sel   = CC_COMPARE;
                     P_sel    = P_Q;
-                    bus_addr = next_ia;
+                    bus_addr = {Q, 2'b00};
                 end
 
                 OP_AND: begin
@@ -485,7 +478,7 @@ always @(*) begin
                     rr_data  = alu_out;
                     rr_write = 1'b1;
                     P_sel    = P_Q;
-                    bus_addr = next_ia;
+                    bus_addr = {Q, 2'b00};
                 end
 
                 OP_OR: begin
@@ -495,7 +488,7 @@ always @(*) begin
                     rr_data  = alu_out;
                     rr_write = 1'b1;
                     P_sel    = P_Q;
-                    bus_addr = next_ia;
+                    bus_addr = {Q, 2'b00};
                 end
 
                 OP_EOR: begin
@@ -505,7 +498,7 @@ always @(*) begin
                     rr_data  = alu_out;
                     rr_write = 1'b1;
                     P_sel    = P_Q;
-                    bus_addr = next_ia;
+                    bus_addr = {Q, 2'b00};
                 end
 
                 default: ;
@@ -513,7 +506,7 @@ always @(*) begin
         end
 
         // ------------------------------------------------------------------
-        // EX3: ENDE for LW/AW/SW/CW/AND/OR/EOR; present next_ia for STW
+        // EX3: ENDE for LW/AW/SW/CW/AND/OR/EOR; restore P for STW
         // ------------------------------------------------------------------
         phase[7]: begin
             case (O)
@@ -523,7 +516,7 @@ always @(*) begin
 
                 OP_STW: begin
                     P_sel    = P_Q;
-                    bus_addr = next_ia;
+                    bus_addr = {Q, 2'b00};
                 end
 
                 default: ;
@@ -556,11 +549,11 @@ always @(*) begin
         O_sel         = 1'b1;
         R_sel         = 1'b1;
         A_sel         = A_ZERO;   // A ← 0; index setup done in PREP1
-        p_byte_offset = 2'b00;    // P[32:33] ← 00; byte offset set in PREP1
-        P_sel         = P_INC;    // P[15:31] ← p_inc[15:31], P[32:33] ← 00
+        p_byte_offset = 2'b00;
+        P_sel         = P_INC;    // P ← p_inc = next instruction byte address
+        // bus_addr not critical here — next instruction already fetched
 
-        // Use Q (registered) for bus_addr to avoid combinatorial path through C_mux
-        bus_addr = {Q, 2'b00};
+        bus_addr = {Q, 2'b00};  // hold current instruction address (next instr already fetched)
 
         // Next phase based on incoming instruction opcode
         casez (bus_data_r[1:7])
