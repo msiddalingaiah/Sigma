@@ -28,7 +28,7 @@ module Sigma7CPU (
     input  wire [0:31] bus_data_r,
     output reg  [0:31] bus_data_w,
     output reg         cpu_write,
-    output wire [0:1]  bus_size
+    output reg  [0:1]  bus_size
 );
 
 // ---------------------------------------------------------------------------
@@ -41,9 +41,13 @@ localparam OP_CW   = 7'h31;
 localparam OP_LW   = 7'h32;
 localparam OP_STW  = 7'h35;
 localparam OP_SW   = 7'h38;
+localparam OP_LH   = 7'h52;
+localparam OP_STH  = 7'h55;
 localparam OP_AND  = 7'h4B;
 localparam OP_OR   = 7'h49;
 localparam OP_EOR  = 7'h48;
+localparam OP_LB   = 7'h72;
+localparam OP_STB  = 7'h75;
 
 // ---------------------------------------------------------------------------
 // Phase register (one-hot, bit 0 = PCP4 = MSB)
@@ -145,7 +149,7 @@ wire [0:31] idx_data  = fa_b ? {2'b00, idx_reg[0:29]} :
 
 // Byte offset for P[32:33]
 wire [0:1]  idx_boff  = fa_b ? idx_reg[30:31] :
-                        fa_h ? {1'b0, idx_reg[31]} :
+                        fa_h ? {idx_reg[31], 1'b0} :  // halfword: P[32]=select, P[33]=0
                                2'b00;
 
 // ---------------------------------------------------------------------------
@@ -188,13 +192,14 @@ end
 // ---------------------------------------------------------------------------
 // Sel constants
 // ---------------------------------------------------------------------------
-localparam A_HOLD = 3'd0;
-localparam A_RR   = 3'd1;
-localparam A_CMUX = 3'd2;
-localparam A_ALU  = 3'd3;
-localparam A_ZERO = 3'd4;
-localparam A_IMM  = 3'd5;
-localparam A_IDX  = 3'd6;  // A ← idx_data (shifted index register)
+localparam A_HOLD   = 3'd0;
+localparam A_RR     = 3'd1;
+localparam A_CMUX   = 3'd2;
+localparam A_ALU    = 3'd3;
+localparam A_ZERO   = 3'd4;
+localparam A_IMM    = 3'd5;
+localparam A_IDX    = 3'd6;  // A ← idx_data (shifted index register)
+localparam A_SEXT_H = 3'd7;  // A ← sign-extended C_mux[16:31]
 
 localparam P_HOLD = 2'd0;
 localparam P_EA   = 2'd1;
@@ -224,7 +229,6 @@ reg [0:19] phase_next;
 // ---------------------------------------------------------------------------
 // Bus outputs
 // ---------------------------------------------------------------------------
-assign bus_size    = 2'b10;
 assign cpu_release = 1'b0;
 
 // ---------------------------------------------------------------------------
@@ -253,16 +257,17 @@ always @(posedge clock) begin
     end else begin
         if (C_load) C <= bus_data_r;
         case (A_sel)
-            A_RR:   A <= RR[R];
-            A_CMUX: A <= C_mux;
-            A_ALU:  A <= alu_out;
-            A_ZERO: A <= 32'b0;
-            A_IMM:  A <= imm20;
-            A_IDX:  A <= idx_data;
+            A_RR:     A <= RR[R];
+            A_CMUX:   A <= C_mux;
+            A_ALU:    A <= alu_out;
+            A_ZERO:   A <= 32'b0;
+            A_IMM:    A <= imm20;
+            A_IDX:    A <= idx_data;
+            A_SEXT_H: A <= {{16{C_mux[16]}}, C_mux[16:31]};  // sign-extend halfword
             default: ;
         endcase
         case (P_sel)
-            P_EA:  P <= {alu_out[15:31], P[32:33]};         // EA from S[15:31]
+            P_EA:  P <= {alu_out[15:31], p_byte_offset};   // EA: word from ALU, byte offset from index
             P_Q:   P <= {Q, 2'b00};
             P_INC: P <= {p_inc[15:31], p_byte_offset};      // byte offset set by ENDE
             default: ;
@@ -321,6 +326,7 @@ always @(*) begin
     bus_addr     = {P[15:31], 2'b00};   // default: hold current address
     bus_data_w   = 32'b0;
     cpu_write    = 1'b0;
+    bus_size     = 2'b10;   // default: word
 
     case (1'b1)
 
@@ -379,10 +385,15 @@ always @(*) begin
         // PREP3: P[15:31] ← A+D (EA); present EA on bus → operand at EX1
         // ------------------------------------------------------------------
         phase[4]: begin
-            alu_op   = ALU_ADD;         // A + D = index + base
-            P_sel    = P_EA;            // P[15:31] ← alu_out[15:31]
-            bus_addr = {alu_out[15:31], P[32:33]};
-            // auto-shifts to EX1
+            alu_op        = ALU_ADD;
+            P_sel         = P_EA;
+            p_byte_offset = idx_boff;  // C still holds instruction → fa_ decode correct
+            bus_addr      = {alu_out[15:31], idx_boff};  // full byte address on bus
+            case (O)
+                OP_LH, OP_STH: bus_size = 2'b01;
+                OP_LB, OP_STB: bus_size = 2'b00;
+                default:       bus_size = 2'b10;
+            endcase
         end
 
         // ------------------------------------------------------------------
@@ -398,10 +409,22 @@ always @(*) begin
                     bus_addr = {P[15:31], 2'b00};  // = IA; use P since Q not yet updated
                 end
                 OP_LW: begin
-                    C_load = 1'b1;      // C ← M[EA]
-                    A_sel  = A_CMUX;    // A ← M[EA] directly (simple load)
+                    C_load = 1'b1;
+                    A_sel  = A_CMUX;    // A ← M[EA] (word, zero-extended by memory)
                 end
-                OP_STW: A_sel = A_RR;  // A ← RR[R]
+                OP_LH: begin
+                    C_load   = 1'b1;
+                    bus_size = 2'b01;   // halfword read
+                    A_sel    = A_SEXT_H; // A ← sign-extended C_mux[16:31]
+                end
+                OP_LB: begin
+                    C_load   = 1'b1;
+                    bus_size = 2'b00;   // byte read
+                    A_sel    = A_CMUX;  // A ← C_mux (byte in bits 24:31, 0-extended by memory)
+                end
+                OP_STW: A_sel = A_RR;
+                OP_STH,
+                OP_STB: A_sel = A_RR;  // A ← RR[R]; write happens in EX2
                 OP_AW, OP_SW, OP_CW,
                 OP_AND, OP_OR, OP_EOR: begin
                     C_load = 1'b1;      // C ← M[EA]
@@ -437,9 +460,41 @@ always @(*) begin
                     bus_addr = {Q, 2'b00};
                 end
 
+                OP_LH: begin
+                    alu_op   = ALU_PASSA;
+                    CC_sel   = CC_ARITH;
+                    rr_data  = A;
+                    rr_write = 1'b1;
+                    P_sel    = P_Q;
+                    bus_addr = {Q, 2'b00};
+                end
+
+                OP_LB: begin
+                    alu_op   = ALU_PASSA;
+                    CC_sel   = CC_ARITH;
+                    rr_data  = A;
+                    rr_write = 1'b1;
+                    P_sel    = P_Q;
+                    bus_addr = {Q, 2'b00};
+                end
+
                 OP_STW: begin
                     bus_addr   = P;
                     bus_data_w = A;
+                    cpu_write  = 1'b1;
+                end
+
+                OP_STH: begin
+                    bus_addr   = P;
+                    bus_data_w = A;         // memory takes bits 16:31
+                    bus_size   = 2'b01;     // halfword write
+                    cpu_write  = 1'b1;
+                end
+
+                OP_STB: begin
+                    bus_addr   = P;
+                    bus_data_w = A;         // memory takes bits 24:31
+                    bus_size   = 2'b00;     // byte write
                     cpu_write  = 1'b1;
                 end
 
@@ -506,15 +561,15 @@ always @(*) begin
         end
 
         // ------------------------------------------------------------------
-        // EX3: ENDE for LW/AW/SW/CW/AND/OR/EOR; restore P for STW
+        // EX3: ENDE for LW/LH/LB/AW/SW/CW/AND/OR/EOR; restore P for stores
         // ------------------------------------------------------------------
         phase[7]: begin
             case (O)
-                OP_LW,
+                OP_LW, OP_LH, OP_LB,
                 OP_AW, OP_SW, OP_CW,
                 OP_AND, OP_OR, OP_EOR: ende = 1'b1;
 
-                OP_STW: begin
+                OP_STW, OP_STH, OP_STB: begin
                     P_sel    = P_Q;
                     bus_addr = {Q, 2'b00};
                 end
@@ -524,11 +579,11 @@ always @(*) begin
         end
 
         // ------------------------------------------------------------------
-        // EX4: ENDE for STW
+        // EX4: ENDE for STW/STH/STB
         // ------------------------------------------------------------------
         phase[8]: begin
             case (O)
-                OP_STW: ende = 1'b1;
+                OP_STW, OP_STH, OP_STB: ende = 1'b1;
                 default: ;
             endcase
         end

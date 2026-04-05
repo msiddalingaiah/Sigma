@@ -424,7 +424,92 @@ async def test_indexed(dut):
 
 
 
-@cocotb.test(skip=True)
+# ---------------------------------------------------------------------------
+# Test: LH, STH — Halfword load/store with indexing
+# ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_halfword(dut):
+    """Test LH and STH — sign extension, halfword select via index low bit."""
+    tr = TestResults("Halfword Load/Store")
+    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
+
+    await init_memory(dut)
+    # Word at 0x400: high HW = 0x8000 (negative), low HW = 0x0005 (positive)
+    # LH R1, word_addr(0x400)      → P[32:33]=00 → high HW = 0x8000
+    #                                R1 = sign_ext(0x8000) = 0xFFFF8000, CC4=1
+    # LI R6, 1                     → R6 = 1 (odd → idx_boff={1,0} → P[32:33]=10)
+    # LH R2, word_addr(0x400)(R6)  → EA word=0x100, P[32:33]=10 → low HW = 0x0005
+    #                                R2 = sign_ext(0x0005) = 0x00000005
+    # STH R2, word_addr(0x404)     → high HW of 0x404 = 0x0005, low HW unchanged
+    # LCFI                         → halt
+    await write_word(dut, 0x098, encode_imm(OP_LI, r=6, imm=1))
+    await write_word(dut, 0x09C, encode(OP_LH,   r=2, x=6, addr=word_addr(0x400)))
+    await write_word(dut, 0x0A0, encode(OP_STH,  r=2, addr=word_addr(0x404)))
+    # LI R7, 4: idx_data=4>>1=2 (word offset), idx_boff={4[31],0}={0,0}=00
+    # LH R3, word_addr(0x400)(R7) → EA word = 2+0x100=0x102, P[32:33]=00 → byte 0x408 high HW
+    await write_word(dut, 0x0A4, encode_imm(OP_LI, r=7, imm=4))
+    await write_word(dut, 0x0A8, encode(OP_LH,   r=3, x=7, addr=word_addr(0x400)))
+    await write_word(dut, 0x0AC, encode(OP_LH,   r=1, addr=word_addr(0x400)))  # last: sets CC
+    await write_word(dut, 0x0B0, encode(OP_LCFI, r=0))
+    await write_halfword(dut, 0x408, 0x1234)
+    await write_halfword(dut, 0x400, 0x8000)
+    await write_halfword(dut, 0x402, 0x0005)
+    await write_word(dut, 0x404, 0xDEADBEEF)
+
+    await reset_cpu(dut)
+    await run_cycles(dut, 160)
+
+    tr.check("LH R2 low HW (indexed)",  rr(dut, 2).value, 0x00000005)
+    tr.check("LH R3 word-indexed HW",   rr(dut, 3).value, 0x00001234)
+    result = await read_word(dut, 0x404)
+    tr.check("STH M.H[0x404]=0x0005",   result,            0x0005BEEF)
+    tr.check("LH R1 sign-ext neg",      rr(dut, 1).value, 0xFFFF8000)
+    tr.check_bool("LH R1 CC4=1",        cc_neg(dut.sys.cpu.CC.value), True)
+    tr.summary()
+
+
+# ---------------------------------------------------------------------------
+# Test: LB, STB — Byte load/store with indexing
+# ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_byte(dut):
+    """Test LB and STB — zero extension, byte select via index low 2 bits."""
+    tr = TestResults("Byte Load/Store")
+    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
+
+    await init_memory(dut)
+    # Word at 0x400: bytes = 0xAB 0xCD 0xEF 0x01
+    # LB R1, word_addr(0x400)      → P[32:33]=00 → byte 0 = 0xAB, R1=0x000000AB
+    # LI R7, 2                     → R7=2 → idx_boff=idx_reg[30:31]=10 → P[32:33]=10
+    # LB R2, word_addr(0x400)(R7)  → EA word=0x100, P[32:33]=10 → byte 2=0xEF
+    #                                R2 = 0x000000EF
+    # STB R1, word_addr(0x404)     → byte 0 of 0x404 = 0xAB
+    # LCFI                         → halt
+    await write_word(dut, 0x098, encode(OP_LB,   r=1, addr=word_addr(0x400)))
+    await write_word(dut, 0x09C, encode_imm(OP_LI, r=7, imm=2))
+    await write_word(dut, 0x0A0, encode(OP_LB,   r=2, x=7, addr=word_addr(0x400)))
+    # LI R3, 10: idx_data=10>>2=2 (word offset), idx_boff=10[30:31]=10 → byte 2 of word 0x102 = 0x40A = 0x33
+    await write_word(dut, 0x0A4, encode_imm(OP_LI, r=3, imm=10))
+    await write_word(dut, 0x0A8, encode(OP_LB,   r=4, x=3, addr=word_addr(0x400)))
+    await write_word(dut, 0x0AC, encode(OP_STB,  r=1, addr=word_addr(0x404)))
+    await write_word(dut, 0x0B0, encode(OP_LCFI, r=0))
+    await write_word(dut, 0x400, 0xABCDEF01)
+    await write_word(dut, 0x404, 0xDEADBEEF)
+    await write_word(dut, 0x408, 0x11223344)
+
+    await reset_cpu(dut)
+    await run_cycles(dut, 160)
+
+    tr.check("LB R1 byte 0 = 0xAB",     rr(dut, 1).value, 0x000000AB)
+    tr.check_bool("LB CC3=1",           cc_pos(dut.sys.cpu.CC.value), True)
+    tr.check("LB R2 byte 2 = 0xEF",     rr(dut, 2).value, 0x000000EF)
+    tr.check("LB R4 word+byte indexed", rr(dut, 4).value, 0x00000033)  # byte 2 of 0x408 = 0x33
+    result = await read_word(dut, 0x404)
+    tr.check("STB M.B[0x404]=0xAB",     result,            0xABADBEEF)
+    tr.summary()
+
+
+
 async def test_immediate(dut):
     """Test AI, LI, CI."""
     tr = TestResults("Immediate Instructions")
@@ -500,65 +585,6 @@ async def test_lw_indirect(dut):
     await run_cycles(dut, 40)
 
     tr.check("LW indirect RR[1]", rr(dut, 1).value, 0x55AA55AA)
-    tr.summary()
-
-
-# ---------------------------------------------------------------------------
-# Test: LH, STH — Halfword
-# ---------------------------------------------------------------------------
-@cocotb.test(skip=True)
-async def test_halfword(dut):
-    """Test LH and STH."""
-    tr = TestResults("Halfword Load/Store")
-    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
-
-    await load_program(dut, 0x000, [
-        encode(OP_LH,   r=1, addr=word_addr(0x400)),
-        encode(OP_LH,   r=2, addr=word_addr(0x402)),
-        encode(OP_STH,  r=2, addr=word_addr(0x404)),
-        encode(OP_LCFI, r=0),
-    ])
-    await write_halfword(dut, 0x400, 0x8000)
-    await write_halfword(dut, 0x402, 0x0005)
-
-    await reset_cpu(dut)
-    await run_cycles(dut, 60)
-
-    tr.check("LH neg sext",  rr(dut, 1).value, 0xFFFF8000)
-    tr.check("LH pos",       rr(dut, 2).value, 0x00000005)
-    tr.check_bool("LH CC4",  cc_neg(dut.sys.cpu.CC.value), True)
-
-    b0 = await read_byte(dut, 0x404)
-    b1 = await read_byte(dut, 0x405)
-    tr.check("STH M[0x404]", (b0 << 8) | b1, 0x0005)
-    tr.summary()
-
-
-# ---------------------------------------------------------------------------
-# Test: LB, STB — Byte
-# ---------------------------------------------------------------------------
-@cocotb.test(skip=True)
-async def test_byte(dut):
-    """Test LB and STB."""
-    tr = TestResults("Byte Load/Store")
-    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
-
-    await load_program(dut, 0x000, [
-        encode(OP_LB,   r=1, addr=word_addr(0x400)),
-        encode(OP_STB,  r=1, addr=word_addr(0x404)),
-        encode(OP_LCFI, r=0),
-    ])
-    await write_byte(dut, 0x400, 0xAB)
-
-    await reset_cpu(dut)
-    await run_cycles(dut, 40)
-
-    tr.check("LB RR[1]=0xAB", rr(dut, 1).value, 0x000000AB)
-    tr.check_bool("LB CC4=0", cc_neg(dut.sys.cpu.CC.value), False)
-    tr.check_bool("LB CC3=1", cc_pos(dut.sys.cpu.CC.value), True)
-
-    b = await read_byte(dut, 0x404)
-    tr.check("STB M[0x404]", b, 0xAB)
     tr.summary()
 
 
