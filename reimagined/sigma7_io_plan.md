@@ -224,15 +224,15 @@ The monitor would be built on three low-level primitives:
 
 ## Development Sequence
 
-1. **Implement RD and WD** in the CPU Verilog with `io_select` signal
-2. **Implement Console module** — simulation version first using `$fgetc`/`$fputc`
-3. **Wire into Sigma7System** — I/O decoder alongside memory
-4. **Write and test GETCHAR/PUTCHAR primitives** in cocotb simulation
-5. **Write the monitor** in Sigma 7 assembly, load via testbench
-6. **Self-checking tests** — programs that verify instruction correctness and
-   report pass/fail via the console
-7. **ICE40 port** — replace simulation console with UART RTL, synthesize,
-   verify on hardware
+1. ~~**Implement RD and WD**~~ ✓ — CPU Verilog with `io_select` signal
+2. ~~**Implement Console module**~~ ✓ — simulation version using `$fwrite`/`$fgetc`
+3. ~~**Wire into Sigma7System**~~ ✓ — I/O decoder alongside memory
+4. ~~**Write Python assembler**~~ ✓ — `sigma7asm.py` with two-pass assembly
+5. ~~**Write and test banner program**~~ ✓ — "Sigma 7 Monitor" printed and verified
+6. **Write GETCHAR/PUTCHAR/PUTS primitives** — in Sigma 7 assembly (PUTS implemented in banner)
+7. **Write the monitor command loop** — read line, parse, dispatch
+8. **Self-checking tests** — programs that verify instruction correctness via console
+9. **ICE40 port** — replace simulation console with UART RTL, synthesize
 
 ---
 

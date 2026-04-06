@@ -1,0 +1,59 @@
+* ==========================================================================
+* SDS/Xerox Sigma 7 Monitor — Banner
+* ==========================================================================
+
+* I/O device addresses
+CONDAT  EQU     0x1001          ; console data register
+CONSTS  EQU     0x1002          ; console status register
+
+* TX ready bit: bit 30 of status = value 2 in big-endian
+* BCR R=2 branches if CC AND 2 = 0 (TX not ready)
+* BCS R=2 branches if CC AND 2 != 0 (TX ready)
+TXRDY   EQU     2
+
+        ORG     0x26            ; byte 0x098 = boot address
+
+* --------------------------------------------------------------------------
+* MAIN — print banner then halt
+* R6 = pointer to string (byte address)
+* --------------------------------------------------------------------------
+MAIN    LI      R6  BA(BANNER)  ; R6 = byte address of banner
+        BAL     R7  PUTS        ; call PUTS
+        LCFI                    ; halt
+
+* --------------------------------------------------------------------------
+* PUTS — print null-terminated string to console
+* Entry:  R6 = byte address of string
+* Uses:   R1 (char), R2 (status)
+* Modifies: R1, R2, R6
+* --------------------------------------------------------------------------
+PUTS
+TXWAIT  RD      R2  CONSTS      ; read status
+        AND     R2  TXMASK      ; isolate TX ready bit
+        BCR     2   TXWAIT      ; loop if TX not ready (AND result = 0 → CC3=0)
+        LB      R1  0  R6       ; load byte at [R6]
+        CI      R1  0           ; compare with null
+        BCS     8   PUTSDONE    ; branch if equal (CC=0 → all clear... )
+*                               ; Hmm: CI sets CC3 if R1>0, CC=0 if R1==0
+*                               ; BCR 0 = unconditional, BCS 0 = no-op
+*                               ; We want: branch if CC=0 (zero result)
+*                               ; BCR with mask covering CC3+CC4 = mask 3
+*                               ; if R1==0: CC3=0,CC4=0 → CC AND 3 = 0 → BCR taken
+        BCR     3   PUTSDONE    ; branch if char == 0 (CC3=CC4=0)
+        WD      R1  CONDAT      ; output char
+        AI      R6  1           ; advance byte pointer
+        BCR     0   PUTS        ; loop (unconditional)
+PUTSDONE BCR    0   0  R7       ; return via R7
+
+* --------------------------------------------------------------------------
+* Constants
+* --------------------------------------------------------------------------
+TXMASK  DC      TXRDY
+
+* --------------------------------------------------------------------------
+* Banner string
+* --------------------------------------------------------------------------
+BANNER  DB      'Sigma 7 Monitor'
+        DB      0x0D 0x0A 0x00  ; CR LF NUL
+
+        END

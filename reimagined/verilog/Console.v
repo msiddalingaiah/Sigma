@@ -71,10 +71,22 @@ end
 
 // ---------------------------------------------------------------------------
 // Write: $fputc when CPU writes to data register
+// Also write to capture file for test verification
 // ---------------------------------------------------------------------------
+integer stdout_fd;
+integer capture_fd;
+
+initial begin
+    stdout_fd  = 'h8000_0001;  // stdout
+    capture_fd = $fopen("console_output.txt", "w");
+end
+
 always @(posedge clock) begin
-    if (io_select & io_write & (io_addr[15:31] == ADDR_DATA))
-        $fwrite('h8000_0001, "%c", io_data_w[24:31]);  // stdout
+    if (io_select & io_write & (io_addr[15:31] == ADDR_DATA)) begin
+        $fwrite(stdout_fd,  "%c", io_data_w[24:31]);
+        $fwrite(capture_fd, "%c", io_data_w[24:31]);
+        $fflush(capture_fd);
+    end
 end
 
 endmodule

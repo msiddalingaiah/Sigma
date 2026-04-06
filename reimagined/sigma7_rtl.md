@@ -307,26 +307,94 @@ EX4/ENDE:
 ```
 *STB does not update CC.*
 
+### AI — Add Immediate (0x20)
+
+Immediate (ENDE → EX1). D is loaded with imm20 in EX1 alongside A←RR[r].
+
+```
+EX1:   A←RR[r]; D←imm20; Q_sel; bus_addr←{P[15:31],00}
+EX2/ENDE: alu_out←A+D; RR[r]←alu_out; CC←CC_ARITH(alu_out)
+```
+
+### CI — Compare Immediate (0x21)
+
+```
+EX1:   A←RR[r]; D←imm20; Q_sel; bus_addr←{P[15:31],00}
+EX2/ENDE: alu_out←A-D; CC←CC_COMPARE(A,D,alu_out)
+```
+*CI does not write back to RR.*
+
+### BCR — Branch on Conditions Reset (0x68)
+
+Branch taken when CC AND R = 0. R=0 → unconditional branch.
+
+```
+PREP1-3: EA → P
+EX1 (taken):     bus_addr←{P[15:31],00}     ; present EA; P unchanged (=EA)
+EX1 (not taken): P_sel←P_Q; bus_addr←{Q,00} ; restore P=IA, present IA
+EX2:             (pass through)
+EX3/ENDE: ENDE fires; P←P+4
+          taken:     P was EA → p_inc = EA+4 ✓
+          not taken: P was IA → p_inc = IA+4 ✓
+```
+
+### BCS — Branch on Conditions Set (0x69)
+
+Branch taken when CC AND R ≠ 0. R=0 → effective no-op.
+
+Same phase sequence as BCR with inverted condition.
+
+### BAL — Branch and Link (0x6A)
+
+Always branches. Saves return word address in RR[r]. One fewer EX cycle than BCR/BCS since branch is unconditional — no fall-through path needed.
+
+```
+PREP1-3: EA → P
+EX1:   RR[r] ← {15'b0, Q}     ; Q = IA word address = return address
+       bus_addr ← {P[15:31],00} ; present EA; P unchanged (=EA)
+EX2/ENDE: ENDE fires; P←EA+4  ; first instruction of subroutine
+```
+
+Return via: `BCR 0, 0, Rr` — unconditional branch to address in RR[r].
+
+### RD — Read Direct (0x6C)
+
+Reads 32 bits from an I/O device into RR[r]. Phase sequence mirrors LW but with `io_select=1` asserted during EX phases. Data register returns character in bits 24:31. CC set from value read.
+
+```
+PREP1-3: EA → P (device address)
+EX1:   io_select; C_load; A←C_mux   ; read from device (data arrives)
+EX2:   RR[r]←A; CC←CC_ARITH(A)
+       Q_sel; P_sel←P_Q; bus_addr←{Q,00}
+       io_select
+EX3/ENDE:
+```
+
+**Console device addresses:**
+
+| Address | Register |
+|---------|----------|
+| 0x1001  | Data — RD reads char in bits 24:31; WD writes char from bits 24:31 |
+| 0x1002  | Status — bit 31=RX ready, bit 30=TX ready (always 1 in simulation) |
+
+### WD — Write Direct (0x6D)
+
+Writes RR[r] to an I/O device. Phase sequence mirrors STW.
+
+```
+PREP1-3: EA → P (device address)
+EX1:   A←RR[r]; io_select
+EX2:   device←A; io_select; bus busy (write)
+EX3:   Q_sel; P_sel←P_Q; bus_addr←{Q,00}
+EX4/ENDE:
+```
+
 ---
 
 ## Pending Instructions
 
 The following instructions are documented but not yet implemented in Verilog.
 They follow the same timing model as the implemented instructions above.
-
-### AI — Add Immediate (0x20)
-
-```
-EX1:   A ← RR[r]; Q_sel; bus_addr←{P[15:31],00}
-EX2/ENDE: alu_out←A+imm20; RR[r]←alu_out; CC←CC_ARITH(alu_out)
-```
-
-### CI — Compare Immediate (0x21)
-
-```
-EX1:   A ← RR[r]; Q_sel; bus_addr←{P[15:31],00}
-EX2/ENDE: alu_out←A-imm20; CC←CC_COMPARE(A,imm20,alu_out)
-```
 
 ### LCW — Load Complemented Word (0x3A)
 
@@ -378,35 +446,6 @@ EX1:   C_load; bus_size=halfword; D←sext(C_mux[16:31]); A←RR[r]
 EX2:   alu_out←A-D; CC←CC_COMPARE(A,D,alu_out)
        Q_sel; P_sel←P_Q; bus_addr←{Q,00}
 EX3/ENDE:
-```
-
-### BCR — Branch on Conditions Reset (0x68)
-
-Branch taken when CC AND R = 0. R=0 → unconditional branch.
-
-```
-PREP1-3: EA → P
-EX1:   if (CC AND R)=0: bus_addr←{P[15:31],00}; Q_sel; P_sel←P_Q → EX2/ENDE (branch)
-       else: Q_sel; P_sel←P_Q; bus_addr←{Q,00} → EX2/ENDE (fall through)
-```
-
-### BCS — Branch on Conditions Set (0x69)
-
-Branch taken when CC AND R ≠ 0. R=0 → effective no-op.
-
-```
-PREP1-3: EA → P
-EX1:   if (CC AND R)≠0: bus_addr←{P[15:31],00}; Q_sel; P_sel←P_Q → EX2/ENDE (branch)
-       else: Q_sel; P_sel←P_Q; bus_addr←{Q,00} → EX2/ENDE (fall through)
-```
-
-### BAL — Branch and Link (0x6A)
-
-```
-PREP1-3: EA → P
-EX1:   RR[r] ← {15'b0, Q}          ; save return address (IA word address)
-       bus_addr ← {P[15:31], 00}    ; present branch target
-EX2/ENDE:                           ; branch target instruction arrives
 ```
 
 ### BDR — Branch on Decrementing Register (0x64)
@@ -497,6 +536,7 @@ Optional instruction group — traps to X'41' if not implemented.
 
 Use the ALU shift capability (1-bit and 4-bit shifts).
 
-### I/O Instructions (SIO, TIO, TDV, HIO, RD, WD, AIO)
+### I/O Instructions (SIO, TIO, TDV, HIO, AIO)
 
-Privileged. Interact with the IOP via the bus arbiter.
+Privileged channel I/O instructions. Interact with the IOP via the bus arbiter.
+RD and WD (direct I/O) are already implemented — see Implemented Instructions above.

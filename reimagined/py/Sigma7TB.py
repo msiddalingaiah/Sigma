@@ -111,6 +111,21 @@ async def load_program(dut, byte_addr, words):
     for i, w in enumerate(words):
         await write_word(dut, byte_addr + i * 4, w)
 
+async def load_hex(dut, hexfile):
+    """Load a $readmemh hex file into memory."""
+    addr = 0
+    with open(hexfile) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('//'):
+                continue
+            if line.startswith('@'):
+                addr = int(line[1:], 16)
+            else:
+                word = int(line, 16)
+                await write_word(dut, addr * 4, word)  # addr is word addr
+                addr += 1
+
 
 # ---------------------------------------------------------------------------
 # Clock and reset helpers
@@ -170,7 +185,7 @@ class TestResults:
         total = self.passed + self.failed
         cocotb.log.info(f"  --- {self.name}: {self.passed}/{total} passed ---")
         if self.failed > 0:
-            raise cocotb.result.TestFailure(f"{self.name}: {self.failed} test(s) failed")
+            raise AssertionError(f"{self.name}: {self.failed} test(s) failed")
 
 
 # ---------------------------------------------------------------------------
@@ -771,6 +786,43 @@ async def test_rd_wd(dut):
     # TX ready bit (bit 30 = value 2 in big-endian) should be set
     status = int(rr(dut, 1).value)
     tr.check_bool("RD status TX ready", bool(status & 2), True)
+    tr.summary()
+
+
+# ---------------------------------------------------------------------------
+# Test: Monitor banner — load and run monitor, check WD output
+# ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_monitor_banner(dut):
+    """Load monitor hex, run it, verify WD transactions output the banner."""
+    import os
+    tr = TestResults("Monitor Banner")
+    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
+
+    await init_memory(dut, size=0x1000)
+
+    # Load monitor hex file (same directory as testbench)
+    hexfile = os.path.join(os.path.dirname(__file__), 'monitor.hex')
+    await load_hex(dut, hexfile)
+
+    await reset_cpu(dut)
+
+    # Clear capture file before running
+    open('console_output.txt', 'w').close()
+
+    await run_cycles(dut, 2000)
+
+    # Read captured console output
+    import time
+    time.sleep(0.1)
+    try:
+        with open('console_output.txt', 'r') as f:
+            got = f.read()
+    except FileNotFoundError:
+        got = ''
+
+    cocotb.log.info(f"  Monitor output: {repr(got)}")
+    tr.check_bool("Banner contains text", "Sigma 7 Monitor" in got, True)
     tr.summary()
 
 
