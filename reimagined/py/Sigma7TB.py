@@ -510,81 +510,113 @@ async def test_byte(dut):
 
 
 
-async def test_immediate(dut):
-    """Test AI, LI, CI."""
-    tr = TestResults("Immediate Instructions")
+# ---------------------------------------------------------------------------
+# Test: AI, CI — Add/Compare Immediate
+# ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_ai_ci(dut):
+    """Test AI (add immediate) and CI (compare immediate)."""
+    tr = TestResults("AI and CI")
     cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
 
-    await load_program(dut, 0x000, [
-        encode_imm(OP_LI, r=1, imm=42),
-        encode_imm(OP_AI, r=1, imm=8),        # R1 = 50
-        encode_imm(OP_AI, r=2, imm=-1),       # R2 = 0xFFFFFFFF
-        encode_imm(OP_CI, r=1, imm=50),       # R1 == 50 → equal
-        encode(OP_LCFI, r=0),
-    ])
+    await init_memory(dut)
+    # LI R1, 42          → R1 = 42
+    # AI R1, 8           → R1 = 50
+    # LI R2, 0           → R2 = 0
+    # AI R2, -1          → R2 = 0xFFFFFFFF (negative, CC4=1)
+    # CI R1, 50          → R1==50 → CC all clear (equal)
+    # CI R1, 49          → R1>49  → CC3=1 (positive/greater)
+    # LCFI               → halt
+    await write_word(dut, 0x098, encode_imm(OP_LI,  r=1, imm=42))
+    await write_word(dut, 0x09C, encode_imm(OP_AI,  r=1, imm=8))    # R1=50
+    await write_word(dut, 0x0A0, encode_imm(OP_LI,  r=2, imm=0))
+    await write_word(dut, 0x0A4, encode_imm(OP_AI,  r=2, imm=-1))   # R2=0xFFFFFFFF
+    await write_word(dut, 0x0A8, encode_imm(OP_CI,  r=1, imm=50))   # R1==50 → CC=0000
+    await write_word(dut, 0x0AC, encode(OP_LCFI, r=0))               # halt: check equal CC
 
     await reset_cpu(dut)
-    await run_cycles(dut, 60)
+    await run_cycles(dut, 100)
 
-    tr.check("LI R1=42",         rr(dut, 1).value, 42)
-    tr.check("AI R1=50",         rr(dut, 1).value, 50)
-    tr.check("AI R2=0xFFFFFFFF", rr(dut, 2).value, 0xFFFFFFFF)
-    tr.check_bool("CI equal",    cc_zero(dut.sys.cpu.CC.value), True)
+    tr.check("AI R1=50",             rr(dut, 1).value, 50)
+    tr.check("AI R2=0xFFFFFFFF",     rr(dut, 2).value, 0xFFFFFFFF)
+    tr.check_bool("CI equal CC3=0",  cc_pos(dut.sys.cpu.CC.value), False)
+    tr.check_bool("CI equal CC4=0",  cc_neg(dut.sys.cpu.CC.value), False)
+
+    # Second run: check greater-than case
+    await write_word(dut, 0x0AC, encode_imm(OP_CI, r=1, imm=49))    # R1>49 → CC3=1
+    await write_word(dut, 0x0B0, encode(OP_LCFI, r=0))
+
+    await reset_cpu(dut)
+    await run_cycles(dut, 120)
+
+    tr.check_bool("CI greater CC3=1", cc_pos(dut.sys.cpu.CC.value), True)
+    tr.check_bool("CI greater CC4=0", cc_neg(dut.sys.cpu.CC.value), False)
     tr.summary()
 
 
+
 # ---------------------------------------------------------------------------
-# Test: AND, OR, EOR — Logical
+# Test: AND, OR, EOR — Logical with CC
 # ---------------------------------------------------------------------------
-@cocotb.test(skip=True)
+@cocotb.test()
 async def test_logical(dut):
-    """Test AND, OR, EOR."""
+    """Test AND, OR, EOR with CC checks."""
     tr = TestResults("Logical Instructions")
     cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
 
-    await load_program(dut, 0x000, [
-        encode_imm(OP_LI, r=1, imm=0xFF),
-        encode(OP_AND, r=1, addr=word_addr(0x400)),  # R1 = 0xFF & 0x0F = 0x0F
-        encode_imm(OP_LI, r=2, imm=0xF0),
-        encode(OP_OR,  r=2, addr=word_addr(0x404)),  # R2 = 0xF0 | 0x0F = 0xFF
-        encode_imm(OP_LI, r=3, imm=0xFF),
-        encode(OP_EOR, r=3, addr=word_addr(0x408)),  # R3 = 0xFF ^ 0xFF = 0
-        encode(OP_LCFI, r=0),
-    ])
-    await write_word(dut, 0x400, 0x0F)
-    await write_word(dut, 0x404, 0x0F)
-    await write_word(dut, 0x408, 0xFF)
+    await init_memory(dut)
+    # LI R1, 0xFF; AND R1, M[0x400]=0x0F  → R1 = 0x0F (CC3=1)
+    # LI R2, 0xF0; OR  R2, M[0x404]=0x0F  → R2 = 0xFF (CC4=1)
+    # LI R3, 0xFF; EOR R3, M[0x408]=0xFF  → R3 = 0x00 (CC=0000)
+    # LCFI → halt
+    await write_word(dut, 0x098, encode_imm(OP_LI,  r=1, imm=0xFF))
+    await write_word(dut, 0x09C, encode(OP_AND, r=1, addr=word_addr(0x400)))
+    await write_word(dut, 0x0A0, encode_imm(OP_LI,  r=2, imm=0xF0))
+    await write_word(dut, 0x0A4, encode(OP_OR,  r=2, addr=word_addr(0x404)))
+    await write_word(dut, 0x0A8, encode_imm(OP_LI,  r=3, imm=0xFF))
+    await write_word(dut, 0x0AC, encode(OP_EOR, r=3, addr=word_addr(0x408)))
+    await write_word(dut, 0x0B0, encode(OP_LCFI, r=0))
+    await write_word(dut, 0x400, 0x0000000F)
+    await write_word(dut, 0x404, 0x0000000F)
+    await write_word(dut, 0x408, 0x000000FF)
 
     await reset_cpu(dut)
-    await run_cycles(dut, 80)
+    await run_cycles(dut, 130)
 
-    tr.check("AND R1=0x0F",   rr(dut, 1).value, 0x0F)
-    tr.check("OR  R2=0xFF",   rr(dut, 2).value, 0xFF)
-    tr.check("EOR R3=0",      rr(dut, 3).value, 0x00)
-    tr.check_bool("EOR zero", cc_zero(dut.sys.cpu.CC.value), True)
+    tr.check("AND R1=0x0F",        rr(dut, 1).value, 0x0F)
+    tr.check("OR  R2=0xFF",        rr(dut, 2).value, 0xFF)
+    tr.check("EOR R3=0x00",        rr(dut, 3).value, 0x00)
+    tr.check_bool("EOR zero CC=0", cc_zero(dut.sys.cpu.CC.value), True)
     tr.summary()
 
 
 # ---------------------------------------------------------------------------
-# Test: LW indirect
+# Test: LW indirect addressing
 # ---------------------------------------------------------------------------
-@cocotb.test(skip=True)
+@cocotb.test()
 async def test_lw_indirect(dut):
-    """Test LW with indirect addressing."""
+    """Test LW with indirect addressing (I=1)."""
     tr = TestResults("LW Indirect")
     cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
 
-    await load_program(dut, 0x000, [
-        encode(OP_LW, r=1, addr=word_addr(0x800), i=1),
-        encode(OP_LCFI, r=0),
-    ])
+    await init_memory(dut)
+    # M[0x800] = word_addr(0x400) — indirect pointer
+    # M[0x400] = 0x55AA55AA      — actual data
+    # LW R1, 0x800(indirect)     → EA = M[0x800][15:31] = word_addr(0x400)
+    #                              R1 = M[0x400] = 0x55AA55AA
+    # LW R2, 0x800               → direct: R2 = M[0x800] = word_addr(0x400)
+    # LCFI                       → halt
+    await write_word(dut, 0x098, encode(OP_LW, r=1, addr=word_addr(0x800), i=1))
+    await write_word(dut, 0x09C, encode(OP_LW, r=2, addr=word_addr(0x800)))
+    await write_word(dut, 0x0A0, encode(OP_LCFI, r=0))
     await write_word(dut, 0x800, word_addr(0x400))
     await write_word(dut, 0x400, 0x55AA55AA)
 
     await reset_cpu(dut)
-    await run_cycles(dut, 40)
+    await run_cycles(dut, 80)
 
-    tr.check("LW indirect RR[1]", rr(dut, 1).value, 0x55AA55AA)
+    tr.check("LW indirect R1",  rr(dut, 1).value, 0x55AA55AA)
+    tr.check("LW direct R2",    rr(dut, 2).value, word_addr(0x400))
     tr.summary()
 
 

@@ -35,6 +35,8 @@ module Sigma7CPU (
 // Opcodes
 // ---------------------------------------------------------------------------
 localparam OP_LCFI = 7'h02;
+localparam OP_AI   = 7'h20;
+localparam OP_CI   = 7'h21;
 localparam OP_LI   = 7'h22;
 localparam OP_AW   = 7'h30;
 localparam OP_CW   = 7'h31;
@@ -217,7 +219,8 @@ reg [2:0]  A_sel;
 reg [1:0]  P_sel;
 reg [1:0]  CC_sel;
 reg [0:1]  p_byte_offset;  // byte offset for P[32:33] set during ENDE
-reg        D_sel;
+reg        D_sel;   // D ← C_mux
+reg        D_imm;   // D ← imm20 (for AI/CI)
 reg        O_sel;
 reg        R_sel;
 reg        Q_sel;
@@ -287,7 +290,8 @@ always @(posedge clock) begin
             end
             default: ;
         endcase
-        if (D_sel) D <= C_mux;  // D ← C_mux (instruction in ENDE, operand in EX1, pointer in PREP2)
+        if (D_sel) D <= C_mux;   // D ← C_mux (instruction in ENDE, operand in EX1, pointer in PREP2)
+        if (D_imm) D <= imm20;   // D ← sign-extended immediate (for AI/CI)
         if (O_sel) O <= bus_data_r[1:7];
         if (R_sel) R <= bus_data_r[8:11];
         if (Q_sel) Q <= P[15:31];  // Q ← next instruction word address (P=p_inc after ENDE)
@@ -317,6 +321,7 @@ always @(*) begin
     CC_sel         = CC_HOLD;
     p_byte_offset  = 2'b00;
     D_sel          = 1'b0;
+    D_imm          = 1'b0;
     O_sel        = 1'b0;
     R_sel        = 1'b0;
     Q_sel        = 1'b0;
@@ -403,10 +408,15 @@ always @(*) begin
             case (O)
                 OP_LCFI,
                 OP_LI: begin
-                    // P holds IA (set by previous ENDE, unchanged since immediate skips PREP3)
-                    // Q ← P[15:31] = IA word address; bus presents IA for ENDE fetch
                     Q_sel    = 1'b1;
-                    bus_addr = {P[15:31], 2'b00};  // = IA; use P since Q not yet updated
+                    bus_addr = {P[15:31], 2'b00};
+                end
+                OP_AI,
+                OP_CI: begin
+                    A_sel    = A_RR;    // A ← RR[r]
+                    D_imm    = 1'b1;    // D ← imm20 (ALU second input)
+                    Q_sel    = 1'b1;
+                    bus_addr = {P[15:31], 2'b00};
                 end
                 OP_LW: begin
                     C_load = 1'b1;
@@ -448,6 +458,22 @@ always @(*) begin
                     CC_sel   = CC_ARITH;
                     rr_data  = imm20;
                     rr_write = 1'b1;
+                    ende     = 1'b1;
+                end
+
+                OP_AI: begin
+                    alu_op   = ALU_ADD;     // A+D = RR[r]+imm20
+                    A_sel    = A_ALU;
+                    CC_sel   = CC_ARITH;
+                    rr_data  = alu_out;
+                    rr_write = 1'b1;
+                    ende     = 1'b1;
+                end
+
+                OP_CI: begin
+                    alu_op   = ALU_SUB;     // A-D = RR[r]-imm20
+                    A_sel    = A_ALU;
+                    CC_sel   = CC_COMPARE;
                     ende     = 1'b1;
                 end
 
@@ -613,6 +639,7 @@ always @(*) begin
         // Next phase based on incoming instruction opcode
         casez (bus_data_r[1:7])
             OP_LCFI,
+            OP_AI, OP_CI,
             OP_LI:   phase_next = EX1;    // immediate: skip prep
             default: phase_next = PREP1;  // memory-reference: compute EA
         endcase
