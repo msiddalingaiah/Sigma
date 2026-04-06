@@ -50,6 +50,8 @@ localparam OP_OR   = 7'h49;
 localparam OP_EOR  = 7'h48;
 localparam OP_LB   = 7'h72;
 localparam OP_STB  = 7'h75;
+localparam OP_BCR  = 7'h68;  // branch if CC AND R = 0; R=0 → unconditional
+localparam OP_BCS  = 7'h69;  // branch if CC AND R ≠ 0; R=0 → no-op
 
 // ---------------------------------------------------------------------------
 // Phase register (one-hot, bit 0 = PCP4 = MSB)
@@ -118,6 +120,12 @@ wire [0:31] C_mux = C_load ? bus_data_r : C;
 // ---------------------------------------------------------------------------
 wire [15:33] p_inc   = P + 19'd4;
 wire [0:31]  imm20   = {{12{D[12]}}, D[12:31]};
+
+// Branch condition: CC AND R field of current instruction
+// R is the 4-bit register field (bits 8-11), reused as branch mask for BCR/BCS
+// In big-endian CC[1:4], the 4 CC bits map to the low 4 bits of R
+wire        branch_taken_bcr = (CC & C[8:11]) == 4'b0;  // BCR: taken if CC AND R = 0
+wire        branch_taken_bcs = (CC & C[8:11]) != 4'b0;  // BCS: taken if CC AND R ≠ 0
 
 // ---------------------------------------------------------------------------
 // Address family decode (based on C — registered instruction word)
@@ -203,10 +211,10 @@ localparam A_IMM    = 3'd5;
 localparam A_IDX    = 3'd6;  // A ← idx_data (shifted index register)
 localparam A_SEXT_H = 3'd7;  // A ← sign-extended C_mux[16:31]
 
-localparam P_HOLD = 2'd0;
-localparam P_EA   = 2'd1;
-localparam P_Q    = 2'd2;
-localparam P_INC  = 2'd3;
+localparam P_HOLD   = 2'd0;
+localparam P_EA     = 2'd1;
+localparam P_Q      = 2'd2;
+localparam P_INC    = 2'd3;
 
 localparam CC_HOLD    = 2'd0;
 localparam CC_ARITH   = 2'd1;
@@ -270,9 +278,9 @@ always @(posedge clock) begin
             default: ;
         endcase
         case (P_sel)
-            P_EA:  P <= {alu_out[15:31], p_byte_offset};   // EA: word from ALU, byte offset from index
+            P_EA:  P <= {alu_out[15:31], p_byte_offset};
             P_Q:   P <= {Q, 2'b00};
-            P_INC: P <= {p_inc[15:31], p_byte_offset};      // byte offset set by ENDE
+            P_INC: P <= {p_inc[15:31], p_byte_offset};
             default: ;
         endcase
         case (CC_sel)
@@ -434,12 +442,30 @@ always @(*) begin
                 end
                 OP_STW: A_sel = A_RR;
                 OP_STH,
-                OP_STB: A_sel = A_RR;  // A ← RR[R]; write happens in EX2
+                OP_STB: A_sel = A_RR;
                 OP_AW, OP_SW, OP_CW,
                 OP_AND, OP_OR, OP_EOR: begin
-                    C_load = 1'b1;      // C ← M[EA]
-                    D_sel  = 1'b1;      // D ← C_mux = M[EA] (ALU second input)
-                    A_sel  = A_RR;      // A ← RR[R]
+                    C_load = 1'b1;
+                    D_sel  = 1'b1;
+                    A_sel  = A_RR;
+                end
+
+                OP_BCR: begin
+                    if (branch_taken_bcr) begin
+                        bus_addr = {P[15:31], 2'b00};  // present EA to memory
+                    end else begin
+                        P_sel    = P_Q;
+                        bus_addr = {Q, 2'b00};          // fall through
+                    end
+                end
+
+                OP_BCS: begin
+                    if (branch_taken_bcs) begin
+                        bus_addr = {P[15:31], 2'b00};
+                    end else begin
+                        P_sel    = P_Q;
+                        bus_addr = {Q, 2'b00};
+                    end
                 end
                 default: ;
             endcase
@@ -587,13 +613,14 @@ always @(*) begin
         end
 
         // ------------------------------------------------------------------
-        // EX3: ENDE for LW/LH/LB/AW/SW/CW/AND/OR/EOR; restore P for stores
+        // EX3: ENDE for LW/LH/LB/AW/SW/CW/AND/OR/EOR/BCR/BCS; restore P for stores
         // ------------------------------------------------------------------
         phase[7]: begin
             case (O)
                 OP_LW, OP_LH, OP_LB,
                 OP_AW, OP_SW, OP_CW,
-                OP_AND, OP_OR, OP_EOR: ende = 1'b1;
+                OP_AND, OP_OR, OP_EOR,
+                OP_BCR, OP_BCS: ende = 1'b1;
 
                 OP_STW, OP_STH, OP_STB: begin
                     P_sel    = P_Q;

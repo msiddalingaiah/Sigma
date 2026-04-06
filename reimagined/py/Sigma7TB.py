@@ -29,6 +29,8 @@ OP_LH   = 0x52
 OP_STH  = 0x55
 OP_LB   = 0x72
 OP_STB  = 0x75
+OP_BCR  = 0x68
+OP_BCS  = 0x69
 
 
 # ---------------------------------------------------------------------------
@@ -617,6 +619,80 @@ async def test_lw_indirect(dut):
 
     tr.check("LW indirect R1",  rr(dut, 1).value, 0x55AA55AA)
     tr.check("LW direct R2",    rr(dut, 2).value, word_addr(0x400))
+    tr.summary()
+
+
+# ---------------------------------------------------------------------------
+# Test: BCR, BCS — Branch on Conditions
+# ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_branch(dut):
+    """Test BCR and BCS — taken/not-taken, unconditional."""
+    tr = TestResults("Branch Instructions")
+    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
+
+    await init_memory(dut)
+    # Test 1: BCR R=0 (unconditional) — should always branch
+    # LI R1, 1
+    # BCR 0, target     → unconditional branch to target
+    # LI R1, 99         → should be skipped
+    # target: LI R2, 42
+    # LCFI
+    target = word_addr(0x0B0)
+    await write_word(dut, 0x098, encode_imm(OP_LI,  r=1, imm=1))
+    await write_word(dut, 0x09C, encode(OP_BCR, r=0, addr=target))   # unconditional
+    await write_word(dut, 0x0A0, encode_imm(OP_LI,  r=1, imm=99))   # skipped
+    await write_word(dut, 0x0A4, encode_imm(OP_LI,  r=1, imm=99))   # skipped
+    await write_word(dut, 0x0A8, encode_imm(OP_LI,  r=1, imm=99))   # skipped
+    await write_word(dut, 0x0AC, encode_imm(OP_LI,  r=1, imm=99))   # skipped
+    await write_word(dut, 0x0B0, encode_imm(OP_LI,  r=2, imm=42))   # branch target
+    await write_word(dut, 0x0B4, encode(OP_LCFI, r=0))
+
+    await reset_cpu(dut)
+    await run_cycles(dut, 100)
+
+    tr.check("BCR unconditional R1=1",  rr(dut, 1).value, 1)   # not overwritten
+    tr.check("BCR unconditional R2=42", rr(dut, 2).value, 42)  # branch target executed
+
+    # Test 2: BCS taken — set CC4 (negative), branch on CC4 mask
+    # AW sets CC4 when result is negative
+    # R field = 0b0001 = 1 → mask CC4
+    await init_memory(dut)
+    # LI R1, -1          → CC4=1 (negative)
+    # BCS mask=1, target → CC AND 1 = CC4 AND 1 ≠ 0 → taken
+    # LI R3, 99          → skipped
+    # target: LI R3, 7
+    # LCFI
+    target2 = word_addr(0x0A8)
+    await write_word(dut, 0x098, encode_imm(OP_LI,  r=1, imm=-1))      # CC4=1
+    await write_word(dut, 0x09C, encode(OP_BCS, r=1, addr=target2))     # branch if CC4 set
+    await write_word(dut, 0x0A0, encode_imm(OP_LI,  r=3, imm=99))      # skipped
+    await write_word(dut, 0x0A4, encode_imm(OP_LI,  r=3, imm=99))      # skipped
+    await write_word(dut, 0x0A8, encode_imm(OP_LI,  r=3, imm=7))       # branch target
+    await write_word(dut, 0x0AC, encode(OP_LCFI, r=0))
+
+    await reset_cpu(dut)
+    await run_cycles(dut, 100)
+
+    tr.check("BCS taken R3=7",    rr(dut, 3).value, 7)
+
+    # Test 3: BCS not-taken — result is positive (CC3=1, CC4=0), mask=CC4 → not taken
+    await init_memory(dut)
+    # LI R4, 0; AI R4, 1   → R4=1, CC3=1, CC4=0 (AI correctly sets CC via ALU)
+    # BCS mask=1            → CC4 AND 1 = 0 → not taken → fall through
+    # LI R5, 55             → executed
+    # LCFI
+    await write_word(dut, 0x098, encode_imm(OP_LI,  r=4, imm=0))
+    await write_word(dut, 0x09C, encode_imm(OP_AI,  r=4, imm=1))       # CC3=1, CC4=0
+    await write_word(dut, 0x0A0, encode(OP_BCS, r=1, addr=word_addr(0x0B0)))  # not taken
+    await write_word(dut, 0x0A4, encode_imm(OP_LI,  r=5, imm=55))      # executed
+    await write_word(dut, 0x0A8, encode(OP_LCFI, r=0))
+    await write_word(dut, 0x0B0, encode_imm(OP_LI,  r=5, imm=99))      # not reached
+
+    await reset_cpu(dut)
+    await run_cycles(dut, 80)
+
+    tr.check("BCS not-taken R5=55", rr(dut, 5).value, 55)
     tr.summary()
 
 
