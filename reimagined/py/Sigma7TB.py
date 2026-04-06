@@ -31,6 +31,9 @@ OP_LB   = 0x72
 OP_STB  = 0x75
 OP_BCR  = 0x68
 OP_BCS  = 0x69
+OP_BAL  = 0x6A
+OP_RD   = 0x6C
+OP_WD   = 0x6D
 
 
 # ---------------------------------------------------------------------------
@@ -697,12 +700,87 @@ async def test_branch(dut):
 
 
 # ---------------------------------------------------------------------------
+# Test: BAL — Branch and Link (subroutine call)
+# ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_bal(dut):
+    """Test BAL — branch and link, return via BCR 0."""
+    tr = TestResults("BAL Branch and Link")
+    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
+
+    await init_memory(dut)
+    # Program at 0x098:
+    #   LI  R1, 10          ; arg1
+    #   LI  R2, 32          ; arg2
+    #   BAL R7, sub         ; call subroutine, R7 = return word address
+    #   LCFI                ; halt (return lands here)
+    #
+    # sub (at 0x0B0):
+    #   AW  R1, M[arg2_addr]; R1 = R1 + R2... actually use AI for simplicity
+    #   AI  R1, 5           ; R1 = 10 + 5 = 15 (just to show subroutine ran)
+    #   BCR 0, 0(R7)        ; return: branch to address in R7 (indirect via R7... 
+    #                       ; actually BCR 0 with addr=0 indexed by R7)
+    #   LCFI
+
+    sub_addr = word_addr(0x0B0)
+    ret_addr = word_addr(0x0A4)   # word address of instruction after BAL
+
+    await write_word(dut, 0x098, encode_imm(OP_LI,  r=1, imm=10))
+    await write_word(dut, 0x09C, encode_imm(OP_LI,  r=2, imm=32))
+    await write_word(dut, 0x0A0, encode(OP_BAL, r=7, addr=sub_addr))  # R7 ← ret_addr
+    await write_word(dut, 0x0A4, encode(OP_LCFI, r=0))                 # return target
+    # subroutine at 0x0B0
+    await write_word(dut, 0x0B0, encode_imm(OP_AI,  r=1, imm=5))      # R1 = 15
+    await write_word(dut, 0x0B4, encode(OP_BCR, r=0, addr=0, x=7))    # return via R7
+    await write_word(dut, 0x0B8, encode(OP_LCFI, r=0))                 # not reached
+
+    await reset_cpu(dut)
+    await run_cycles(dut, 150)
+
+    tr.check("BAL R1=15 (sub ran)",  rr(dut, 1).value, 15)
+    tr.check("BAL R7=ret_addr",      rr(dut, 7).value, ret_addr)
+    tr.summary()
+
+
+# ---------------------------------------------------------------------------
+# Test: RD, WD — Direct I/O (console status and output)
+# ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_rd_wd(dut):
+    """Test RD (status register) and WD (console output)."""
+    tr = TestResults("RD and WD")
+    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
+
+    await init_memory(dut)
+    # RD R1, 0x1002        → R1 = status register (TX ready bit 30 = 1)
+    # WD R0, 0x1001        → write 0 to console (null char, should not crash)
+    # LI R2, 0x41          → R2 = 'A' (0x41)
+    # WD R2, 0x1001        → write 'A' to console stdout
+    # LCFI                 → halt
+    status_addr = 0x1002
+    data_addr   = 0x1001
+    await write_word(dut, 0x098, encode(OP_RD,   r=1, addr=status_addr))
+    await write_word(dut, 0x09C, encode(OP_WD,   r=0, addr=data_addr))
+    await write_word(dut, 0x0A0, encode_imm(OP_LI, r=2, imm=0x41))   # 'A'
+    await write_word(dut, 0x0A4, encode(OP_WD,   r=2, addr=data_addr))
+    await write_word(dut, 0x0A8, encode(OP_LCFI, r=0))
+
+    await reset_cpu(dut)
+    await run_cycles(dut, 120)
+
+    # TX ready bit (bit 30 = value 2 in big-endian) should be set
+    status = int(rr(dut, 1).value)
+    tr.check_bool("RD status TX ready", bool(status & 2), True)
+    tr.summary()
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     proj_dir = os.getcwd().replace('\\', '/')
     os.makedirs("vcd", exist_ok=True)
-    files = ["Sigma7TB.v", "Sigma7System.v", "Sigma7CPU.v", "Memory.v", "BusArbiter.v", "IOProcessor.v"]
+    files = ["Sigma7TB.v", "Sigma7System.v", "Sigma7CPU.v", "Memory.v", "Console.v", "BusArbiter.v", "IOProcessor.v"]
     sources = [f"verilog/{f}" for f in files]
 
     runner = get_runner("icarus")

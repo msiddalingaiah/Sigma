@@ -28,7 +28,8 @@ module Sigma7CPU (
     input  wire [0:31] bus_data_r,
     output reg  [0:31] bus_data_w,
     output reg         cpu_write,
-    output reg  [0:1]  bus_size
+    output reg  [0:1]  bus_size,
+    output reg         io_select   // 1 = I/O transaction, 0 = memory transaction
 );
 
 // ---------------------------------------------------------------------------
@@ -50,8 +51,11 @@ localparam OP_OR   = 7'h49;
 localparam OP_EOR  = 7'h48;
 localparam OP_LB   = 7'h72;
 localparam OP_STB  = 7'h75;
-localparam OP_BCR  = 7'h68;  // branch if CC AND R = 0; R=0 → unconditional
-localparam OP_BCS  = 7'h69;  // branch if CC AND R ≠ 0; R=0 → no-op
+localparam OP_BCR  = 7'h68;
+localparam OP_BCS  = 7'h69;
+localparam OP_BAL  = 7'h6A;
+localparam OP_RD   = 7'h6C;  // read direct from I/O device
+localparam OP_WD   = 7'h6D;  // write direct to I/O device
 
 // ---------------------------------------------------------------------------
 // Phase register (one-hot, bit 0 = PCP4 = MSB)
@@ -340,6 +344,7 @@ always @(*) begin
     bus_data_w   = 32'b0;
     cpu_write    = 1'b0;
     bus_size     = 2'b10;   // default: word
+    io_select    = 1'b0;    // default: memory transaction
 
     case (1'b1)
 
@@ -467,6 +472,23 @@ always @(*) begin
                         bus_addr = {Q, 2'b00};
                     end
                 end
+
+                OP_BAL: begin
+                    rr_data  = {15'b0, Q};
+                    rr_write = 1'b1;
+                    bus_addr = {P[15:31], 2'b00};
+                end
+
+                OP_RD: begin
+                    C_load    = 1'b1;       // C ← device data
+                    A_sel     = A_CMUX;     // A ← device data
+                    io_select = 1'b1;
+                end
+
+                OP_WD: begin
+                    A_sel     = A_RR;       // A ← RR[r]
+                    io_select = 1'b1;
+                end
                 default: ;
             endcase
         end
@@ -477,6 +499,8 @@ always @(*) begin
         phase[6]: begin
             case (O)
                 OP_LCFI: ende = 1'b1;
+
+                OP_BAL: ende = 1'b1;  // instruction at EA arriving; always taken
 
                 OP_LI: begin
                     A_sel    = A_IMM;
@@ -510,6 +534,25 @@ always @(*) begin
                     rr_write = 1'b1;
                     P_sel    = P_Q;
                     bus_addr = {Q, 2'b00};
+                end
+
+                OP_RD: begin
+                    // Device data arrived in A (via A_CMUX in EX1)
+                    alu_op   = ALU_PASSA;
+                    CC_sel   = CC_ARITH;
+                    rr_data  = A;
+                    rr_write = 1'b1;
+                    P_sel    = P_Q;
+                    bus_addr = {Q, 2'b00};
+                    io_select = 1'b1;
+                end
+
+                OP_WD: begin
+                    // Write A to device
+                    bus_addr   = P;
+                    bus_data_w = A;
+                    cpu_write  = 1'b1;
+                    io_select  = 1'b1;
                 end
 
                 OP_LH: begin
@@ -617,12 +660,12 @@ always @(*) begin
         // ------------------------------------------------------------------
         phase[7]: begin
             case (O)
-                OP_LW, OP_LH, OP_LB,
+                OP_LW, OP_LH, OP_LB, OP_RD,
                 OP_AW, OP_SW, OP_CW,
                 OP_AND, OP_OR, OP_EOR,
                 OP_BCR, OP_BCS: ende = 1'b1;
 
-                OP_STW, OP_STH, OP_STB: begin
+                OP_STW, OP_STH, OP_STB, OP_WD: begin
                     P_sel    = P_Q;
                     bus_addr = {Q, 2'b00};
                 end
@@ -636,7 +679,7 @@ always @(*) begin
         // ------------------------------------------------------------------
         phase[8]: begin
             case (O)
-                OP_STW, OP_STH, OP_STB: ende = 1'b1;
+                OP_STW, OP_STH, OP_STB, OP_WD: ende = 1'b1;
                 default: ;
             endcase
         end
