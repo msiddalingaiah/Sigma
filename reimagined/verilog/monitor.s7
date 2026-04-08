@@ -53,7 +53,6 @@ TXMASK  DC      TXRDY
 * --------------------------------------------------------------------------
 * Banner string
 * --------------------------------------------------------------------------
-BANNER  DB      'Sigma 7 Monitor'
-        DB      0x0D 0x0A 0x00  ; CR LF NUL
+BANNER  DB      'Sigma 7 Monitor\r\n\0'
 
         END

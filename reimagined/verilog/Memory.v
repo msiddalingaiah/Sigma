@@ -25,6 +25,28 @@ localparam SIZE_WORD     = 2'b10;
 // Memory array — byte addressable
 reg [0:7] mem [0:524287];
 
+// Initialize all memory to zero, then optionally load hex file
+integer i;
+initial begin
+    for (i = 0; i < SIZE; i = i + 1)
+        mem[i] = 8'h00;
+`ifdef MONITOR_HEX
+    // Load monitor program — hex file is word-addressed, big-endian
+    // We use a temporary word array then unpack to bytes
+    begin : load_hex
+        reg [0:31] words [0:131071];  // 512KB / 4 = 128K words
+        integer w;
+        $readmemh(`MONITOR_HEX, words);
+        for (w = 0; w < 131072; w = w + 1) begin
+            mem[w*4+0] = words[w][0:7];
+            mem[w*4+1] = words[w][8:15];
+            mem[w*4+2] = words[w][16:23];
+            mem[w*4+3] = words[w][24:31];
+        end
+    end
+`endif
+end
+
 // Synchronous read — data valid one cycle after address presented
 always @(posedge clock) begin
     case (mem_size)

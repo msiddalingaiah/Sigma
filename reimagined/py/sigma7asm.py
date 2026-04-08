@@ -256,20 +256,24 @@ def assemble(lines):
                 continue
 
             elif mnemonic == 'DB':
-                # Define bytes — pack into words, null-pad to word boundary
-                # Operands can be: string literal 'text' or byte values
+                # Define bytes — pack into words, zero-pad to word boundary
+                # Operands: string literal 'text' (no auto-null) or byte values
                 raw = ' '.join(operands)
                 bytes_list = []
                 if raw.startswith("'") or raw.startswith('"'):
-                    # String literal
+                    # String literal — process Python-style escape sequences
                     delim = raw[0]
                     text  = raw[1:raw.rindex(delim)]
-                    bytes_list = [ord(c) for c in text] + [0]  # null terminate
+                    # Decode escape sequences
+                    text = text.replace('\\r', '\r').replace('\\n', '\n') \
+                               .replace('\\t', '\t').replace('\\0', '\0') \
+                               .replace('\\\\', '\\')
+                    bytes_list = [ord(c) for c in text]  # no auto-null
                 else:
-                    # Comma-separated byte values
+                    # Space-separated byte values
                     for op in operands:
                         bytes_list.append(eval_expr(op, symbols, loc) if pass_num == 2 else 0)
-                # Pad to word boundary
+                # Zero-pad to word boundary
                 while len(bytes_list) % 4 != 0:
                     bytes_list.append(0)
                 # Pack into words (big-endian)

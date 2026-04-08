@@ -16,11 +16,23 @@ wire         cpu_release;
 wire         cpu_write;
 wire         io_select;
 
-// CPU always has grant for now
+// Console RX — driven by top-level (Python cocotb or $fgetc thread)
+reg          rx_ready;
+reg  [7:0]   rx_data;
+wire         rx_read;
+wire         tx_valid;
+wire [7:0]   tx_char;
+
+initial begin
+    rx_ready = 1'b0;
+    rx_data  = 8'h00;
+end
+
+// CPU always has grant
 assign cpu_grant = 1'b1;
 assign bus_write = cpu_write;
 
-// Route read data: I/O or memory depending on io_select
+// Route read data
 assign bus_data_r = io_select ? io_data_r : mem_data_r;
 
 Sigma7CPU cpu (
@@ -43,7 +55,7 @@ Memory #(
     .mem_addr   (bus_addr),
     .mem_data_r (mem_data_r),
     .mem_data_w (bus_data_w),
-    .mem_write  (bus_write & ~io_select),  // suppress memory write during I/O
+    .mem_write  (bus_write & ~io_select),
     .mem_size   (bus_size)
 );
 
@@ -54,7 +66,36 @@ Console console (
     .io_addr    (bus_addr),
     .io_data_w  (bus_data_w),
     .io_write   (bus_write),
-    .io_data_r  (io_data_r)
+    .io_data_r  (io_data_r),
+    .rx_ready   (rx_ready),
+    .rx_data    (rx_data),
+    .rx_read    (rx_read),
+    .tx_valid   (tx_valid),
+    .tx_char    (tx_char)
 );
+
+// Optional $fgetc thread for standalone simulation
+`ifdef CONSOLE_INPUT
+initial begin : console_input_thread
+    integer c;
+    forever begin
+        c = $fgetc('h8000_0000);
+        if ($feof('h8000_0000)) begin
+            #1000000;
+        end else begin
+            rx_data  = c[7:0];
+            rx_ready = 1'b1;
+            @(posedge rx_read);
+            rx_ready = 1'b0;
+        end
+    end
+end
+
+// $fwrite output for standalone simulation
+always @(posedge clock) begin
+    if (tx_valid)
+        $fwrite('h8000_0001, "%c", tx_char);
+end
+`endif
 
 endmodule

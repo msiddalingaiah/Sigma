@@ -500,7 +500,9 @@ always @(*) begin
             case (O)
                 OP_LCFI: ende = 1'b1;
 
-                OP_BAL: ende = 1'b1;  // instruction at EA arriving; always taken
+                OP_BAL,
+                OP_BCR,
+                OP_BCS: ende = 1'b1;  // target/fallthrough instruction arriving
 
                 OP_LI: begin
                     A_sel    = A_IMM;
@@ -662,8 +664,7 @@ always @(*) begin
             case (O)
                 OP_LW, OP_LH, OP_LB, OP_RD,
                 OP_AW, OP_SW, OP_CW,
-                OP_AND, OP_OR, OP_EOR,
-                OP_BCR, OP_BCS: ende = 1'b1;
+                OP_AND, OP_OR, OP_EOR: ende = 1'b1;
 
                 OP_STW, OP_STH, OP_STB, OP_WD: begin
                     P_sel    = P_Q;

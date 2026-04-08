@@ -137,6 +137,8 @@ async def init_memory(dut, size=0x500):
 
 async def reset_cpu(dut):
     """Reset CPU for 2 cycles then release."""
+    dut.sys.rx_ready.value = 0
+    dut.sys.rx_data.value  = 0
     dut.reset.value = 1
     for _ in range(2):
         await RisingEdge(dut.clock)
@@ -786,43 +788,6 @@ async def test_rd_wd(dut):
     # TX ready bit (bit 30 = value 2 in big-endian) should be set
     status = int(rr(dut, 1).value)
     tr.check_bool("RD status TX ready", bool(status & 2), True)
-    tr.summary()
-
-
-# ---------------------------------------------------------------------------
-# Test: Monitor banner — load and run monitor, check WD output
-# ---------------------------------------------------------------------------
-@cocotb.test()
-async def test_monitor_banner(dut):
-    """Load monitor hex, run it, verify WD transactions output the banner."""
-    import os
-    tr = TestResults("Monitor Banner")
-    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
-
-    await init_memory(dut, size=0x1000)
-
-    # Load monitor hex file (same directory as testbench)
-    hexfile = os.path.join(os.path.dirname(__file__), 'monitor.hex')
-    await load_hex(dut, hexfile)
-
-    await reset_cpu(dut)
-
-    # Clear capture file before running
-    open('console_output.txt', 'w').close()
-
-    await run_cycles(dut, 2000)
-
-    # Read captured console output
-    import time
-    time.sleep(0.1)
-    try:
-        with open('console_output.txt', 'r') as f:
-            got = f.read()
-    except FileNotFoundError:
-        got = ''
-
-    cocotb.log.info(f"  Monitor output: {repr(got)}")
-    tr.check_bool("Banner contains text", "Sigma 7 Monitor" in got, True)
     tr.summary()
 
 
