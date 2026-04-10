@@ -14,6 +14,12 @@ from cocotb.triggers import RisingEdge
 import threading
 import sys
 import os
+import logging
+
+# Suppress all cocotb logging — monitor output only
+logging.getLogger("cocotb").setLevel(logging.CRITICAL)
+logging.getLogger("cocotb.test").setLevel(logging.CRITICAL)
+logging.getLogger("cocotb.regression").setLevel(logging.CRITICAL)
 
 
 # ---------------------------------------------------------------------------
@@ -109,14 +115,16 @@ async def run_monitor(dut):
         await RisingEdge(dut.clock)
     dut.reset.value = 0
 
+    # Print separator so monitor output is distinct from build noise
+    sys.stdout.write("\r\n--- Sigma 7 Simulation (Ctrl-] to exit) ---\r\n\r\n")
+    sys.stdout.flush()
+
     # Initialise console RX signals
     dut.sys.rx_ready.value = 0
     dut.sys.rx_data.value  = 0
 
     # Start input handler
     console_in = ConsoleInput()
-
-    cocotb.log.info("Sigma 7 Monitor running — Ctrl-] to exit cleanly, Ctrl-C to force quit")
 
     # Main loop — run until Ctrl-]
     rx_pending = False
