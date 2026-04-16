@@ -54,6 +54,8 @@ localparam OP_STB  = 7'h75;
 localparam OP_BCR  = 7'h68;
 localparam OP_BCS  = 7'h69;
 localparam OP_BAL  = 7'h6A;
+localparam OP_PLW  = 7'h08;  // pull word from push-down stack
+localparam OP_PSW  = 7'h09;  // push word onto push-down stack
 localparam OP_RD   = 7'h6C;  // read direct from I/O device
 localparam OP_WD   = 7'h6D;  // write direct to I/O device
 
@@ -71,6 +73,7 @@ localparam EX1   = 20'b00000100000000000000;
 localparam EX2   = 20'b00000010000000000000;
 localparam EX3   = 20'b00000001000000000000;
 localparam EX4   = 20'b00000000100000000000;
+localparam EX5   = 20'b00000000010000000000;
 
 // Phase name for GTKWave (right-click → Data Format → ASCII)
 reg [0:63] phase_name;
@@ -93,6 +96,7 @@ end
 // Internal registers
 // ---------------------------------------------------------------------------
 reg [0:31]  A;
+reg [0:31]  B;          // TOS scratch (push-down); future multiply/divide
 reg [0:31]  C;
 reg [0:31]  D;          // current instruction word
 reg [1:7]   O;          // opcode
@@ -104,6 +108,7 @@ reg [0:31]  RR [0:15];  // user register file
 
 initial begin
     A         = 32'b0;
+    B         = 32'b0;
     C         = 32'h02000000;
     D         = 32'h02000000;
     O         = 7'h02;
@@ -232,6 +237,7 @@ reg [1:0]  P_sel;
 reg [1:0]  CC_sel;
 reg [0:1]  p_byte_offset;  // byte offset for P[32:33] set during ENDE
 reg        D_sel;   // D ← C_mux
+reg        B_load;  // B ← bus_data_r (capture TOS)
 reg        D_imm;   // D ← imm20 (for AI/CI)
 reg        O_sel;
 reg        R_sel;
@@ -240,6 +246,7 @@ reg        rr_write;
 reg [0:31] rr_data;
 reg        ende;
 reg [0:19] phase_next;
+
 
 // ---------------------------------------------------------------------------
 // Bus outputs
@@ -262,6 +269,7 @@ end
 always @(posedge clock) begin
     if (reset) begin
         A         <= 32'b0;
+        B         <= 32'b0;
         C         <= 32'h02000000;
         D         <= 32'h02000000;
         O         <= 7'h02;
@@ -302,11 +310,12 @@ always @(posedge clock) begin
             end
             default: ;
         endcase
+        if (B_load) B <= bus_data_r;
         if (D_sel) D <= C_mux;   // D ← C_mux (instruction in ENDE, operand in EX1, pointer in PREP2)
         if (D_imm) D <= imm20;   // D ← sign-extended immediate (for AI/CI)
         if (O_sel) O <= bus_data_r[1:7];
         if (R_sel) R <= bus_data_r[8:11];
-        if (Q_sel) Q <= P[15:31];  // Q ← next instruction word address (P=p_inc after ENDE)
+        if (Q_sel) Q <= P[15:31];
     end
 end
 
@@ -345,6 +354,7 @@ always @(*) begin
     cpu_write    = 1'b0;
     bus_size     = 2'b10;   // default: word
     io_select    = 1'b0;    // default: memory transaction
+    B_load       = 1'b0;
 
     case (1'b1)
 
@@ -488,6 +498,19 @@ always @(*) begin
                 OP_WD: begin
                     A_sel     = A_RR;       // A ← RR[r]
                     io_select = 1'b1;
+                end
+
+                OP_PSW: begin
+                    // bus_data_r = SPD[0]; capture TOS into B and D; load value to push into A
+                    B_load = 1'b1;    // B[15:31] ← TOS (registered, safe to use in EX2)
+                    D_sel  = 1'b1;    // D ← SPD[0] (holds TOS for SPD write arithmetic)
+                    A_sel  = A_RR;    // A ← RR[r]  (value to push)
+                end
+
+                OP_PLW: begin
+                    // bus_data_r = SPD[0]; capture TOS into B and D
+                    B_load = 1'b1;    // B[15:31] ← TOS (registered, used as bus_addr in EX2)
+                    D_sel  = 1'b1;    // D ← SPD[0] (holds TOS for SPD write arithmetic)
                 end
                 default: ;
             endcase
@@ -653,6 +676,19 @@ always @(*) begin
                     bus_addr = {Q, 2'b00};
                 end
 
+                OP_PSW: begin
+                    // Write RR[r] (in A) to M[TOS+1]; B[15:31] = TOS (registered)
+                    bus_addr   = {B[15:31] + 17'd1, 2'b00};
+                    bus_data_w = A;
+                    cpu_write  = 1'b1;
+                end
+
+                OP_PLW: begin
+                    // Present M[TOS] address; B[15:31] = TOS (registered)
+                    // M[TOS] will arrive in bus_data_r at EX3
+                    bus_addr = {B[15:31], 2'b00};
+                end
+
                 default: ;
             endcase
         end
@@ -671,19 +707,69 @@ always @(*) begin
                     bus_addr = {Q, 2'b00};
                 end
 
+                OP_PSW: begin
+                    // Write TOS+1 back to SPD[0]; B[15:31] = old TOS
+                    bus_addr   = {P[15:31], 2'b00};
+                    bus_data_w = {15'b0, B[15:31] + 17'd1};
+                    cpu_write  = 1'b1;
+                end
+
+                OP_PLW: begin
+                    // bus_data_r = M[TOS] (fetched by EX2); load into A.
+                    // Simultaneously write TOS-1 to SPD[0]:
+                    //   bus_addr = SPD, cpu_write fires at posedge EX3→EX4.
+                    //   bus_data_r is M[TOS] from EX2 — independent of this write.
+                    C_load     = 1'b1;
+                    A_sel      = A_CMUX;                        // A ← M[TOS]
+                    bus_addr   = {P[15:31], 2'b00};             // SPD address
+                    bus_data_w = {15'b0, B[15:31] - 17'd1};    // new TOS = TOS-1
+                    cpu_write  = 1'b1;                          // write SPD[0] at posedge
+                end
+
                 default: ;
             endcase
         end
 
         // ------------------------------------------------------------------
-        // EX4: ENDE for STW/STH/STB
+        // EX4: restore P for STW/STH/STB/PSW/PLW
         // ------------------------------------------------------------------
         phase[8]: begin
             case (O)
                 OP_STW, OP_STH, OP_STB, OP_WD: ende = 1'b1;
+
+                OP_PSW: begin
+                    // SPD[0] written; restore P ← Q; next cycle presents next-instr addr
+                    P_sel    = P_Q;
+                    bus_addr = {Q, 2'b00};
+                end
+
+                OP_PLW: begin
+                    // SPD[0] already written in EX3.
+                    // Write RR[r] ← A (= M[TOS]); restore P ← Q;
+                    // bus_addr = {Q,00} so EX5 bus_data_r = next instruction.
+                    alu_op   = ALU_PASSA;
+                    CC_sel   = CC_ARITH;
+                    rr_data  = A;
+                    rr_write = 1'b1;
+                    P_sel    = P_Q;
+                    bus_addr = {Q, 2'b00};   // next instruction address — mirrors PSW EX4
+                end
+
                 default: ;
             endcase
         end
+
+        // ------------------------------------------------------------------
+        // EX5: ENDE for PSW and PLW
+        // ------------------------------------------------------------------
+        phase[9]: begin
+            case (O)
+                OP_PSW, OP_PLW: ende = 1'b1;
+                default: ;
+            endcase
+        end
+
+
 
         default: ;
 

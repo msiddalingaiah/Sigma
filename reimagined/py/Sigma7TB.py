@@ -32,6 +32,8 @@ OP_STB  = 0x75
 OP_BCR  = 0x68
 OP_BCS  = 0x69
 OP_BAL  = 0x6A
+OP_PLW  = 0x08
+OP_PSW  = 0x09
 OP_RD   = 0x6C
 OP_WD   = 0x6D
 
@@ -789,6 +791,59 @@ async def test_rd_wd(dut):
     status = int(rr(dut, 1).value)
     tr.check_bool("RD status TX ready", bool(status & 2), True)
     tr.summary()
+
+
+# ---------------------------------------------------------------------------
+# Test: PSW and PLW — push-down stack
+# ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_psw_plw(dut):
+    """Test PSW (push word) and PLW (pull word) with a simple stack."""
+    tr = TestResults("PSW and PLW")
+    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
+
+    await init_memory(dut, size=0x1000)
+
+    # Stack layout:
+    #   SPD at word 0x200: word 0 = {15'b0, initial_TOS}
+    #   Stack area: words 0x201..0x240 (grows upward)
+    #   Initial TOS = 0x200 (empty — first push will write to 0x201)
+    SPD_ADDR = 0x200
+    INIT_TOS  = 0x200
+
+    # Program at boot address 0x026:
+    #   LI  R1, 0xAA        ; value to push
+    #   LI  R2, 0xBB        ; another value
+    #   PSW R1, SPD_ADDR    ; push R1 → stack[0x201]=0xAA; TOS=0x201
+    #   PSW R2, SPD_ADDR    ; push R2 → stack[0x202]=0xBB; TOS=0x202
+    #   PLW R3, SPD_ADDR    ; pull → R3=0xBB; TOS=0x201
+    #   PLW R4, SPD_ADDR    ; pull → R4=0xAA; TOS=0x200
+    #   LCFI                ; halt
+
+    await write_word(dut, SPD_ADDR * 4, INIT_TOS)   # SPD[0] = initial TOS
+
+    await write_word(dut, 0x098, encode_imm(OP_LI,  r=1, imm=0xAA))
+    await write_word(dut, 0x09C, encode_imm(OP_LI,  r=2, imm=0xBB))
+    await write_word(dut, 0x0A0, encode(OP_PSW, r=1, addr=SPD_ADDR))
+    await write_word(dut, 0x0A4, encode(OP_PSW, r=2, addr=SPD_ADDR))
+    await write_word(dut, 0x0A8, encode(OP_PLW, r=3, addr=SPD_ADDR))
+    await write_word(dut, 0x0AC, encode(OP_PLW, r=4, addr=SPD_ADDR))
+    await write_word(dut, 0x0B0, encode(OP_LCFI, r=0))
+
+    await reset_cpu(dut)
+    await run_cycles(dut, 200)
+
+    tr.check("PSW/PLW R3=0xBB (LIFO order)", rr(dut, 3).value, 0xBB)
+    tr.check("PSW/PLW R4=0xAA (LIFO order)", rr(dut, 4).value, 0xAA)
+
+    # Check TOS was restored to initial value
+    spd_val = int(dut.sys.memory.mem[SPD_ADDR * 4 + 3].value) | \
+              (int(dut.sys.memory.mem[SPD_ADDR * 4 + 2].value) << 8) | \
+              (int(dut.sys.memory.mem[SPD_ADDR * 4 + 1].value) << 16) | \
+              (int(dut.sys.memory.mem[SPD_ADDR * 4 + 0].value) << 24)
+    tr.check("SPD TOS restored", spd_val, INIT_TOS)
+    tr.summary()
+
 
 
 # ---------------------------------------------------------------------------
