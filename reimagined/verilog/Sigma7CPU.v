@@ -237,7 +237,11 @@ reg [1:0]  P_sel;
 reg [1:0]  CC_sel;
 reg [0:1]  p_byte_offset;  // byte offset for P[32:33] set during ENDE
 reg        D_sel;   // D ← C_mux
-reg        B_load;  // B ← bus_data_r (capture TOS)
+// B register select
+localparam B_HOLD = 2'b00;
+localparam B_CMUX = 2'b01;   // B ← C_mux (memory read via transparent C latch)
+localparam B_ALU  = 2'b10;   // B ← alu_out (S bus, for multiply/divide)
+reg [1:0] B_sel;
 reg        D_imm;   // D ← imm20 (for AI/CI)
 reg        O_sel;
 reg        R_sel;
@@ -310,7 +314,11 @@ always @(posedge clock) begin
             end
             default: ;
         endcase
-        if (B_load) B <= bus_data_r;
+        case (B_sel)
+            B_CMUX: B <= C_mux;
+            B_ALU:  B <= alu_out;
+            default: ;
+        endcase
         if (D_sel) D <= C_mux;   // D ← C_mux (instruction in ENDE, operand in EX1, pointer in PREP2)
         if (D_imm) D <= imm20;   // D ← sign-extended immediate (for AI/CI)
         if (O_sel) O <= bus_data_r[1:7];
@@ -354,7 +362,7 @@ always @(*) begin
     cpu_write    = 1'b0;
     bus_size     = 2'b10;   // default: word
     io_select    = 1'b0;    // default: memory transaction
-    B_load       = 1'b0;
+    B_sel        = B_HOLD;
 
     case (1'b1)
 
@@ -501,16 +509,20 @@ always @(*) begin
                 end
 
                 OP_PSW: begin
-                    // bus_data_r = SPD[0]; capture TOS into B and D; load value to push into A
-                    B_load = 1'b1;    // B[15:31] ← TOS (registered, safe to use in EX2)
-                    D_sel  = 1'b1;    // D ← SPD[0] (holds TOS for SPD write arithmetic)
-                    A_sel  = A_RR;    // A ← RR[r]  (value to push)
+                    // bus_data_r = SPD[0]; C_mux = SPD[0] (transparent latch)
+                    // B ← C_mux = TOS (registered, used as bus_addr in EX2)
+                    C_load = 1'b1;
+                    B_sel  = B_CMUX;  // B[15:31] ← TOS via C_mux
+                    D_sel  = 1'b1;    // D ← SPD[0]
+                    A_sel  = A_RR;    // A ← RR[r] (value to push)
                 end
 
                 OP_PLW: begin
-                    // bus_data_r = SPD[0]; capture TOS into B and D
-                    B_load = 1'b1;    // B[15:31] ← TOS (registered, used as bus_addr in EX2)
-                    D_sel  = 1'b1;    // D ← SPD[0] (holds TOS for SPD write arithmetic)
+                    // bus_data_r = SPD[0]; C_mux = SPD[0] (transparent latch)
+                    // B ← C_mux = TOS (registered, used as bus_addr in EX2)
+                    C_load = 1'b1;
+                    B_sel  = B_CMUX;  // B[15:31] ← TOS via C_mux
+                    D_sel  = 1'b1;    // D ← SPD[0]
                 end
                 default: ;
             endcase
