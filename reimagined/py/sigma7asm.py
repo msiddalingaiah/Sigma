@@ -60,6 +60,9 @@ OPCODES = {
     'BCR':  (0x68, 'branch'),
     'BCS':  (0x69, 'branch'),
     'BAL':  (0x6A, 'branch'),
+    # Push-down stack (doubleword-addressed)
+    'PLW':  (0x08, 'mem'),
+    'PSW':  (0x09, 'mem'),
     # Direct I/O
     'RD':   (0x6C, 'mem'),
     'WD':   (0x6D, 'mem'),

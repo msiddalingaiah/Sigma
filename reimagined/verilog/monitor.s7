@@ -1,77 +1,157 @@
 * ==========================================================================
 * SDS/Xerox Sigma 7 Monitor
+* Stack-based calling: R7 = sole link register, saved/restored via PSW/PLW
 * ==========================================================================
 
 * I/O device addresses
 CONDAT  EQU     0x1001          ; console data register
 CONSTS  EQU     0x1002          ; console status register
 
-* Status bit masks (big-endian: bit 31=LSB=value 1, bit 30=value 2)
-RXRDY   EQU     1               ; RX ready bit mask
-TXRDY   EQU     2               ; TX ready bit mask
+* Console status bit values (for DC mask words)
+RXRDY   EQU     1               ; bit 31 (value 1) = RX ready
+TXRDY   EQU     2               ; bit 30 (value 2) = TX always ready
 
-        ORG     0x26            ; byte 0x098 = boot address
+* ASCII constants (used with LI and CI -- immediate, not memory)
+CR      EQU     0x0D
+LF      EQU     0x0A
+BS      EQU     0x08
 
-* --------------------------------------------------------------------------
-* MAIN — print banner then echo input characters
-* --------------------------------------------------------------------------
-MAIN    LI      R6  BA(BANNER)  ; R6 = byte address of banner
-        BAL     R7  PUTS        ; print banner
-ECHO    BAL     R7  GETCHAR     ; read and echo one character
-        BCR     0   ECHO        ; loop forever
+* Memory layout (word addresses):
+*   INBUF: 0x100-0x11F  (32 words = 128 bytes, input line buffer)
+*   SPD:   0x120        (Stack Pointer Doubleword; initial TOS = 0x140)
+*   Stack: 0x141-0x17F  (first push writes to 0x141, grows upward)
 
-* --------------------------------------------------------------------------
-* GETCHAR — read one character from console with echo
-* Entry:  (none)
-* Exit:   R1 = character (bits 24:31)
-* Uses:   R1, R2, R5 (inner link)
-* Call:   BAL R7, GETCHAR  → return via R7
-* --------------------------------------------------------------------------
-GETCHAR
-RXWAIT  RD      R2  CONSTS      ; read status
-        AND     R2  RXMASK      ; isolate RX ready bit
-        BCR     1   RXWAIT      ; loop if not ready (CC AND 1 = 0)
-        RD      R1  CONDAT      ; read character into R1
-        BAL     R5 PUTCHAR     ; echo (R5 = inner link, R7 preserved)
-        BCR     0   0  R7       ; return to caller via R7
+        ORG     0x26            ; boot word address (byte 0x098)
 
 * --------------------------------------------------------------------------
-* PUTCHAR — write one character to console
-* Entry:  R1 = character (bits 24:31)
+* MAIN -- print banner then enter command loop (never returns; no PSW needed)
+* --------------------------------------------------------------------------
+MAIN    LI      R6  BA(BANNER)
+        BAL     R7  PUTS
+
+CMDLOOP LI      R6  BA(PROMPT)
+        BAL     R7  PUTS
+        LI      R6  BA(INBUF)   ; R6 = byte address of input buffer
+        BAL     R7  GETLINE     ; read line; R3 = char count; R6 advanced
+        CI      R3  0           ; empty line?
+        BCR     3   CMDLOOP     ; yes (zero diff -> BCR 3 branches) -- loop
+        LB      R1  BA(INBUF)   ; first character of input
+        CI      R1  0x48        ; 'H' -- help?
+        BCR     3   CMD_H
+        LI      R6  BA(ERRMSG)
+        BAL     R7  PUTS
+        BCR     0   CMDLOOP
+
+CMD_H   LI      R6  BA(HELPMSG)
+        BAL     R7  PUTS
+        BCR     0   CMDLOOP
+
+* --------------------------------------------------------------------------
+* GETCHAR -- read one character from console, no echo
+* Exit:   R1 = character (zero-extended)
 * Uses:   R2
-* Call:   BAL R5, PUTCHAR  (inner calls only; R5 = link register)
 * --------------------------------------------------------------------------
-PUTCHAR
-TXWAIT  RD      R2  CONSTS      ; read status
-        AND     R2  TXMASK      ; isolate TX ready bit
-        BCR     2   TXWAIT      ; loop if not ready
-        WD      R1  CONDAT      ; write character
-        BCR     0   0  R5      ; return via R5
+GETCHAR PSW     R7  SPD
+RXWAIT  RD      R2  CONSTS
+        AND     R2  RXMASK      ; isolate RX ready bit -> 1 if ready, 0 if not
+        BCR     2   RXWAIT      ; branch if zero (not ready): CC[3]=0 -> CC AND 2 = 0
+        RD      R1  CONDAT      ; read character
+        PLW     R7  SPD
+        BCR     0   0  R7
 
 * --------------------------------------------------------------------------
-* PUTS — print null-terminated string to console
-* Entry:  R6 = byte address of string
-* Uses:   R1, R2, R6, R5 (inner link)
-* Call:   BAL R7, PUTS
+* PUTCHAR -- write one character to console
+* Entry: R1 = character (bits 24:31)
+* Uses:  R2
 * --------------------------------------------------------------------------
-PUTS
-PUTS1   LB      R1  0  R6       ; load byte at [R6]
-        CI      R1  0           ; compare with null
-        BCR     3   PUTSDONE    ; branch if char == 0
-        BAL     R5 PUTCHAR     ; output char (R5 = inner link, R7 preserved)
-        AI      R6  1           ; advance byte pointer
-        BCR     0   PUTS1       ; loop
-PUTSDONE BCR    0   0  R7       ; return to caller via R7
+PUTCHAR PSW     R7  SPD
+TXWAIT  RD      R2  CONSTS
+        AND     R2  TXMASK      ; isolate TX ready bit -> 2 if ready, 0 if not
+        BCR     2   TXWAIT      ; branch if zero (not ready)
+        WD      R1  CONDAT
+        PLW     R7  SPD
+        BCR     0   0  R7
 
 * --------------------------------------------------------------------------
-* Constants
+* PUTS -- print null-terminated string
+* Entry: R6 = byte address of string
+* Uses:  R1, R2, R6
 * --------------------------------------------------------------------------
-RXMASK  DC      RXRDY
-TXMASK  DC      TXRDY
+PUTS    PSW     R7  SPD
+PUTS1   LB      R1  0  R6
+        CI      R1  0           ; null terminator?
+        BCR     3   PUTSDONE    ; equal (zero diff) -> done
+        BAL     R7  PUTCHAR
+        AI      R6  1
+        BCR     0   PUTS1
+PUTSDONE
+        PLW     R7  SPD
+        BCR     0   0  R7
 
 * --------------------------------------------------------------------------
-* Banner string
+* GETLINE -- read a line from console into buffer
+* Entry: R6 = byte address of input buffer
+* Exit:  R3 = number of characters (not counting null terminator)
+*        Buffer null-terminated; R6 advanced past end (use BA(INBUF) directly)
+* Uses:  R1, R2, R3, R6
+* --------------------------------------------------------------------------
+GETLINE PSW     R7  SPD
+        LI      R3  0           ; character count
+GL_NEXT BAL     R7  GETCHAR     ; R1 = char (no echo)
+        CI      R1  CR          ; carriage return?
+        BCR     3   GL_EOL      ; yes -> end of line
+        CI      R1  BS          ; backspace?
+        BCR     3   GL_BS       ; yes
+        BAL     R7  PUTCHAR     ; echo character (R1 preserved by PUTCHAR)
+        STB     R1  0  R6       ; store in buffer
+        AI      R6  1           ; advance buffer pointer
+        AI      R3  1           ; increment count
+        BCR     0   GL_NEXT
+GL_BS   CI      R3  0           ; already at start of buffer?
+        BCR     3   GL_NEXT     ; yes (count=0 -> zero diff -> BCR 3 branches), ignore
+        LI      R1  BS          ; erase: BS space BS
+        BAL     R7  PUTCHAR
+        LI      R1  0x20
+        BAL     R7  PUTCHAR
+        LI      R1  BS
+        BAL     R7  PUTCHAR
+        AI      R6  -1          ; back up buffer pointer
+        AI      R3  -1          ; decrement count
+        BCR     0   GL_NEXT
+GL_EOL  LI      R1  CR          ; echo CR LF
+        BAL     R7  PUTCHAR
+        LI      R1  LF
+        BAL     R7  PUTCHAR
+        LI      R1  0           ; null-terminate buffer
+        STB     R1  0  R6
+        PLW     R7  SPD
+        BCR     0   0  R7
+
+* --------------------------------------------------------------------------
+* Mask constants -- memory words used as AND operands
+* --------------------------------------------------------------------------
+RXMASK  DC      RXRDY           ; = 1
+TXMASK  DC      TXRDY           ; = 2
+
+* --------------------------------------------------------------------------
+* Strings
 * --------------------------------------------------------------------------
 BANNER  DB      'Sigma 7 Monitor\r\n\0'
+PROMPT  DB      '> \0'
+ERRMSG  DB      '?\r\n\0'
+HELPMSG DB      'Commands:\r\n  H - this help\r\n\0'
+
+* --------------------------------------------------------------------------
+* Input buffer: 128 bytes at word 0x100 (byte 0x400)
+* --------------------------------------------------------------------------
+        ORG     0x100
+INBUF   DS      32
+
+* --------------------------------------------------------------------------
+* Stack Pointer Doubleword at word 0x120
+* Initial TOS = 0x140; first push writes to word 0x141
+* --------------------------------------------------------------------------
+        ORG     0x120
+SPD     DC      0x140
 
         END

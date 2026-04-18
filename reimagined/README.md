@@ -12,45 +12,62 @@ processor originally built with custom DTL (Diode-Transistor Logic) in the late 
 ## Architecture Highlights
 
 - 32-bit big-endian (bit 0 = MSB throughout)
-- Hardwired control unit with one-hot phase register (PCP4, PCP5, PREP1–3, EX1–4)
+- Hardwired control unit with one-hot phase register (PCP4, PCP5, PREP1–3, EX1–EX5)
 - 16 × 32-bit user register file (RR)
+- Internal registers: A (primary ALU input/result), B (ALU second operand; TOS scratch
+  for push-down; future multiply/divide via B_ALU path), C (transparent memory latch),
+  D (secondary ALU input from C_mux), O (opcode), R (register field), P (EA), Q (IA)
+- B loads through C_mux (B_CMUX) for memory reads, or from alu_out (B_ALU) for
+  multiply/divide — no direct bus_data_r path
 - Synchronous memory interface (FPGA block RAM compatible)
 - ALU with A and D as inputs; carry and overflow detection
 - 4-bit CC register (CC1=carry, CC2=overflow, CC3=positive, CC4=negative)
 - Address family decode (fa_w, fa_h, fa_b, fa_d, fa_imm) from opcode table structure
 - Full indexed and indirect addressing via PREP1–PREP3 phase sequence
 - Console I/O via RD/WD direct instructions (devices 0x1001, 0x1002)
+- Push-down stack via PSW/PLW (doubleword-addressed Stack Pointer Doubleword in memory)
 
 ## Project Structure
 
 ```
-verilog/
-  Sigma7CPU.v       — CPU core (control unit, datapath, phase sequencer, ALU)
-  Memory.v          — Synchronous byte-addressable memory (512KB)
-  Sigma7System.v    — Top-level system (CPU + Memory + Console)
-  Console.v         — Console I/O ($fgetc/$fwrite simulation model)
-  Sigma7TB.v        — Verilog testbench wrapper for cocotb
-  BusArbiter.v      — Bus arbiter stub
-  IOProcessor.v     — I/O processor stub
-  monitor.s7        — Monitor banner program (Sigma 7 assembly source)
-  monitor.hex       — Assembled monitor ($readmemh format)
-py/
-  Sigma7TB.py       — cocotb testbench (Python runner, Icarus Verilog)
-sigma7asm.py        — Two-pass Sigma 7 assembler (outputs $readmemh hex)
+Sigma7CPU.v       — CPU core (control unit, datapath, phase sequencer, ALU)
+Memory.v          — Synchronous byte-addressable memory (512KB)
+Sigma7System.v    — Top-level system (CPU + Memory + Console)
+Console.v         — Console I/O ($fgetc/$fwrite simulation model)
+Sigma7TB.v        — Verilog testbench wrapper for cocotb
+Sigma7Sim.v       — Standalone simulation top-level (for interactive monitor)
+Sigma7TB.py       — cocotb testbench (16 passing unit tests)
+Sigma7Mon.py      — Interactive monitor runner (cocotb-based)
+sigma7asm.py      — Two-pass Sigma 7 assembler (outputs $readmemh hex)
+monitor.s7        — Monitor program source (Sigma 7 assembly)
+monitor.hex       — Assembled monitor ($readmemh format, loaded by Memory.v)
 ```
 
 ## Running the Tests
 
-```
-python py/Sigma7TB.py
+```bash
+# Compile
+iverilog -o sim_tb -DPROJ_DIR='""' \
+  Sigma7TB.v Sigma7System.v Sigma7CPU.v Memory.v Console.v
+
+# Run (cocotb v2)
+COCOTB_TEST_MODULES=Sigma7TB TOPLEVEL=Sigma7TB TOPLEVEL_LANG=verilog \
+  PYGPI_PYTHON_BIN=$(which python3) \
+  vvp -M$(python3 -c "import pathlib,cocotb; print(pathlib.Path(cocotb.__file__).parent/'libs')") \
+      -mlibcocotbvpi_icarus sim_tb
 ```
 
-Requires: Python 3, cocotb, Icarus Verilog.
+Requires: Python 3, cocotb (`pip install cocotb`), Icarus Verilog.
 
-To enable interactive console input (e.g. running the monitor):
+## Running the Monitor
 
-```
-python py/Sigma7TB.py -DCONSOLE_INPUT
+```bash
+# Compile with monitor hex loaded
+iverilog -o sim_mon -DMONITOR_HEX='"monitor.hex"' -DCONSOLE_INPUT \
+  Sigma7Sim.v Sigma7System.v Sigma7CPU.v Memory.v Console.v
+
+# Run interactively
+vvp sim_mon
 ```
 
 ## Assembler Usage
@@ -62,54 +79,111 @@ python sigma7asm.py source.s7 -o output.hex [-s]   # -s prints symbol table
 Assembly syntax:
 ```
 * comment
-LABEL   LW   R1, ADDR        ; memory-reference: op R, [X,] addr [,I]
+LABEL   LW   R1, ADDR        ; memory-reference: op R, [X,] addr
         LI   R2, 42          ; immediate: op R, imm
         BCR  0, TARGET       ; branch: op R, addr [,X]
         BAL  R7, SUBROUTINE  ; branch and link
+        PSW  R7, SPD         ; push R7 onto stack (save link register)
+        PLW  R7, SPD         ; pop  R7 from stack (restore link register)
         ORG  0x26            ; set location counter (word address)
 CONST   DC   0xDEADBEEF      ; define constant word
-STR     DB   'Hello'         ; define bytes (null-terminated string)
-        DS   4               ; define storage (4 words)
+STR     DB   'Hello\r\n\0'   ; define bytes with escape sequences
+        DS   4               ; define storage (4 words, zeroed)
 NAME    EQU  42              ; define symbol
-        LI   R5, BA(LABEL)   ; BA(x) = x<<2 (byte address of word address)
+        LI   R6, BA(LABEL)   ; BA(x) = x<<2 (word address to byte address)
 ```
 
 ## GTKWave Tips
 
 - Add `phase_name` signal, set **Data Format → ASCII** to see phase names
-  (PCP4, PCP5, PREP1, PREP2, PREP3, EX1–EX4) in the waveform
+  (PCP4, PCP5, PREP1, PREP2, PREP3, EX1–EX5) in the waveform
 
-## Implemented Instructions (17 passing tests)
+## Monitor Program
+
+The monitor implements a command loop with stack-based subroutine calling.
+R7 is the sole link register, saved and restored via PSW/PLW on every call.
+The Stack Pointer Doubleword (SPD) lives at word address 0x120 (initial TOS = 0x140).
+
+Subroutines:
+- **PUTCHAR** — write one character (R1) to console
+- **GETCHAR** — read one character from console into R1 (no echo)
+- **PUTS** — print null-terminated string at byte address R6
+- **GETLINE** — read a line into buffer (R6=buffer addr); returns R3=char count,
+  buffer null-terminated. Handles backspace with visual erase (BS-space-BS).
+
+Boot sequence: print banner → command loop (prompt, read line, dispatch).
+Current commands: `H` — help text.
+
+## Implemented Instructions (16 passing tests)
 
 | Instruction | Opcode | Description |
 |-------------|--------|-------------|
 | LCFI | 0x02 | Load Conditions and FP Immediate; all-zero = no-op/halt |
-| AI | 0x20 | Add Immediate (20-bit sign-extended) |
-| CI | 0x21 | Compare Immediate |
-| LI | 0x22 | Load Immediate |
-| AW | 0x30 | Add Word |
-| CW | 0x31 | Compare Word |
-| LW | 0x32 | Load Word |
-| STW | 0x35 | Store Word |
-| SW | 0x38 | Subtract Word |
-| EOR | 0x48 | Logical Exclusive OR |
-| OR | 0x49 | Logical OR |
-| AND | 0x4B | Logical AND |
-| LH | 0x52 | Load Halfword (sign-extended) |
-| STH | 0x55 | Store Halfword |
-| LB | 0x72 | Load Byte (zero-extended) |
-| STB | 0x75 | Store Byte |
-| BCR | 0x68 | Branch on Conditions Reset (R=0 → unconditional) |
-| BCS | 0x69 | Branch on Conditions Set |
-| BAL | 0x6A | Branch and Link (subroutine call) |
-| RD | 0x6C | Read Direct (console input) |
-| WD | 0x6D | Write Direct (console output) |
+| PLW  | 0x08 | Pull Word from push-down stack (load RR[r], decrement TOS) |
+| PSW  | 0x09 | Push Word onto push-down stack (increment TOS, store RR[r]) |
+| AI   | 0x20 | Add Immediate (20-bit sign-extended) |
+| CI   | 0x21 | Compare Immediate |
+| LI   | 0x22 | Load Immediate |
+| AW   | 0x30 | Add Word |
+| CW   | 0x31 | Compare Word |
+| LW   | 0x32 | Load Word |
+| STW  | 0x35 | Store Word |
+| SW   | 0x38 | Subtract Word |
+| EOR  | 0x48 | Logical Exclusive OR |
+| OR   | 0x49 | Logical OR |
+| AND  | 0x4B | Logical AND |
+| LH   | 0x52 | Load Halfword (sign-extended) |
+| STH  | 0x55 | Store Halfword |
+| LB   | 0x72 | Load Byte (zero-extended) |
+| STB  | 0x75 | Store Byte |
+| BCR  | 0x68 | Branch on Conditions Reset (R=0 → unconditional) |
+| BCS  | 0x69 | Branch on Conditions Set |
+| BAL  | 0x6A | Branch and Link (subroutine call) |
+| RD   | 0x6C | Read Direct (console input) |
+| WD   | 0x6D | Write Direct (console output) |
 
 All addressing modes implemented: direct, indexed (word/halfword/byte), indirect,
 and indirect indexed. Index registers 1–7 only (X field is 3 bits).
+
+## Push-Down Stack (PSW/PLW)
+
+The Stack Pointer Doubleword (SPD) is a 64-bit structure in memory:
+- **Word 0 bits 15–31:** 17-bit top-of-stack word address (TOS)
+- **Word 1 bits 33–47:** 15-bit space count (free locations)
+- **Word 1 bits 49–63:** 15-bit word count (words on stack)
+- **Bit 32:** TS — trap-on-space inhibit
+- **Bit 48:** TW — trap-on-word inhibit
+
+Current implementation manages TOS only (word 0); space/word counts and
+overflow trapping are not yet implemented.
+
+**PSW timing (5 execution phases):**
+
+| Phase | bus_addr | Action |
+|-------|----------|--------|
+| EX1 | SPD (default) | C_load; B←C_mux=SPD[0]; D←SPD[0]; A←RR[r] |
+| EX2 | {B[15:31]+1, 00} | M[TOS+1] ← A (write value) |
+| EX3 | {P[15:31], 00} | M[SPD] ← {15'b0, B[15:31]+1} (write new TOS) |
+| EX4 | {Q, 00} | P ← Q |
+| EX5/ENDE | — | ENDE |
+
+**PLW timing (5 execution phases):**
+
+| Phase | bus_addr | Action |
+|-------|----------|--------|
+| EX1 | SPD (default) | C_load; B←C_mux=SPD[0]; D←SPD[0] |
+| EX2 | {B[15:31], 00} | (present TOS address; M[TOS] arrives in EX3) |
+| EX3 | {P[15:31], 00} | C_load; A←C_mux=M[TOS]; M[SPD]←{15'b0,B[15:31]-1} |
+| EX4 | {Q, 00} | RR[r]←A; CC←A; P←Q |
+| EX5/ENDE | — | ENDE |
+
+Note: the SPD write in PLW EX3 and the M[TOS] read from bus_data_r are
+independent — bus_data_r carries M[TOS] from EX2's bus_addr regardless of
+what is written via bus_data_w in the same cycle.
 
 ## Pending Instructions
 
 Word: LCW, LAW | Halfword: AH, CH, SH, LCH, LAH, MTH | Byte: CB, MTB
 Branches: BDR, BIR | Doubleword: LD, STD, AD, SD, CD, LCD, LAD
 Shifts, multiply/divide, floating point, SIO/TIO/HIO channel I/O
+PSM/PLM (push/pull multiple), MSP (modify stack pointer)

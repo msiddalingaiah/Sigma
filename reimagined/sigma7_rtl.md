@@ -10,7 +10,7 @@
 | x | X field of instruction (3 bits, bits 12–14); index register selector (0 = no index). X can only select registers 1–7. |
 | i | I field of instruction (1 bit); 1 = indirect addressing |
 | A | 32-bit primary ALU input/result register |
-| B | 32-bit multiply/divide partner register (forms 64-bit A:B pair) |
+| B | 32-bit secondary register. Loads via B_sel: B_CMUX (←C_mux, for memory reads) or B_ALU (←alu_out, for multiply/divide). Used as registered TOS scratch in PSW/PLW; future A:B 64-bit pair for multiply/divide. |
 | C | 32-bit memory interface register (transparent latch); C_mux = bus_data_r when C_load=1, else C |
 | D | 32-bit secondary ALU input; loaded from C_mux (instruction in ENDE, indirect pointer in PREP2, operand in EX1) |
 | E | 8-bit floating-point exponent register |
@@ -390,6 +390,51 @@ EX4/ENDE:
 ```
 
 ---
+
+### PSW — Push Word (0x09)
+
+Pushes RR[r] onto the push-down stack defined by the Stack Pointer Doubleword
+at the effective address. B captures TOS from SPD[0] via C_mux in EX1, providing
+a registered (not combinatorial) address for the EX2 memory write.
+
+```
+PREP1-3: EA → P (SPD word address); P[15:31] = SPD address
+EX1:   C_load; B_sel←B_CMUX   ; B[15:31] ← SPD[0][15:31] = TOS (via C_mux)
+       D_sel                    ; D ← SPD[0]
+       A_sel←A_RR               ; A ← RR[r] (value to push)
+EX2:   bus_addr←{B[15:31]+1,00} ; present TOS+1 address
+       bus_data_w←A; cpu_write   ; M[TOS+1] ← RR[r]
+EX3:   bus_addr←{P[15:31],00}   ; present SPD address
+       bus_data_w←{15'b0,B[15:31]+1}; cpu_write  ; M[SPD] ← new TOS
+EX4:   P_sel←P_Q; bus_addr←{Q,00}
+EX5/ENDE:
+```
+
+### PLW — Pull Word (0x08)
+
+Pulls from the push-down stack into RR[r]. B captures TOS from SPD[0] via C_mux
+in EX1. EX2 presents M[TOS] address so M[TOS] arrives in bus_data_r at EX3.
+The SPD write (new TOS = TOS-1) and the M[TOS] capture into A both happen in EX3 —
+they are independent: bus_data_r carries M[TOS] from EX2's bus_addr regardless of
+the write issued via bus_data_w in the same cycle.
+
+```
+PREP1-3: EA → P (SPD word address)
+EX1:   C_load; B_sel←B_CMUX   ; B[15:31] ← SPD[0][15:31] = TOS (via C_mux)
+       D_sel                    ; D ← SPD[0]
+EX2:   bus_addr←{B[15:31],00}  ; present TOS address; M[TOS] arrives in EX3
+EX3:   C_load; A_sel←A_CMUX    ; A ← M[TOS]  (from EX2's bus_addr)
+       bus_addr←{P[15:31],00}
+       bus_data_w←{15'b0,B[15:31]-1}; cpu_write  ; M[SPD] ← TOS-1
+EX4:   alu_op←PASSA; CC_sel←CC_ARITH; rr_data←A; rr_write  ; RR[r] ← M[TOS]
+       P_sel←P_Q; bus_addr←{Q,00}
+EX5/ENDE:
+```
+
+*CC is set from the pulled value (A = M[TOS]) in EX4.*
+
+---
+
 
 ## Pending Instructions
 
