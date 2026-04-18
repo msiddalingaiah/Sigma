@@ -11,6 +11,8 @@
 | i | I field of instruction (1 bit); 1 = indirect addressing |
 | A | 32-bit primary ALU input/result register |
 | B | 32-bit secondary register. Loads via B_sel: B_CMUX (←C_mux, for memory reads) or B_ALU (←alu_out, for multiply/divide). Used as registered TOS scratch in PSW/PLW; future A:B 64-bit pair for multiply/divide. |
+| shift_count | `$signed(P[25:31])` — 7-bit signed shift count; positive=left, negative=right |
+| can_4bit | `shift_count >= 4 \|\| shift_count <= -4` — use 4-bit ALU step this iteration |
 | C | 32-bit memory interface register (transparent latch); C_mux = bus_data_r when C_load=1, else C |
 | D | 32-bit secondary ALU input; loaded from C_mux (instruction in ENDE, indirect pointer in PREP2, operand in EX1) |
 | E | 8-bit floating-point exponent register |
@@ -390,6 +392,55 @@ EX4/ENDE:
 ```
 
 ---
+
+### S — Shift (0x25), logical single register
+
+The S instruction encodes shift type, direction, and count directly in the effective
+address — there is no memory operand. After PREP3, P[21:23]=shift type,
+P[25]=direction (0=left, 1=right), P[26:31]=count magnitude.
+
+P[25:31] serves as the loop counter, counting toward zero via P±4 or P±16 each step.
+The `can_4bit` signal (combinatorial): `$signed(P[25:31]) >= 4 || $signed(P[25:31]) <= -4`.
+
+New ALU operations (alu_op expanded to 4 bits):
+- `ALU_SHL1 = 4'd7`:  `{A[1:31], 1'b0}`        — logical left 1
+- `ALU_SHR1 = 4'd8`:  `{1'b0, A[0:30]}`         — logical right 1
+- `ALU_SHL4 = 4'd9`:  `{A[4:31], 4'b0}`         — logical left 4
+- `ALU_SHR4 = 4'd10`: `{4'b0, A[0:27]}`         — logical right 4
+
+New P_sel values (expanded to 3 bits):
+- `P_DEC4  = 3'd4`:  P ← p_dec4  = P − 4  (left 1-bit step)
+- `P_DEC16 = 3'd5`:  P ← p_dec16 = P − 16 (left 4-bit step)
+- `P_INC16 = 3'd6`:  P ← p_inc16 = P + 16 (right 4-bit step)
+- `P_INC   = 3'd3`:  P ← P + 4             (right 1-bit step, pre-existing)
+
+```
+PREP1-3: EA → P; P[21:23]=type, P[25:31]=signed count
+EX1:   A_sel←A_RR                    ; A ← RR[r]; no memory operand used
+EX2:   if P[25:31] == 7'b0:          ; termination: count reached zero
+           phase → EX3
+       else if shift_left:
+           alu_op ← can_4bit ? ALU_SHL4 : ALU_SHL1
+           A_sel  ← A_ALU             ; A ← shifted A
+           P_sel  ← can_4bit ? P_DEC16 : P_DEC4  ; count -= 4 or 1
+           phase  ← EX2               ; self-loop
+       else:
+           alu_op ← can_4bit ? ALU_SHR4 : ALU_SHR1
+           A_sel  ← A_ALU
+           P_sel  ← can_4bit ? P_INC16 : P_INC   ; count += 4 or 1
+           phase  ← EX2               ; self-loop
+EX3:   alu_op←ALU_PASSA; CC_sel←CC_ARITH; rr_data←A; rr_write
+       P_sel←P_Q; bus_addr←{Q,00}
+EX4/ENDE:
+```
+
+*CC1 (parity of bits shifted off) and CC2 (overflow on left shift) not yet implemented;
+CC3/CC4 set normally from result.*
+
+*Only logical single-register mode (P[21:23]=000) is implemented. The phase structure
+supports all six modes — logical/circular/arithmetic × single/double — via the same
+EX2 self-loop; the other ALU operations and 64-bit register handling are pending.*
+
 
 ### PSW — Push Word (0x09)
 

@@ -12,13 +12,15 @@ processor originally built with custom DTL (Diode-Transistor Logic) in the late 
 ## Architecture Highlights
 
 - 32-bit big-endian (bit 0 = MSB throughout)
-- Hardwired control unit with one-hot phase register (PCP4, PCP5, PREP1–3, EX1–EX5)
+- Hardwired control unit with one-hot phase register (PCP4, PCP5, PREP1–3, EX1–EX5); EX2 self-loops for variable-length shift execution
 - 16 × 32-bit user register file (RR)
 - Internal registers: A (primary ALU input/result), B (ALU second operand; TOS scratch
   for push-down; future multiply/divide via B_ALU path), C (transparent memory latch),
   D (secondary ALU input from C_mux), O (opcode), R (register field), P (EA), Q (IA)
 - B loads through C_mux (B_CMUX) for memory reads, or from alu_out (B_ALU) for
   multiply/divide — no direct bus_data_r path
+- ALU shift operations: SHL1, SHR1, SHL4, SHR4 (logical, fill with 0s)
+- P[25:31] serves as the shift loop counter — P±4 and P±16 count toward zero each step
 - Synchronous memory interface (FPGA block RAM compatible)
 - ALU with A and D as inputs; carry and overflow detection
 - 4-bit CC register (CC1=carry, CC2=overflow, CC3=positive, CC4=negative)
@@ -85,6 +87,8 @@ LABEL   LW   R1, ADDR        ; memory-reference: op R, [X,] addr
         BAL  R7, SUBROUTINE  ; branch and link
         PSW  R7, SPD         ; push R7 onto stack (save link register)
         PLW  R7, SPD         ; pop  R7 from stack (restore link register)
+        S    R1, 4           ; shift R1 left by 4 (positive count=left, negative=right)
+        S    R1, -4          ; shift R1 right by 4 (use negative immediate)
         ORG  0x26            ; set location counter (word address)
 CONST   DC   0xDEADBEEF      ; define constant word
 STR     DB   'Hello\r\n\0'   ; define bytes with escape sequences
@@ -114,13 +118,14 @@ Subroutines:
 Boot sequence: print banner → command loop (prompt, read line, dispatch).
 Current commands: `H` — help text.
 
-## Implemented Instructions (16 passing tests)
+## Implemented Instructions (17 passing tests)
 
 | Instruction | Opcode | Description |
 |-------------|--------|-------------|
 | LCFI | 0x02 | Load Conditions and FP Immediate; all-zero = no-op/halt |
 | PLW  | 0x08 | Pull Word from push-down stack (load RR[r], decrement TOS) |
 | PSW  | 0x09 | Push Word onto push-down stack (increment TOS, store RR[r]) |
+| S    | 0x25 | Shift (logical single register implemented; double/circular/arithmetic pending) |
 | AI   | 0x20 | Add Immediate (20-bit sign-extended) |
 | CI   | 0x21 | Compare Immediate |
 | LI   | 0x22 | Load Immediate |
@@ -144,6 +149,44 @@ Current commands: `H` — help text.
 
 All addressing modes implemented: direct, indexed (word/halfword/byte), indirect,
 and indirect indexed. Index registers 1–7 only (X field is 3 bits).
+
+## S — Shift (logical, single register)
+
+The S instruction uses the effective address itself (not a memory operand) to encode
+the shift type and count. After PREP3, P holds the EA whose bit fields are:
+
+- **P[21:23]:** shift type — 000=logical single (implemented), 001=logical double,
+  010=circular single, 011=circular double, 100=arithmetic single, 101=arithmetic double
+- **P[25]:** direction — 0=left (positive count), 1=right (negative count, two's complement)
+- **P[26:31]:** count magnitude
+
+**P as the loop counter:** P[25:31] is the 7-bit signed count. Each EX2 cycle
+performs one shift step and adjusts P toward zero:
+
+| Step | ALU op | P adjustment |
+|------|--------|-------------|
+| Left  4-bit | SHL4 | P ← P − 16 (P_DEC16) |
+| Left  1-bit | SHL1 | P ← P − 4  (P_DEC4)  |
+| Right 4-bit | SHR4 | P ← P + 16 (P_INC16) |
+| Right 1-bit | SHR1 | P ← P + 4  (P_INC)   |
+
+The loop uses 4-bit steps when `|count| ≥ 4` (`can_4bit = shift_count >= 4 || shift_count <= -4`)
+and 1-bit steps for the remainder. Maximum iterations: 16 × 4-bit + 3 × 1-bit = 19 cycles.
+
+**Phase sequence:**
+```
+EX1:   A ← RR[r]                     ; load register; no memory operand used
+EX2:   if P[25:31]==0: → EX3          ; termination check at top of loop
+       else: A←shift(A); P±=step; → EX2  ; self-loop
+EX3:   RR[r]←A; CC←CC_ARITH(A); P_sel←P_Q; bus_addr←{Q,00}
+EX4/ENDE
+```
+
+**Condition codes:** CC3/CC4 set from result (positive/negative). CC1/CC2 (parity of
+bits shifted off, overflow) not yet implemented.
+
+**Assembler:** `S R1, 4` (left 4), `S R1, -4` (right 4). Negative counts are
+embedded as 7-bit two's complement in the address field bits 25–31.
 
 ## Push-Down Stack (PSW/PLW)
 
@@ -185,5 +228,6 @@ what is written via bus_data_w in the same cycle.
 
 Word: LCW, LAW | Halfword: AH, CH, SH, LCH, LAH, MTH | Byte: CB, MTB
 Branches: BDR, BIR | Doubleword: LD, STD, AD, SD, CD, LCD, LAD
-Shifts, multiply/divide, floating point, SIO/TIO/HIO channel I/O
+Shift modes: S logical double, circular single/double, arithmetic single/double; SF (floating-point shift)
+Multiply/divide, floating point, SIO/TIO/HIO channel I/O
 PSM/PLM (push/pull multiple), MSP (modify stack pointer)

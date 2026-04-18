@@ -60,6 +60,8 @@ OPCODES = {
     'BCR':  (0x68, 'branch'),
     'BCS':  (0x69, 'branch'),
     'BAL':  (0x6A, 'branch'),
+    # Shift
+    'S':    (0x25, 'mem'),
     # Push-down stack (doubleword-addressed)
     'PLW':  (0x08, 'mem'),
     'PSW':  (0x09, 'mem'),

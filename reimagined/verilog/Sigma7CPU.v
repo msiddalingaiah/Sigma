@@ -54,6 +54,7 @@ localparam OP_STB  = 7'h75;
 localparam OP_BCR  = 7'h68;
 localparam OP_BCS  = 7'h69;
 localparam OP_BAL  = 7'h6A;
+localparam OP_SHIFT = 7'h25;  // shift (logical/circular/arithmetic, single/double)
 localparam OP_PLW  = 7'h08;  // pull word from push-down stack
 localparam OP_PSW  = 7'h09;  // push word onto push-down stack
 localparam OP_RD   = 7'h6C;  // read direct from I/O device
@@ -127,7 +128,14 @@ wire [0:31] C_mux = C_load ? bus_data_r : C;
 // ---------------------------------------------------------------------------
 // Computed values
 // ---------------------------------------------------------------------------
+// Shift instruction helpers — P[25:31] is the 7-bit signed shift count
+wire signed [6:0] shift_count = P[25:31];
+wire              shift_left  = ~P[25];          // P[25]=0 → positive count → left shift
+wire              can_4bit    = (shift_count >= 4) || (shift_count <= -4);
 wire [15:33] p_inc   = P + 19'd4;
+wire [15:33] p_dec4  = P - 19'd4;
+wire [15:33] p_dec16 = P - 19'd16;
+wire [15:33] p_inc16 = P + 19'd16;
 wire [0:31]  imm20   = {{12{D[12]}}, D[12:31]};
 
 // Branch condition: CC AND R field of current instruction
@@ -174,15 +182,19 @@ wire [0:1]  idx_boff  = fa_b ? idx_reg[30:31] :
 // ---------------------------------------------------------------------------
 // ALU — inputs are A and D (not C_mux); C_mux is only used to load registers
 // ---------------------------------------------------------------------------
-localparam ALU_ADD   = 3'd0;
-localparam ALU_SUB   = 3'd1;
-localparam ALU_AND   = 3'd2;
-localparam ALU_OR    = 3'd3;
-localparam ALU_XOR   = 3'd4;
-localparam ALU_PASSA = 3'd5;  // S ← A
-localparam ALU_PASSD = 3'd6;  // S ← D
+localparam ALU_ADD   = 4'd0;
+localparam ALU_SUB   = 4'd1;
+localparam ALU_AND   = 4'd2;
+localparam ALU_OR    = 4'd3;
+localparam ALU_XOR   = 4'd4;
+localparam ALU_PASSA = 4'd5;  // S ← A
+localparam ALU_PASSD = 4'd6;  // S ← D
+localparam ALU_SHL1  = 4'd7;  // S ← A << 1  (logical, fill right with 0)
+localparam ALU_SHR1  = 4'd8;  // S ← A >> 1  (logical, fill left with 0)
+localparam ALU_SHL4  = 4'd9;  // S ← A << 4  (logical, fill right with 0)
+localparam ALU_SHR4  = 4'd10; // S ← A >> 4  (logical, fill left with 0)
 
-reg [2:0]  alu_op;
+reg [3:0]  alu_op;
 reg [0:31] alu_out;
 reg        alu_carry;
 reg        alu_overflow;
@@ -204,6 +216,10 @@ always @(*) begin
         ALU_XOR:   alu_out = A ^ D;
         ALU_PASSA: alu_out = A;
         ALU_PASSD: alu_out = D;
+        ALU_SHL1:  alu_out = {A[1:31], 1'b0};       // left 1: drop bit 0, fill bit 31 with 0
+        ALU_SHR1:  alu_out = {1'b0, A[0:30]};        // right 1: drop bit 31, fill bit 0 with 0
+        ALU_SHL4:  alu_out = {A[4:31], 4'b0};        // left 4: drop bits 0-3, fill bits 28-31 with 0
+        ALU_SHR4:  alu_out = {4'b0, A[0:27]};        // right 4: drop bits 28-31, fill bits 0-3 with 0
         default:   alu_out = A;
     endcase
 end
@@ -220,10 +236,13 @@ localparam A_IMM    = 3'd5;
 localparam A_IDX    = 3'd6;  // A ← idx_data (shifted index register)
 localparam A_SEXT_H = 3'd7;  // A ← sign-extended C_mux[16:31]
 
-localparam P_HOLD   = 2'd0;
-localparam P_EA     = 2'd1;
-localparam P_Q      = 2'd2;
-localparam P_INC    = 2'd3;
+localparam P_HOLD   = 3'd0;
+localparam P_EA     = 3'd1;
+localparam P_Q      = 3'd2;
+localparam P_INC    = 3'd3;  // P ← P+4  (right 1-bit shift count step; also p_inc)
+localparam P_DEC4   = 3'd4;  // P ← P-4  (left  1-bit shift count step)
+localparam P_DEC16  = 3'd5;  // P ← P-16 (left  4-bit shift count step)
+localparam P_INC16  = 3'd6;  // P ← P+16 (right 4-bit shift count step)
 
 localparam CC_HOLD    = 2'd0;
 localparam CC_ARITH   = 2'd1;
@@ -233,7 +252,7 @@ localparam CC_COMPARE = 2'd2;
 // Control signals
 // ---------------------------------------------------------------------------
 reg [2:0]  A_sel;
-reg [1:0]  P_sel;
+reg [2:0]  P_sel;
 reg [1:0]  CC_sel;
 reg [0:1]  p_byte_offset;  // byte offset for P[32:33] set during ENDE
 reg        D_sel;   // D ← C_mux
@@ -294,9 +313,12 @@ always @(posedge clock) begin
             default: ;
         endcase
         case (P_sel)
-            P_EA:  P <= {alu_out[15:31], p_byte_offset};
-            P_Q:   P <= {Q, 2'b00};
-            P_INC: P <= {p_inc[15:31], p_byte_offset};
+            P_EA:   P <= {alu_out[15:31], p_byte_offset};
+            P_Q:    P <= {Q, 2'b00};
+            P_INC:  P <= {p_inc[15:31],  2'b00};
+            P_DEC4: P <= {p_dec4[15:31], 2'b00};
+            P_DEC16:P <= {p_dec16[15:31],2'b00};
+            P_INC16:P <= {p_inc16[15:31],2'b00};
             default: ;
         endcase
         case (CC_sel)
@@ -524,6 +546,12 @@ always @(*) begin
                     B_sel  = B_CMUX;  // B[15:31] ← TOS via C_mux
                     D_sel  = 1'b1;    // D ← SPD[0]
                 end
+
+                OP_SHIFT: begin
+                    // Shift parameters are in P[25:31] — no memory operand needed.
+                    // Load the register to be shifted into A; loop begins in EX2.
+                    A_sel = A_RR;
+                end
                 default: ;
             endcase
         end
@@ -701,6 +729,26 @@ always @(*) begin
                     bus_addr = {B[15:31], 2'b00};
                 end
 
+                OP_SHIFT: begin
+                    // Shift loop: P[25:31] is the 7-bit signed count, counts toward 0.
+                    // Check at entry: if already 0, fall through to EX3 (done).
+                    if (P[25:31] == 7'b0) begin
+                        // Count reached zero — no more shift steps needed.
+                        // Default phase advance takes us to EX3.
+                    end else begin
+                        // Perform one shift step on A and adjust count in P.
+                        A_sel = A_ALU;
+                        if (shift_left) begin
+                            alu_op = can_4bit ? ALU_SHL4 : ALU_SHL1;
+                            P_sel  = can_4bit ? P_DEC16  : P_DEC4;
+                        end else begin
+                            alu_op = can_4bit ? ALU_SHR4 : ALU_SHR1;
+                            P_sel  = can_4bit ? P_INC16  : P_INC;
+                        end
+                        phase_next = EX2;  // self-loop until count reaches zero
+                    end
+                end
+
                 default: ;
             endcase
         end
@@ -715,6 +763,17 @@ always @(*) begin
                 OP_AND, OP_OR, OP_EOR: ende = 1'b1;
 
                 OP_STW, OP_STH, OP_STB, OP_WD: begin
+                    P_sel    = P_Q;
+                    bus_addr = {Q, 2'b00};
+                end
+
+                OP_SHIFT: begin
+                    // Shift complete; A has the result.
+                    // Write RR[r] ← A; set CC; restore P for ENDE.
+                    alu_op   = ALU_PASSA;
+                    CC_sel   = CC_ARITH;
+                    rr_data  = A;
+                    rr_write = 1'b1;
                     P_sel    = P_Q;
                     bus_addr = {Q, 2'b00};
                 end
@@ -748,6 +807,8 @@ always @(*) begin
         phase[8]: begin
             case (O)
                 OP_STW, OP_STH, OP_STB, OP_WD: ende = 1'b1;
+
+                OP_SHIFT: ende = 1'b1;
 
                 OP_PSW: begin
                     // SPD[0] written; restore P ← Q; next cycle presents next-instr addr

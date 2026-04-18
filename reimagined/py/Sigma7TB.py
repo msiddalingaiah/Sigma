@@ -847,6 +847,126 @@ async def test_psw_plw(dut):
 
 
 # ---------------------------------------------------------------------------
+# Test: S — Shift (logical, single register)
+# ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_shift(dut):
+    """Test S instruction: logical left and right shifts, single register."""
+    tr = TestResults("S - Shift (logical single register)")
+    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
+    await init_memory(dut, size=0x1000)
+
+    # S R, addr encodes shift type in addr bits 21-23 and count in bits 25-31.
+    # For logical single register: bits 21-23 = 000.
+    # The address field = count directly (0-63 left, use negative for right).
+    # S R1, 4   → logical left  4  (addr=4  = 0x000004)
+    # S R1, 1   → logical left  1  (addr=1  = 0x000001)
+    # S R1, 8   → logical left  8  (addr=8)
+    # S R1, 28  → logical left  28 (addr=28)
+    # For right shift: count is negative 7-bit = embed in addr bits 25-31.
+    # addr = 0x7C = 0b1111100 = -4 as 7-bit signed → right 4
+    # addr = 0x7F = 0b1111111 = -1 as 7-bit signed → right 1
+
+    # Encode S instruction: {I=0, op=0x25, R, X=0, addr}
+    def enc_shift(r, count):
+        # count: positive=left, negative=right (7-bit signed in addr[25:31])
+        if count < 0:
+            addr = ((-count) ^ 0x7F) + 1  # two's complement in 7 bits, place in bits 25-31
+            addr = addr & 0x7F             # 7 bits
+        else:
+            addr = count & 0x7F
+        return (0x25 << 24) | (r << 20) | addr
+
+    # Program at boot:
+    #   LI  R1, 0x12345678   (but LI only has 20 bits — load upper/lower separately)
+    #   We'll use AI + LI to build the test value.
+    #   Actually: use two LI + shift trick. Simplest: just use a known 20-bit value.
+    #   LI R1, 0x00F0F  (= 0x000F0F sign-extended = 0x000F0F0F... no)
+    #   Let's use LI R1, 1 then shift left various amounts.
+
+    # Test 1: left shift by 4
+    # LI R1, 1; S R1, 4 → R1 should be 0x10 (1 << 4, but big-endian: 1 in bit 31 → shift to bit 27)
+    # In big-endian bit 31 = LSB = value 1. Shift left 4: bit 27 = value 0x10.
+    # So LI R1, 1 → R1 = 0x00000001. S R1, 4 → R1 = 0x00000010. ✓ (same as little-endian math)
+
+    # Test 2: left shift by 1
+    # Test 3: left shift by 8
+    # Test 4: right shift by 4
+    # Test 5: right shift by 1
+    # Test 6: shift by 0 (no-op)
+    # Test 7: left shift 28 (extracts top nibble position — monitor use case)
+    # Test 8: chain — LI R1, 0xABCDE (20-bit) then shift left 12 to get upper bits
+
+    prog = 0x098  # byte address
+    def wp(addr, val):
+        return (addr, val)
+
+    instructions = [
+        # --- Test 1: LI R1, 1; S R1, 4 → R1 = 0x10 ---
+        encode_imm(OP_LI, r=1, imm=1),
+        enc_shift(1, 4),
+        encode(OP_STW, r=1, addr=0x400),     # save result
+
+        # --- Test 2: LI R1, 1; S R1, 1 → R1 = 0x02 ---
+        encode_imm(OP_LI, r=1, imm=1),
+        enc_shift(1, 1),
+        encode(OP_STW, r=1, addr=0x401),
+
+        # --- Test 3: LI R1, 1; S R1, 8 → R1 = 0x100 ---
+        encode_imm(OP_LI, r=1, imm=1),
+        enc_shift(1, 8),
+        encode(OP_STW, r=1, addr=0x402),
+
+        # --- Test 4: LI R1, 0x80; S R1, -4 (right 4) → R1 = 0x08 ---
+        encode_imm(OP_LI, r=1, imm=0x80),
+        enc_shift(1, -4),
+        encode(OP_STW, r=1, addr=0x403),
+
+        # --- Test 5: LI R1, 0x80; S R1, -1 (right 1) → R1 = 0x40 ---
+        encode_imm(OP_LI, r=1, imm=0x80),
+        enc_shift(1, -1),
+        encode(OP_STW, r=1, addr=0x404),
+
+        # --- Test 6: LI R1, 0x55; S R1, 0 (shift by 0) → R1 = 0x55 ---
+        encode_imm(OP_LI, r=1, imm=0x55),
+        enc_shift(1, 0),
+        encode(OP_STW, r=1, addr=0x405),
+
+        # --- Test 7: LI R1, 0xABCDE; S R1, 12 → 0xABCDE000 ---
+        encode_imm(OP_LI, r=1, imm=0xABCDE),
+        enc_shift(1, 12),
+        encode(OP_STW, r=1, addr=0x406),
+
+        # --- Test 8: LI R1, 0x7F000; S R1, -16 (right 16) → 0x00000007 ---
+        encode_imm(OP_LI, r=1, imm=0x7F000),
+        enc_shift(1, -16),
+        encode(OP_STW, r=1, addr=0x407),
+
+        encode(OP_LCFI, r=0),  # halt
+    ]
+
+    for i, instr in enumerate(instructions):
+        await write_word(dut, 0x098 + i*4, instr)
+
+    await reset_cpu(dut)
+    await run_cycles(dut, 600)
+
+    def mem_word(addr):
+        b = [int(dut.sys.memory.mem[addr*4+j].value) for j in range(4)]
+        return (b[0]<<24)|(b[1]<<16)|(b[2]<<8)|b[3]
+
+    tr.check("S R1, 4   (left  4): 0x00000010", mem_word(0x400), 0x00000010)
+    tr.check("S R1, 1   (left  1): 0x00000002", mem_word(0x401), 0x00000002)
+    tr.check("S R1, 8   (left  8): 0x00000100", mem_word(0x402), 0x00000100)
+    tr.check("S R1,-4   (right 4): 0x00000008", mem_word(0x403), 0x00000008)
+    tr.check("S R1,-1   (right 1): 0x00000040", mem_word(0x404), 0x00000040)
+    tr.check("S R1, 0   (shift 0): 0x00000055", mem_word(0x405), 0x00000055)
+    tr.check("S R1, 12  (left 12): 0xABCDE000", mem_word(0x406), 0xABCDE000)
+    tr.check("S R1,-16  (right16): 0x00000007", mem_word(0x407), 0x00000007)
+    tr.summary()
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
