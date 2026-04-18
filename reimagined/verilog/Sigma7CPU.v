@@ -120,10 +120,18 @@ initial begin
 end
 
 // ---------------------------------------------------------------------------
-// Transparent C latch
+// Register-file address decode
+// EA 0-15 always resolves to RR, never to core memory.
+// ---------------------------------------------------------------------------
+wire        reg_access = (P[15:27] == 13'b0);  // word EA 0-15
+wire [0:3]  reg_addr   = P[28:31];
+wire [0:31] ea_data    = reg_access ? RR[reg_addr] : bus_data_r;
+
+// ---------------------------------------------------------------------------
+// Transparent C latch — reads ea_data so register accesses flow naturally
 // ---------------------------------------------------------------------------
 reg C_load;
-wire [0:31] C_mux = C_load ? bus_data_r : C;
+wire [0:31] C_mux = C_load ? ea_data : C;
 
 // ---------------------------------------------------------------------------
 // Computed values
@@ -267,6 +275,7 @@ reg        R_sel;
 reg        Q_sel;
 reg        rr_write;
 reg [0:31] rr_data;
+reg        reg_write;  // EA-addressed write to RR[reg_addr]
 reg        ende;
 reg [0:19] phase_next;
 
@@ -355,8 +364,10 @@ always @(posedge clock) begin
         integer i;
         for (i = 0; i < 16; i = i + 1)
             RR[i] <= 32'b0;
-    end else if (rr_write)
-        RR[R] <= rr_data;
+    end else begin
+        if (rr_write)  RR[R]        <= rr_data;
+        if (reg_write) RR[reg_addr] <= bus_data_w;
+    end
 end
 
 // ---------------------------------------------------------------------------
@@ -385,6 +396,7 @@ always @(*) begin
     bus_size     = 2'b10;   // default: word
     io_select    = 1'b0;    // default: memory transaction
     B_sel        = B_HOLD;
+    reg_write    = 1'b0;
 
     case (1'b1)
 
@@ -873,6 +885,15 @@ always @(*) begin
             OP_LI:   phase_next = EX1;    // immediate: skip prep
             default: phase_next = PREP1;  // memory-reference: compute EA
         endcase
+    end
+
+    // -----------------------------------------------------------------------
+    // Register-file access override (must be last — overrides any earlier
+    // cpu_write=1 set by store instructions when EA is 0-15)
+    // -----------------------------------------------------------------------
+    if (cpu_write && reg_access) begin
+        reg_write = 1'b1;   // redirect: write to RR[reg_addr]
+        cpu_write = 1'b0;   // suppress core memory write
     end
 
 end

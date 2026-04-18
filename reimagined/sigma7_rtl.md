@@ -11,6 +11,9 @@
 | i | I field of instruction (1 bit); 1 = indirect addressing |
 | A | 32-bit primary ALU input/result register |
 | B | 32-bit secondary register. Loads via B_sel: B_CMUX (←C_mux, for memory reads) or B_ALU (←alu_out, for multiply/divide). Used as registered TOS scratch in PSW/PLW; future A:B 64-bit pair for multiply/divide. |
+| reg_access | `P[15:27] == 13'b0` — true when EA 0–15; routes to register file instead of memory |
+| reg_addr   | `P[28:31]` — 4-bit register index when reg_access is true |
+| ea_data    | `reg_access ? RR[reg_addr] : bus_data_r` — unified read source for C_mux |
 | shift_count | `$signed(P[25:31])` — 7-bit signed shift count; positive=left, negative=right |
 | can_4bit | `shift_count >= 4 \|\| shift_count <= -4` — use 4-bit ALU step this iteration |
 | C | 32-bit memory interface register (transparent latch); C_mux = bus_data_r when C_load=1, else C |
@@ -105,6 +108,62 @@ Zero result: CC1–CC4 all clear.
 **Doubleword instructions — CC_ARITH_DW:**
 - CC1=carry from high word, CC2=overflow from high word
 - CC3=64-bit result non-zero and non-negative, CC4=high word bit 0 = 1
+
+---
+
+## Register-File Address Mapping (EA 0–15)
+
+Word addresses 0–15 always resolve to the current register block. This applies
+to all memory-reference instructions and is implemented transparently in the
+datapath — no EX phase logic changes required.
+
+### Read path
+
+`ea_data` replaces `bus_data_r` as the source for the transparent C latch:
+
+```verilog
+wire        reg_access = (P[15:27] == 13'b0);  // EA 0–15
+wire [0:3]  reg_addr   = P[28:31];
+wire [0:31] ea_data    = reg_access ? RR[reg_addr] : bus_data_r;
+wire [0:31] C_mux      = C_load ? ea_data : C;  // was: bus_data_r
+```
+
+Because C_mux feeds A_CMUX, B_CMUX, and D_sel, all load paths receive
+register data automatically. Memory still performs the read (its output on
+`bus_data_r` is simply ignored when `reg_access` is true).
+
+### Write path
+
+At the end of the combinatorial always block — after all instruction-specific
+logic — a single override intercepts any store to EA 0–15:
+
+```verilog
+if (cpu_write && reg_access) begin
+    reg_write = 1'b1;   // write RR[reg_addr] ← bus_data_w
+    cpu_write = 1'b0;   // suppress core memory write
+end
+```
+
+Sequential update: `if (reg_write) RR[reg_addr] <= bus_data_w;`
+
+The override fires last so it correctly captures the final value of
+`bus_data_w` set by any store instruction (STW, STH, STB, PSW).
+
+### Register-to-register examples
+
+| Instruction | Effect |
+|-------------|--------|
+| `LW  R3, 1` | R3 ← RR[1] |
+| `STW R2, 4` | RR[4] ← R2 |
+| `AW  R5, 1` | R5 ← R5 + RR[1] |
+| `STW R1, 2` | RR[2] ← R1  (save working copy) |
+| `LH  R3, 2` | R3 ← sign-extend(RR[2][16:31]) |
+| `AND R1, 2` | R1 ← R1 AND RR[2] |
+
+Note: `STH R2, 4` writes only the low halfword of bus_data_w into RR[4],
+which may give unexpected results — halfword/byte stores to register addresses
+work but store the aligned sub-word into the full 32-bit register.
+
 
 ---
 

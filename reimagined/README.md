@@ -28,6 +28,7 @@ processor originally built with custom DTL (Diode-Transistor Logic) in the late 
 - Full indexed and indirect addressing via PREP1–PREP3 phase sequence
 - Console I/O via RD/WD direct instructions (devices 0x1001, 0x1002)
 - Push-down stack via PSW/PLW (doubleword-addressed Stack Pointer Doubleword in memory)
+- EA 0–15 always resolves to the register file (RR), never to core memory — enabling register-to-register operations via normal memory-reference instructions
 
 ## Project Structure
 
@@ -118,7 +119,7 @@ Subroutines:
 Boot sequence: print banner → command loop (prompt, read line, dispatch).
 Current commands: `H` — help text.
 
-## Implemented Instructions (17 passing tests)
+## Implemented Instructions (18 passing tests)
 
 | Instruction | Opcode | Description |
 |-------------|--------|-------------|
@@ -149,6 +150,32 @@ Current commands: `H` — help text.
 
 All addressing modes implemented: direct, indexed (word/halfword/byte), indirect,
 and indirect indexed. Index registers 1–7 only (X field is 3 bits).
+
+## Register-File Address Mapping
+
+Word addresses 0–15 always resolve to the current register block (RR[0]–RR[15]),
+never to core memory. This is a fundamental architectural property — not an
+addressing mode — and applies to all memory-reference instructions.
+
+This enables register-to-register operations using ordinary load/store/arithmetic
+instructions:
+
+```
+LW  R3, 1      ; R3 ← RR[1]          (register-to-register load)
+STW R2, 4      ; RR[4] ← R2          (register-to-register store)
+AW  R5, 1      ; R5 ← R5 + RR[1]    (register-to-register arithmetic)
+STW R1, 2      ; RR[2] ← R1          (save a working copy)
+```
+
+**Implementation:** Two wires and one override at the end of the control block:
+- `reg_access = (P[15:27] == 0)` — true when EA is 0–15
+- `ea_data = reg_access ? RR[reg_addr] : bus_data_r` — plugs into C_mux so
+  all load paths (C_load, A_CMUX, B_CMUX, D_sel) receive register data transparently
+- Write override: when `cpu_write && reg_access`, set `reg_write=1` and clear
+  `cpu_write` to suppress the memory bus write
+
+No changes to any EX phase handlers — the distinction is entirely invisible to
+the instruction control logic.
 
 ## S — Shift (logical, single register)
 

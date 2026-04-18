@@ -967,6 +967,51 @@ async def test_shift(dut):
 
 
 # ---------------------------------------------------------------------------
+# Test: Register-file address mapping (EA 0-15 → RR, not memory)
+# ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_reg_mapping(dut):
+    """EA 0-15 accesses RR directly: LW R2,1 loads RR[1]; STW R2,3 stores to RR[3]."""
+    tr = TestResults("Register-file address mapping")
+    cocotb.start_soon(Clock(dut.clock, 10, unit="ns").start())
+    await init_memory(dut, size=0x1000)
+
+    # Program:
+    #   LI  R1, 0xAA      ; R1 = 0xAA
+    #   LI  R2, 0xBB      ; R2 = 0xBB
+    #   LW  R3, 1         ; R3 ← RR[1] = 0xAA  (register-to-register load)
+    #   STW R2, 4         ; RR[4] ← R2 = 0xBB  (register-to-register store)
+    #   AW  R5, 1         ; R5 ← R5 + RR[1] = 0 + 0xAA = 0xAA
+    #   LI  R6, 0xCC
+    #   STW R6, 7         ; RR[7] ← 0xCC
+    #   LW  R8, 7         ; R8 ← RR[7] = 0xCC
+    #   LCFI
+
+    prog = [
+        encode_imm(OP_LI,  r=1, imm=0xAA),
+        encode_imm(OP_LI,  r=2, imm=0xBB),
+        encode(OP_LW,  r=3, addr=1),        # R3 ← RR[1]
+        encode(OP_STW, r=2, addr=4),        # RR[4] ← R2
+        encode(OP_AW,  r=5, addr=1),        # R5 ← R5 + RR[1] = 0xAA
+        encode_imm(OP_LI,  r=6, imm=0xCC),
+        encode(OP_STW, r=6, addr=7),        # RR[7] ← 0xCC
+        encode(OP_LW,  r=8, addr=7),        # R8 ← RR[7]
+        encode(OP_LCFI, r=0),
+    ]
+    for i, instr in enumerate(prog):
+        await write_word(dut, 0x098 + i*4, instr)
+
+    await reset_cpu(dut)
+    await run_cycles(dut, 300)
+
+    tr.check("LW  R3,1  → R3=RR[1]=0xAA", rr(dut,3).value, 0xAA)
+    tr.check("STW R2,4  → RR[4]=0xBB",    rr(dut,4).value, 0xBB)
+    tr.check("AW  R5,1  → R5=0+0xAA",     rr(dut,5).value, 0xAA)
+    tr.check("LW  R8,7  → R8=RR[7]=0xCC", rr(dut,8).value, 0xCC)
+    tr.summary()
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
