@@ -26,7 +26,7 @@ Reference manual:
 | Verilog `$readmemh` output | `hex_output.py` | ✅ Complete | 58 |
 | List values & subscripts | `value.py`, `expression.py` | ✅ Complete | 69 |
 | Subscripted label assignment | `def_pass.py` | ✅ Complete | 49 |
-| Phase 2: Procedure engine | `procedure.py` | 🔲 Planned | — |
+| Phase 2: Procedure engine | `procedure.py` | 🔧 Designed | — |
 | Phase 4: Concordance | `concordance.py` | 🔲 Planned | — |
 
 **562 tests passing.**
@@ -763,3 +763,246 @@ the procedure engine depends on. With it in place:
 The procedure engine (`PROC`/`PEND`, argument substitution, `AF`/`CF`/`LF`)
 is then the next piece, after which instruction encoding follows directly
 from running `ap-ilnotese.txt` through the assembler.
+
+---
+
+## Procedure Engine — Design
+
+*Status: planned. Implementation follows this specification.*
+
+### What it is
+
+The procedure engine implements AP's macro system: `CNAME`/`PROC`/`PEND`
+definitions and their call sites, plus the `FNAME` function-procedure
+variant. Every Sigma instruction mnemonic is a `CNAME` procedure defined in
+`ap-ilnotese.txt`. The `COM` directive is a compressed single-line `CNAME`
+variant. Nothing below `CNAME` works without this engine.
+
+```
+LW,1     L(-185)     ← LW is a CNAME; this is a procedure call
+IF,EQ    5           ← IF is a CNAME
+CALL     MYFUNC      ← CALL is a COM (one-line CNAME variant)
+```
+
+### Source authority
+
+The procedure engine spans three source files:
+
+| File | What it contains |
+|------|-----------------|
+| `apdgctt.txt` | `CNAME`, `FNAME`, `PROC`, `PEND`, `CNAMEREF`, `COMREF`, `BLDPLT`, `SAMPLIN` |
+| `appartt.txt` | `PARTIC` — argument substitution (particularization) |
+| `ap-ilnotese.txt` | The AP%IL system: every Sigma instruction, `IF`/`ELS`/`FI`, `CALL`/`EXIT`, `BC`, `S:S`, etc. |
+
+### The three-phase model
+
+Every procedure call goes through three phases:
+
+```
+Phase 1: DEFINITION (CNAME / PROC / PEND)
+  - Register the procedure name in the symbol table.
+  - Store the encoded body statements ("sample storage").
+
+Phase 2: CALL SETUP (CNAMEREF / COMREF → BLDPLT)
+  - Push a new call frame (procedure level table).
+  - Save the return address (next statement index).
+  - Set the encoded-text pointer to the stored body.
+
+Phase 3: BODY EXECUTION (PARTIC → LINE loop)
+  - Substitute call-site arguments for AF/CF/LF occurrences.
+  - Run the main LINE loop over the substituted body.
+  - On PEND: pop the frame, resume at the saved return address.
+```
+
+### Procedure body storage
+
+In the original assembler, procedure bodies are stored in "sample storage"
+— a region of the symbol table memory. Each `CNAME` entry in the symbol
+table points to the sample storage origin for that procedure's body.
+
+In the Python port, there is no encoded X1 binary. Instead:
+
+**Procedure bodies are stored as `List[Statement]` slices.**
+
+When the DEF pass encounters a `PROC` line, it records the index of the
+next statement (the first line of the body) in the `CNAME`'s symbol table
+entry. When it encounters the matching `PEND`, it records the end index.
+The body is the slice `stmts[body_start : pend_index + 1]`.
+
+This is a `ProcedureBody` dataclass stored as the `value.raw` of the
+`CNAME`'s `SymbolEntry`:
+
+```python
+@dataclass
+class ProcedureBody:
+    stmts:      List[Statement]   # the body statements (PROC line excluded)
+    pend_idx:   int               # index of PEND within stmts
+    name_value: Value             # the CNAME operand (e.g. X'32' for opcode)
+    is_fname:   bool              # True for FNAME
+```
+
+### Call frame
+
+The original's procedure level table (13 words per level, indexed by `LVL`)
+is replaced by a Python `CallFrame` dataclass:
+
+```python
+@dataclass
+class CallFrame:
+    # Body being executed
+    body:           ProcedureBody
+    body_pos:       int              # current position within body.stmts
+
+    # Return information
+    return_stmts:   List[Statement]  # caller's statement list
+    return_pos:     int              # index to resume at after PEND
+
+    # Call-site argument lists (one List[Token] per argument position)
+    label_args:     List[List[Token]]   # LF — label field of call site
+    cmd_args:       List[List[Token]]   # CF — command field modifier tokens
+    oprnd_args:     List[List[Token]]   # AF — argument field of call site
+
+    # FNAME return value accumulation
+    fname_result:   Optional[Value]
+
+    # DO/local state (mirrors what BLDPLT initialises)
+    do_stack:       List[DoFrame]
+    local_scope:    Dict[str, SymbolEntry]
+```
+
+The `DefPass` gains a `_call_stack: List[CallFrame]` attribute (empty at
+source level). `PROCREF` in the original is `len(self._call_stack)`.
+
+### Argument access: AF, CF, LF
+
+These are not evaluated at call time — they are substituted lazily during
+body execution. When the expression evaluator encounters `AF(n)`, `CF(n)`,
+or `LF(n)`, it looks up the current frame's argument lists and evaluates
+the nth token list:
+
+```
+AF(n)  →  evaluate frame.oprnd_args[n-1]
+CF(n)  →  evaluate frame.cmd_args[n-1] (modifier tokens of call command)
+LF(n)  →  evaluate frame.label_args[n-1]
+AFA    →  auto-numbered: AF of the current field position
+```
+
+`NUM(AF)` → `len(frame.oprnd_args)` (number of argument positions).
+`NUM(AF(n))` → number of comma-separated items within AF(n).
+
+This is simpler than `PARTIC` because we work directly with token lists
+rather than re-encoding to an intermediate halfword buffer. The token
+lists from the call site are already available in `stmt.args`,
+`stmt.command`, and `stmt.label`.
+
+### Argument parsing at the call site
+
+When `CNAMEREF` fires (a known CNAME is used as a command), the call-site
+statement's fields provide the three argument lists:
+
+```
+LBL  CNAME_NAME,modifier  arg1, arg2, arg3
+│         │                └── oprnd_args (AF): [arg1_tokens, arg2_tokens, ...]
+│         └── cmd_args (CF): modifier tokenised
+└── label_args (LF): [LBL_tokens] or []
+```
+
+For a reference like:
+```
+LF       LH,1     *XWBASE,XM
+```
+- `LF` is the label → `frame.label_args = [tokenise('LF')]`
+- `LH` is the CNAME being called; `,1` is the modifier → `frame.cmd_args = [tokenise('1')]`
+- `*XWBASE,XM` is the operand → `frame.oprnd_args = [tokenise('*XWBASE'), tokenise('XM')]`
+
+The modifier and operand are already tokenised by `ArgTokenizer`; the label
+is re-tokenised from the raw label string using the existing
+`_parse_subscript_label` infrastructure.
+
+### Intrinsic functions in expressions
+
+`AF`, `CF`, `LF`, `AFA`, `NUM`, `SCOR`, `TCOR`, `S:S`, `S:UFV`, `META`,
+`P#` are all evaluated by the expression evaluator. At source level (empty
+call stack) they return `Value.undefined()` as today. Inside a procedure
+body they consult the current `CallFrame`:
+
+| Intrinsic | Meaning |
+|-----------|---------|
+| `AF(n)` | nth operand argument |
+| `AFA(n)` | nth operand argument with auto-number fallback |
+| `CF(n)` | nth command field modifier argument |
+| `LF(n)` | nth label field argument |
+| `NUM(AF)` | count of operand arguments |
+| `NUM(AF(n))` | count of items within AF(n) |
+| `NAME` | the procedure's own name value (from CNAME operand) |
+| `META` | large constant used as a flag (`1**128` = 0 in 32-bit) |
+| `P#` | pass number (1=DEF, 2=GEN) |
+| `S:S(c,t,f)` | select: if c≠0 return t, else return f |
+| `S:UFV(x)` | use forward value of x (suppress UNDEF error) |
+| `SCOR(x,k1,k2,...)` | find ki matching x, return i (0 if none) |
+| `TCOR(x,v1,v2,...)` | find vi matching x's type, return i |
+
+`S:S` and `SCOR`/`TCOR` are the most important: they implement conditional
+selection and keyword dispatch, the basis of the `BC` condition-code system
+and `IF`/`ELS`/`FI`.
+
+### FNAME vs CNAME
+
+`FNAME` is a function procedure — its `PEND` carries a return expression:
+`PEND  AF(AF(1)+2)`. The expression is evaluated and the result becomes the
+value of the `FNAME` call in the surrounding expression. This is how `S:S`,
+`BC`, and `NXTIN` work.
+
+Implementation: `PEND` checks if the current frame is a `FNAME` call. If
+so, it evaluates the `PEND` operand expression and stores the result in
+`frame.fname_result`, which the expression evaluator returns as the value
+of the call expression.
+
+### PROC nesting and recursion
+
+The call stack supports arbitrary nesting depth. Each frame is independent.
+`LOCAL` symbols inside a procedure body are scoped to that frame's
+`local_scope` dict. Recursion works naturally since each call pushes a new
+independent frame.
+
+The original limits nesting to `MAXPREF = 31` levels. We enforce the same
+limit to match behaviour.
+
+### `META` and `P#`
+
+`META EQU 1**128` evaluates to 0 in 32-bit arithmetic (1 shifted left 128
+places wraps to zero). It is used in the IF/FI system as a base for the
+nesting-level counter `INL SET 0+META`. In Python, `(1 << 128) & 0xFFFFFFFF
+= 0`, so `META = 0` exactly. This already works with our existing 32-bit
+masking.
+
+`P#` is a `SET` symbol defined in `ap-ilnotese.txt` as `S:UFV(P#)+1`,
+making it accumulate to 1 during the DEF pass and 2 during the GEN pass.
+Because it uses `S:UFV` (suppress-forward-value), it evaluates to 0 before
+it is first set. Our existing two-pass machinery handles this correctly once
+`S:UFV` is implemented.
+
+### Minimum viable subset
+
+For a first implementation that handles simple `CNAME` procedures and gets
+the Sigma instruction set working:
+
+1. `ProcedureBody` dataclass and `CallFrame` dataclass.
+2. `CNAME`/`PROC`/`PEND` DEF pass: store body slice in symbol table.
+3. `CNAMEREF` detection: when a known CNAME is the command, push a frame.
+4. `AF(n)`, `CF(n)`, `LF` in the expression evaluator.
+5. `NUM(AF)`, `S:S(c,t,f)` — needed for almost all procedures.
+6. `SCOR(x,k1,...)` — needed for `BC` (condition codes).
+7. `FNAME`/`PEND expr` — needed for `S:S`, `BC`, `NXTIN`.
+
+`TCOR`, `AFA`, `PARTIC` buffer mechanics, and local-symbol scoping can
+follow in a second pass once simple procedures work end-to-end.
+
+### What this unlocks
+
+Once the minimum viable subset is implemented:
+- `LW`, `STW`, `AW` and all other Sigma instructions work.
+- `IF`/`ELS`/`FI` structured control flow works.
+- `CALL`/`EXIT` work (they are `COM` / simple `CNAME`).
+- `ap-ilnotese.txt` can be run through the assembler.
+- The assembler can assemble itself.
