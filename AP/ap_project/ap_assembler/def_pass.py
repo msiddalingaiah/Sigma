@@ -122,9 +122,11 @@ class DefPass:
         base, _, modifier = cmd.partition(',')
         base = base.upper()
 
-        handler = _HANDLERS.get(base)
-        if handler is not None:
-            handler(self, stmt, modifier)
+        # Look up the method name, then resolve it on *self* so that
+        # subclass overrides (GenPass) are found through Python's MRO.
+        method_name = _HANDLER_MAP.get(base)
+        if method_name is not None:
+            getattr(self, method_name)(stmt, modifier)
         else:
             self._handle_instruction(stmt)
 
@@ -807,8 +809,5 @@ _HANDLER_MAP: Dict[str, str] = {
     'END':    '_handle_end',
 }
 
-# Build the actual handler table: str → callable
-_HANDLERS: Dict[str, Callable] = {
-    cmd: getattr(DefPass, method)
-    for cmd, method in _HANDLER_MAP.items()
-}
+# _HANDLER_MAP is used directly by _dispatch() via getattr(self, method_name)
+# so that subclass overrides are resolved through Python's MRO.
