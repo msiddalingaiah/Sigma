@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ap_assembler — Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg:        #f7f6f3;
+    --surface:   #ffffff;
+    --border:    #e0ddd6;
+    --border-strong: #c8c4bc;
+    --text:      #1c1a17;
+    --muted:     #7a7670;
+    --pipeline:  #2d2b28;
+
+    /* phase accents */
+    --p1:        oklch(52% 0.13 220);   /* lexer — blue */
+    --p1-bg:     oklch(96% 0.03 220);
+    --p2:        oklch(48% 0.13 155);   /* def pass — green */
+    --p2-bg:     oklch(96% 0.03 155);
+    --p3:        oklch(50% 0.13  35);   /* gen pass — amber */
+    --p3-bg:     oklch(97% 0.03  35);
+    --core:      oklch(46% 0.10 280);   /* shared core — violet */
+    --core-bg:   oklch(96% 0.02 280);
+    --out:       oklch(42% 0.10   0);   /* output — red-neutral */
+    --out-bg:    oklch(97% 0.02   0);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    font-family: 'IBM Plex Sans', sans-serif;
+    color: var(--text);
+    min-height: 100vh;
+    padding: 40px 32px 64px;
+  }
+
+  /* ── header ── */
+  .header {
+    max-width: 1200px;
+    margin: 0 auto 36px;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    border-bottom: 1px solid var(--border-strong);
+    padding-bottom: 20px;
+  }
+  .header h1 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+  }
+  .header .sub {
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  /* ── legend ── */
+  .legend {
+    max-width: 1200px;
+    margin: 0 auto 32px;
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  /* ── main canvas ── */
+  .canvas {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  /* ── pipeline row ── */
+  .pipeline {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin-bottom: 28px;
+  }
+
+  .pipe-stage {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+
+  .pipe-arrow {
+    display: flex;
+    align-items: center;
+    padding: 0 4px;
+    padding-top: 28px; /* align with module body */
+  }
+  .pipe-arrow svg { display: block; }
+
+  /* ── module card ── */
+  .module {
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    overflow: hidden;
+    flex: 1;
+  }
+
+  .module-header {
+    padding: 10px 14px 9px;
+    border-bottom: 1.5px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .module-accent {
+    width: 4px; height: 28px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .module-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+  }
+  .module-phase {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    margin-left: auto;
+    padding: 2px 7px;
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--muted);
+  }
+
+  .module-body {
+    padding: 12px 14px;
+  }
+
+  .module-desc {
+    font-size: 11.5px;
+    color: var(--muted);
+    line-height: 1.5;
+    margin-bottom: 10px;
+  }
+
+  /* ── class list ── */
+  .class-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .class-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 11.5px;
+    line-height: 1.4;
+  }
+  .class-kind {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .kind-class   { background: oklch(94% 0.03 220); color: oklch(40% 0.13 220); }
+  .kind-enum    { background: oklch(94% 0.03 155); color: oklch(38% 0.12 155); }
+  .kind-fn      { background: oklch(94% 0.02 280); color: oklch(40% 0.10 280); }
+  .kind-dc      { background: oklch(94% 0.02  35); color: oklch(40% 0.12  35); }
+
+  .class-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  .class-desc {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  /* ── divider / flow label ── */
+  .flow-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 6px 0 18px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .flow-label::before, .flow-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── shared core row ── */
+  .core-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  /* ── output row ── */
+  .output-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+  }
+
+  /* ── dep arrows section ── */
+  .dep-section {
+    margin-top: 36px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+  .dep-section h3 {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+
+  .dep-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 10px;
+  }
+
+  .dep-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+  }
+  .dep-from {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 500;
+    font-size: 11px;
+    color: var(--text);
+  }
+  .dep-arrow {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1;
+  }
+  .dep-to {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 500;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .dep-note {
+    margin-left: auto;
+    font-size: 10.5px;
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  /* ── pipeline flow SVG canvas ── */
+  .flow-diagram {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 28px;
+    margin-bottom: 28px;
+  }
+  .flow-diagram h3 {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 20px;
+  }
+
+  .pipeline-svg {
+    width: 100%;
+    overflow: visible;
+  }
+
+  /* ── inheritance note ── */
+  .inherit-badge {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: oklch(94% 0.03 35);
+    color: oklch(42% 0.12 35);
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+
+  .section-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 8px 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>ap_assembler</h1>
+  <span class="sub">Python reimplementation of the Xerox/Telefile AP Assembler (1984) &mdash; Architecture Overview</span>
+</div>
+
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-dot" style="background:var(--p1)"></div>Phase 1 · Lexer
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:var(--p2)"></div>Phase 2 · DEF Pass
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:var(--p3)"></div>Phase 3 · GEN Pass
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:var(--core)"></div>Shared Core
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:var(--out)"></div>Output Writers
+  </div>
+</div>
+
+<div class="canvas">
+
+  <!-- ═══ PIPELINE FLOW ═══ -->
+  <div class="flow-label">Assembly Pipeline</div>
+
+  <div class="pipeline">
+
+    <!-- Stage 1: Source -->
+    <div class="pipe-stage" style="flex:0.6">
+      <div class="module" style="border-color:var(--border-strong)">
+        <div class="module-header">
+          <div class="module-accent" style="background:var(--border-strong)"></div>
+          <div>
+            <div class="module-title" style="color:var(--muted)">Source Text</div>
+          </div>
+        </div>
+        <div class="module-body">
+          <div class="class-list">
+            <div class="class-item">
+              <span class="class-kind kind-fn">fmt</span>
+              <div><span class="class-name">80-col card image</span><br>
+              <span class="class-desc">label · cmd · args · comment</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">fmt</span>
+              <div><span class="class-name">col 72 = ';'</span><br>
+              <span class="class-desc">line continuation marker</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pipe-arrow">
+      <svg width="32" height="20" viewBox="0 0 32 20">
+        <path d="M2 10 L26 10 M20 4 L28 10 L20 16" stroke="var(--border-strong)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+
+    <!-- Stage 2: Lexer -->
+    <div class="pipe-stage">
+      <div class="module" style="border-color:var(--p1)">
+        <div class="module-header" style="background:var(--p1-bg)">
+          <div class="module-accent" style="background:var(--p1)"></div>
+          <div>
+            <div class="module-title">lexer.py</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">Phase 1 · Tokenizer</div>
+          </div>
+          <span class="module-phase">Phase 1</span>
+        </div>
+        <div class="module-body">
+          <div class="class-list">
+            <div class="class-item">
+              <span class="class-kind kind-class">class</span>
+              <div><span class="class-name">SourceReader</span><br>
+              <span class="class-desc">reads lines, strips seq cols 73–80, handles ';' continuation</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-class">class</span>
+              <div><span class="class-name">ArgTokenizer</span><br>
+              <span class="class-desc">recursive-descent tokenizer for argument field; returns List[List[Token]]</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-class">class</span>
+              <div><span class="class-name">Tokenizer</span><br>
+              <span class="class-desc">splits physical lines → Statement stream; drives SourceReader</span></div>
+            </div>
+            <div class="section-divider"></div>
+            <div class="class-item">
+              <span class="class-kind kind-dc">dc</span>
+              <div><span class="class-name">Token</span><br>
+              <span class="class-desc">type · value · raw · line · col</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-dc">dc</span>
+              <div><span class="class-name">Statement</span><br>
+              <span class="class-desc">label · command · args · source · is_comment</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-enum">enum</span>
+              <div><span class="class-name">TT</span><br>
+              <span class="class-desc">SYMBOL INT HEX OCT PKDEC FX FS FL CHARSTR LIT_L LIT_EQ operators punctuation INDIRECT BLANK_ARG</span></div>
+            </div>
+            <div class="section-divider"></div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">fn</span>
+              <div><span class="class-name">tokenize_text()</span>
+              <span class="class-desc"> · tokenize_file()</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pipe-arrow">
+      <svg width="32" height="20" viewBox="0 0 32 20">
+        <path d="M2 10 L26 10 M20 4 L28 10 L20 16" stroke="var(--p1)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+
+    <!-- Stage 3: DEF Pass -->
+    <div class="pipe-stage">
+      <div class="module" style="border-color:var(--p2)">
+        <div class="module-header" style="background:var(--p2-bg)">
+          <div class="module-accent" style="background:var(--p2)"></div>
+          <div>
+            <div class="module-title">def_pass.py</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">Phase 2 · Definition Pass</div>
+          </div>
+          <span class="module-phase">Phase 2</span>
+        </div>
+        <div class="module-body">
+          <div class="class-list">
+            <div class="class-item">
+              <span class="class-kind kind-class">class</span>
+              <div><span class="class-name">DefPass</span><br>
+              <span class="class-desc">walks Statement list; builds SymbolTable; handles all directives</span></div>
+            </div>
+            <div class="section-divider"></div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">dir</span>
+              <div><span class="class-name">EQU · SET · RES · DATA · TEXT · TEXTC</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">dir</span>
+              <div><span class="class-name">BOUND · ORG · LOC · GEN · COM</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">dir</span>
+              <div><span class="class-name">CSECT · DSECT · USECT · ASECT · PSECT</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">dir</span>
+              <div><span class="class-name">DEF · REF · SREF · LOCAL</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">dir</span>
+              <div><span class="class-name">DO · DO1 · ELSE · FIN · GOTO</span><br>
+              <span class="class-desc">assembly-time flow control via DoFrame stack</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">dir</span>
+              <div><span class="class-name">PROC · CNAME · FNAME · PEND</span><br>
+              <span class="class-desc">procedure stubs — body skipped in DEF pass</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pipe-arrow">
+      <svg width="32" height="20" viewBox="0 0 32 20">
+        <path d="M2 10 L26 10 M20 4 L28 10 L20 16" stroke="var(--p2)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+
+    <!-- Stage 4: GEN Pass -->
+    <div class="pipe-stage">
+      <div class="module" style="border-color:var(--p3)">
+        <div class="module-header" style="background:var(--p3-bg)">
+          <div class="module-accent" style="background:var(--p3)"></div>
+          <div>
+            <div class="module-title">gen_pass.py <span class="inherit-badge">extends DefPass</span></div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">Phase 3 · Generation Pass</div>
+          </div>
+          <span class="module-phase">Phase 3</span>
+        </div>
+        <div class="module-body">
+          <div class="class-list">
+            <div class="class-item">
+              <span class="class-kind kind-class">class</span>
+              <div><span class="class-name">GenPass(DefPass)</span><br>
+              <span class="class-desc">re-runs statements with complete SymbolTable; emits bytes and listing lines</span></div>
+            </div>
+            <div class="section-divider"></div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">fn</span>
+              <div><span class="class-name">_emit(data)</span><br>
+              <span class="class-desc">writes to ObjectWriter + advances LC</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">fn</span>
+              <div><span class="class-name">_value_to_bytes(v, n)</span><br>
+              <span class="class-desc">ABSOLUTE → big-endian int; CHARSTR → ASCII; others → zeros</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">fn</span>
+              <div><span class="class-name">_pack_gen_fields(bits, args)</span><br>
+              <span class="class-desc">GEN bit-field packing, MSB-first into 32-bit words</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">fn</span>
+              <div><span class="class-name">_dispatch(stmt)</span><br>
+              <span class="class-desc">wraps parent dispatch; captures pre-LC, records ListingLine</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pipe-arrow">
+      <svg width="32" height="20" viewBox="0 0 32 20">
+        <path d="M2 10 L26 10 M20 4 L28 10 L20 16" stroke="var(--p3)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+
+    <!-- Stage 5: Outputs -->
+    <div class="pipe-stage" style="flex:0.7">
+      <div class="module" style="border-color:var(--out)">
+        <div class="module-header" style="background:var(--out-bg)">
+          <div class="module-accent" style="background:var(--out)"></div>
+          <div>
+            <div class="module-title">Outputs</div>
+          </div>
+        </div>
+        <div class="module-body">
+          <div class="class-list">
+            <div class="class-item">
+              <span class="class-kind kind-fn">fmt</span>
+              <div><span class="class-name">Object bytes</span><br>
+              <span class="class-desc">per-section binary; big-endian; reloc deferred</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">fmt</span>
+              <div><span class="class-name">Listing text</span><br>
+              <span class="class-desc">line# · hex val · section · offset · source</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /pipeline -->
+
+  <!-- ═══ SHARED CORE ═══ -->
+  <div class="flow-label">Shared Core Modules</div>
+
+  <div class="core-row">
+
+    <!-- value.py -->
+    <div class="module" style="border-color:var(--core)">
+      <div class="module-header" style="background:var(--core-bg)">
+        <div class="module-accent" style="background:var(--core)"></div>
+        <div>
+          <div class="module-title">value.py</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">Value type system &amp; arithmetic</div>
+        </div>
+      </div>
+      <div class="module-body">
+        <div class="class-list">
+          <div class="class-item">
+            <span class="class-kind kind-dc">dc</span>
+            <div><span class="class-name">Value</span><br>
+            <span class="class-desc">kind · int_val · csect · resolution · raw · addends · items · name</span></div>
+          </div>
+          <div class="class-item">
+            <span class="class-kind kind-dc">dc</span>
+            <div><span class="class-name">Addend</span><br>
+            <span class="class-desc">sign · csect · offset — one term of a COMPLEX_SUM</span></div>
+          </div>
+          <div class="class-item">
+            <span class="class-kind kind-enum">enum</span>
+            <div><span class="class-name">ValueKind</span><br>
+            <span class="class-desc">UNDEFINED · ABSOLUTE · RELOCATABLE · EXTERNAL · COMPLEX_SUM · PKDEC · CHARSTR · FX · FS · FL · BLANK · LIST</span></div>
+          </div>
+          <div class="class-item">
+            <span class="class-kind kind-enum">enum</span>
+            <div><span class="class-name">Resolution</span><br>
+            <span class="class-desc">BYTE(1) · HW(2) · WORD(4) · DW(8) bytes/unit</span></div>
+          </div>
+          <div class="section-divider"></div>
+          <div class="class-item">
+            <span class="class-kind kind-fn">fn</span>
+            <div><span class="class-name">_add_values(a, b, sign)</span><br>
+            <span class="class-desc">int±int, int+addr, addr±int, addr−addr(→int), addr+addr(→COMPLEX_SUM)</span></div>
+          </div>
+          <div class="class-item">
+            <span class="class-kind kind-fn">fn</span>
+            <div><span class="class-name">_int_binop(op, a, b)</span><br>
+            <span class="class-desc">* / // ** &amp; | || = ~= &gt; &gt;= &lt; &lt;= · AP true=−1</span></div>
+          </div>
+          <div class="class-item">
+            <span class="class-kind kind-fn">fn</span>
+            <div><span class="class-name">apply_address_function(func, v)</span><br>
+            <span class="class-desc">BA · HA · WA · DA · ABSVAL addressing modes</span></div>
+          </div>
+          <div class="class-item">
+            <span class="class-kind kind-fn">fn</span>
+            <div><span class="class-name">_negate(v) · _complement(v)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- symbol_table.py -->
+    <div class="module" style="border-color:var(--core)">
+      <div class="module-header" style="background:var(--core-bg)">
+        <div class="module-accent" style="background:var(--core)"></div>
+        <div>
+          <div class="module-title">symbol_table.py</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">Global symbol &amp; section state</div>
+        </div>
+      </div>
+      <div class="module-body">
+        <div class="class-list">
+          <div class="class-item">
+            <span class="class-kind kind-class">class</span>
+            <div><span class="class-name">SymbolTable</span><br>
+            <span class="class-desc">define · lookup · lookup_or_create · mark_external · push/pop_local_scope · advance_lc · align_lc · open_section · begin_gen_pass · dollar_value · dollar_dollar_value</span></div>
+          </div>
+          <div class="class-item">
+            <span class="class-kind kind-dc">dc</span>
+            <div><span class="class-name">SymbolEntry</span><br>
+            <span class="class-desc">value · is_defined · is_set · is_local · is_ref · is_def</span></div>
+          </div>
+          <div class="class-item">
+            <span class="class-kind kind-class">class</span>
+            <div><span class="class-name">ControlSection</span><br>
+            <span class="class-desc">number · name · kind · exec_lc · load_lc · max_load_lc · advance() · align() · current_value()</span></div>
+          </div>
+          <div class="class-item">
+            <span class="class-kind kind-enum">enum</span>
+            <div><span class="class-name">CsectKind</span><br>
+            <span class="class-desc">CSECT · DSECT · USECT · ASECT · PSECT</span></div>
+          </div>
+          <div class="section-divider"></div>
+          <div class="class-item">
+            <span class="class-kind kind-fn">const</span>
+            <div><span class="class-name">PASS_DEF · PASS_GEN</span><br>
+            <span class="class-desc">section 0 = ASECT (absolute), section 1 = default CSECT</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- expression.py + do_control.py -->
+    <div style="display:flex;flex-direction:column;gap:16px;">
+
+      <div class="module" style="border-color:var(--core)">
+        <div class="module-header" style="background:var(--core-bg)">
+          <div class="module-accent" style="background:var(--core)"></div>
+          <div>
+            <div class="module-title">expression.py</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">Expression evaluator</div>
+          </div>
+        </div>
+        <div class="module-body">
+          <div class="class-list">
+            <div class="class-item">
+              <span class="class-kind kind-class">class</span>
+              <div><span class="class-name">ExpressionEvaluator</span><br>
+              <span class="class-desc">recursive-descent over Token list → Value; resolves symbols, addressing fns, subscripts, literals</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">fn</span>
+              <div><span class="class-name">evaluate_arg(tokens, sym)</span><br>
+              <span class="class-desc">→ (Value, errors)</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="module" style="border-color:var(--core)">
+        <div class="module-header" style="background:var(--core-bg)">
+          <div class="module-accent" style="background:var(--core)"></div>
+          <div>
+            <div class="module-title">do_control.py</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">Assembly-time flow control</div>
+          </div>
+        </div>
+        <div class="module-body">
+          <div class="class-list">
+            <div class="class-item">
+              <span class="class-kind kind-dc">dc</span>
+              <div><span class="class-name">DoFrame</span><br>
+              <span class="class-desc">body_start · target · current · label · else_idx · fin_idx</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">fn</span>
+              <div><span class="class-name">find_else_fin(stmts, start)</span><br>
+              <span class="class-desc">scan forward; handles nested DO depth</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">fn</span>
+              <div><span class="class-name">find_pend(stmts, start)</span><br>
+              <span class="class-desc">find matching PEND for PROC/CNAME/FNAME</span></div>
+            </div>
+            <div class="class-item">
+              <span class="class-kind kind-fn">fn</span>
+              <div><span class="class-name">find_label(stmts, name)</span><br>
+              <span class="class-desc">linear scan with wrap-around for GOTO</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /core-row -->
+
+  <!-- ═══ OUTPUT WRITERS ═══ -->
+  <div class="flow-label">Output Writers</div>
+
+  <div class="output-row">
+
+    <!-- object_writer.py -->
+    <div class="module" style="border-color:var(--out)">
+      <div class="module-header" style="background:var(--out-bg)">
+        <div class="module-accent" style="background:var(--out)"></div>
+        <div>
+          <div class="module-title">object_writer.py</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">Object code accumulator</div>
+        </div>
+      </div>
+      <div class="module-body">
+        <div class="class-list">
+          <div class="class-item">
+            <span class="class-kind kind-class">class</span>
+            <div><span class="class-name">ObjectWriter</span><br>
+            <span class="class-desc">emit(section, offset, data) · get_section() · open_section() · sections() · total_bytes() · summary()</span></div>
+          </div>
+          <div class="class-item">
+            <span class="class-kind kind-dc">dc</span>
+            <div><span class="class-name">SectionData</span><br>
+            <span class="class-desc">number · name · data[] · is_dummy · size — DSECT swallows writes</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- listing_writer.py -->
+    <div class="module" style="border-color:var(--out)">
+      <div class="module-header" style="background:var(--out-bg)">
+        <div class="module-accent" style="background:var(--out)"></div>
+        <div>
+          <div class="module-title">listing_writer.py</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">Assembly listing formatter</div>
+        </div>
+      </div>
+      <div class="module-body">
+        <div class="class-list">
+          <div class="class-item">
+            <span class="class-kind kind-class">class</span>
+            <div><span class="class-name">ListingWriter</span><br>
+            <span class="class-desc">add_line() · add_comment() · render() · line_count()</span></div>
+          </div>
+          <div class="class-item">
+            <span class="class-kind kind-dc">dc</span>
+            <div><span class="class-name">ListingLine</span><br>
+            <span class="class-desc">line_no · hex_val · section · offset · source · errors[]</span></div>
+          </div>
+          <div class="class-item">
+            <span class="class-kind kind-fn">fmt</span>
+            <div><span class="class-name">render() output</span><br>
+            <span class="class-desc">Line | Hex Value | Sect | Offset | Source · errors inline</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- hex_output.py -->
+    <div class="module" style="border-color:var(--out)">
+      <div class="module-header" style="background:var(--out-bg)">
+        <div class="module-accent" style="background:var(--out)"></div>
+        <div>
+          <div class="module-title">hex_output.py</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">Hex formatting utilities</div>
+        </div>
+      </div>
+      <div class="module-body">
+        <div class="class-list">
+          <div class="class-item">
+            <span class="class-kind kind-fn">fn</span>
+            <div><span class="class-name">Hex formatting helpers</span><br>
+            <span class="class-desc">used by GenPass._listing_hex() to display 8-char uppercase hex values in listing output</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /output-row -->
+
+  <!-- ═══ DEPENDENCY MAP ═══ -->
+  <div class="dep-section">
+    <h3>Module Dependencies</h3>
+    <div class="dep-grid">
+      <div class="dep-item">
+        <span class="dep-from">gen_pass</span>
+        <span class="dep-arrow">→</span>
+        <span class="dep-to">def_pass</span>
+        <span class="dep-note">subclasses; inherits all directive handlers</span>
+      </div>
+      <div class="dep-item">
+        <span class="dep-from">def_pass</span>
+        <span class="dep-arrow">→</span>
+        <span class="dep-to">expression · do_control · lexer · symbol_table · value</span>
+      </div>
+      <div class="dep-item">
+        <span class="dep-from">gen_pass</span>
+        <span class="dep-arrow">→</span>
+        <span class="dep-to">object_writer · listing_writer</span>
+        <span class="dep-note">emits bytes &amp; records lines</span>
+      </div>
+      <div class="dep-item">
+        <span class="dep-from">expression</span>
+        <span class="dep-arrow">→</span>
+        <span class="dep-to">lexer · symbol_table · value</span>
+      </div>
+      <div class="dep-item">
+        <span class="dep-from">symbol_table</span>
+        <span class="dep-arrow">→</span>
+        <span class="dep-to">value</span>
+        <span class="dep-note">stores Value per SymbolEntry &amp; ControlSection</span>
+      </div>
+      <div class="dep-item">
+        <span class="dep-from">do_control</span>
+        <span class="dep-arrow">→</span>
+        <span class="dep-to">lexer</span>
+        <span class="dep-note">reads Statement.command to find DO/FIN/ELSE/PEND</span>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /canvas -->
+
+</body>
+</html>
