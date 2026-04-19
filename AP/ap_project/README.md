@@ -25,10 +25,11 @@ Reference manual:
 | Assembly listing formatter | `listing_writer.py` | ✅ Complete | — |
 | Verilog `$readmemh` output | `hex_output.py` | ✅ Complete | 58 |
 | List values & subscripts | `value.py`, `expression.py` | ✅ Complete | 69 |
+| Subscripted label assignment | `def_pass.py` | ✅ Complete | 49 |
 | Phase 2: Procedure engine | `procedure.py` | 🔲 Planned | — |
 | Phase 4: Concordance | `concordance.py` | 🔲 Planned | — |
 
-**513 tests passing.**
+**562 tests passing.**
 
 ---
 
@@ -582,7 +583,6 @@ original Sigma hardware.
 | Feature | Notes |
 |---------|-------|
 | Procedure engine | `PROC`/`PEND`, `AF`/`CF`/`LF`, `NUM`, `SCOR`/`TCOR`, `S:S`, `META` — the largest remaining piece |
-| Subscripted label assignment | `IAN(I,J) SET value` — partial list mutation; requires the procedure engine |
 | Instruction encoding | All Sigma mnemonics are defined as CNAME procedures in the AP%IL system; requires the procedure engine |
 | Constant encoding | `FX`/`FS`/`FL`/`PKDEC` currently emit zeros; full BCD and floating-point conversion not yet done |
 | Literal pool | `L(expr)` and `=expr` return placeholder Values; the GEN pass literal section is not yet wired up |
@@ -595,7 +595,8 @@ original Sigma hardware.
 ```bash
 cd ap_project
 python -m pytest                             # all 513 tests
-python -m pytest tests/test_lists.py -v     # list support (69 tests)
+python -m pytest tests/test_lists.py -v              # list support (69 tests)
+python -m pytest tests/test_subscript_assign.py -v  # subscript assignment (49 tests)
 python -m pytest tests/test_hex_output.py   # Verilog hex output (58 tests)
 python -m pytest -k "do_loop"               # filter by name
 ```
@@ -610,3 +611,155 @@ python -m pytest -k "do_loop"               # filter by name
 | `test_gen_pass.py` | 76 | Byte emission for all data directives, GEN bit-field packing, DO repetition, two-pass LC consistency, listing content, ObjectWriter, ListingWriter |
 | `test_hex_output.py` | 58 | Word encoding, @address markers, multi-section layout, word sizes (1/2/4/8), fill_gaps, comments, integration through full pipeline |
 | `test_lists.py` | 69 | Lexer paren-list tokenisation, LIST Value kind and factory, `_subscript()` helper, list literals in expressions, multi-arg EQU/SET, subscript access in assembly, nested lists, DO loop patterns, round-trip |
+| `test_subscript_assign.py` | 49 | `_parse_subscript_label`, `_set_subscript` (all edge cases), DEF pass IAN/IAL patterns, 2D tables, DO loop fill, GEN pass byte emission, two-pass LC consistency |
+
+---
+
+## Subscripted Label Assignment — Design
+
+*Status: ✅ implemented in `def_pass.py`. This section documents the design.*
+
+### What it is
+
+A label field can contain a subscripted symbol reference:
+
+```
+IAN(INL,:TY)        SET  %IF%       ← set one element of a 2D list
+IAL(IAN(INL,:SC))   SET  WA(%)      ← index computed at assembly time
+CODES(3)            SET  X'CC'      ← replace third element
+```
+
+Instead of replacing the whole symbol value, the assembler navigates into
+the existing list and replaces one element in place — or grows a new list
+if the symbol does not yet exist or is currently a scalar.
+
+This is the feature that makes the AP%IL procedure system possible. The
+entire `IF`/`ELS`/`FI` structured control-flow library is implemented using
+two list-valued `SET` symbols (`IAN` and `IAL`) whose elements are updated
+by subscripted assignment inside procedure bodies.
+
+### Source authority
+
+The original implementation lives in the `DEFINE` routine (`DFNE4` →
+`DFNE10` → `DFNE11` onward in `apdgctt.txt`). Key labels:
+
+| Label | Action |
+|-------|--------|
+| `DFNE4` | Detected BEGINLIST in label field — subscripted symbol |
+| `DFNE10` | Evaluate subscripts via SCAN (global symbol) |
+| `DFNE11` | Begin navigating and rebuilding the list structure |
+| `DFNE12` | Recurse one level into a list element |
+| `DFNE14` | At the target level — replace the element |
+| `DFNE21` | Index out of range — pad with BLANKs and extend |
+| `DFNE22` | Emit required BLANK padding words |
+| `DFNE23` | Verify ENDLIST terminates the subscript |
+
+### Label field format
+
+The label string is stored as a raw string by `_parse_label()` in the
+`Tokenizer`. For subscripted labels it includes the subscript:
+
+```
+'SIMPLE'              → plain label
+'IAN(I,J)'            → symbol IAN, two index expressions I and J
+'IAN(INL,:TY)'        → symbol IAN, indices INL and :TY
+'IAL(IAN(INL,:SC))'   → symbol IAL, index is IAN(INL,:SC) — a nested subscript
+```
+
+No lexer changes are required. The existing `_parse_label()` correctly
+captures the entire `SYMBOL(...)` string.
+
+### Components
+
+**`_parse_subscript_label(label: str)`** — new module-level function in
+`def_pass.py`. Splits the raw label string into `(name, [index_str, ...])`
+or returns `None` for a plain symbol. Tracks parenthesis depth so that
+`IAL(IAN(INL,:SC))` correctly identifies `IAN(INL,:SC)` as a single index
+expression rather than splitting at the inner comma.
+
+```python
+_parse_subscript_label('SIMPLE')            → None
+_parse_subscript_label('IAN(I,J)')          → ('IAN', ['I', 'J'])
+_parse_subscript_label('IAN(INL,:TY)')      → ('IAN', ['INL', ':TY'])
+_parse_subscript_label('IAL(IAN(INL,:SC))') → ('IAL', ['IAN(INL,:SC)'])
+```
+
+**`_set_subscript(root, indices, value)`** — new module-level function in
+`def_pass.py`. Pure function — builds and returns a new `Value` without
+mutating the original. Given a root value, a list of 1-based integer
+indices, and the replacement value:
+
+- Navigate level by level, rebuilding each list as it goes.
+- If a level is a scalar and the index is 1: replace it directly.
+- If a level is a scalar and the index is > 1: extend with `BLANK`s to
+  reach the target position.
+- If a level is a list and the index is in range: rebuild with the
+  targeted element replaced.
+- If a level is a list and the index is > len: extend with `BLANK`s.
+
+```python
+# X starts as Value.absolute(42)
+_set_subscript(X, [1], Value.absolute(99))
+# → Value.list_val([Value.absolute(99)])
+
+# X = Value.list_val([Value.absolute(10), Value.absolute(20)])
+_set_subscript(X, [3], Value.absolute(30))
+# → Value.list_val([abs(10), abs(20), abs(30)])
+
+# X = [[1,2],[3,4]]
+_set_subscript(X, [2, 1], Value.absolute(99))
+# → [[1,2],[99,4]]
+```
+
+**`_eval_index_str(raw, line_no)`** — new `DefPass` method. Tokenises a
+raw index string through `ArgTokenizer` and evaluates it through the
+existing expression evaluator. Returns the integer index value. If the
+result is `UNDEFINED` (forward reference during DEF pass), returns 1 as a
+safe default.
+
+**`_define_label` upgrade** — detects whether `stmt.label` contains a
+subscript by calling `_parse_subscript_label`. If not, the existing plain
+path runs unchanged. If so:
+
+1. Call `_parse_subscript_label` → `(name, index_strs)`
+2. Evaluate each index string → list of integer indices
+3. `lookup_or_create(name)` → current root value
+4. `_set_subscript(root, indices, value)` → new root value
+5. `define(name, new_root, is_set=True)` — always `SET` semantics for
+   subscripted assignment (matches the original, which stores the SET
+   field from the RHS value)
+
+### Growth and extension rules
+
+| Starting state | Assignment | Result |
+|----------------|------------|--------|
+| Symbol undefined | `X(1) SET 5` | `[5]` |
+| Symbol is scalar `42` | `X(1) SET 5` | `[5]` |
+| Symbol is scalar `42` | `X(3) SET 5` | `[BLANK, BLANK, 5]` |
+| Symbol is `[10, 20]` | `X(2) SET 99` | `[10, 99]` |
+| Symbol is `[10, 20]` | `X(4) SET 99` | `[10, 20, BLANK, 99]` |
+| Symbol is `[[1,2],[3,4]]` | `X(2,1) SET 99` | `[[1,2],[99,4]]` |
+
+Index 0 is an error; the result is treated as index 1.
+
+### What stays the same
+
+- The `Tokenizer` and `_parse_label()` — no lexer changes needed.
+- Plain (non-subscripted) label definitions — `_define_label` falls through
+  to the existing path when `_parse_subscript_label` returns `None`.
+- All 513 existing tests.
+- `GenPass` inherits `_define_label` through MRO automatically.
+
+### What this unlocks
+
+Subscripted assignment is the last missing piece for the data model that
+the procedure engine depends on. With it in place:
+
+- `IAN(INL,:TY) SET %IF%` works — the IF/ELS/FI nesting table is writable.
+- `IAL(IAN(INL,:SC)) SET WA(%)` works — growing address tables work.
+- The full AP%IL `IF`/`ELS`/`FI`/`ELSF` structured control-flow library
+  becomes mechanically expressible.
+
+The procedure engine (`PROC`/`PEND`, argument substitution, `AF`/`CF`/`LF`)
+is then the next piece, after which instruction encoding follows directly
+from running `ap-ilnotese.txt` through the assembler.

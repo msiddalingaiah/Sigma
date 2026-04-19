@@ -52,6 +52,113 @@ from .value import Value, ValueKind, Resolution, AssemblerError
 
 
 # ---------------------------------------------------------------------------
+# Label field helpers: subscripted label assignment
+# ---------------------------------------------------------------------------
+
+def _parse_subscript_label(label: str):
+    """
+    Parse a raw label string that may contain a subscript.
+
+    Returns ``(name, [index_str, ...])`` if the label is subscripted, or
+    ``None`` if it is a plain symbol name.
+
+    Parenthesis depth is tracked so that nested subscripts like
+    ``IAL(IAN(INL,:SC))`` correctly yield ``('IAL', ['IAN(INL,:SC)'])``
+    rather than splitting at the inner comma.
+
+    Examples::
+
+        _parse_subscript_label('SIMPLE')            → None
+        _parse_subscript_label('IAN(I,J)')          → ('IAN', ['I', 'J'])
+        _parse_subscript_label('IAN(INL,:TY)')      → ('IAN', ['INL', ':TY'])
+        _parse_subscript_label('IAL(IAN(INL,:SC))') → ('IAL', ['IAN(INL,:SC)'])
+    """
+    if '(' not in label:
+        return None
+
+    paren = label.index('(')
+    name  = label[:paren].strip()
+    inner = label[paren + 1:]
+
+    # Strip the closing ')' (the outermost one)
+    if inner.endswith(')'):
+        inner = inner[:-1]
+
+    # Split on commas at depth 0
+    indices: list = []
+    current: list = []
+    depth = 0
+    for ch in inner:
+        if ch == '(':
+            depth += 1
+            current.append(ch)
+        elif ch == ')':
+            depth -= 1
+            current.append(ch)
+        elif ch == ',' and depth == 0:
+            indices.append(''.join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    if current:
+        indices.append(''.join(current).strip())
+
+    if not name or not indices:
+        return None
+    return name, indices
+
+
+def _set_subscript(root: 'Value', indices: list, value: 'Value') -> 'Value':
+    """
+    Return a new Value that is *root* with the element at *indices* replaced
+    by *value*.  Never mutates *root*.
+
+    *indices* is a list of 1-based integer indices, one per nesting level.
+
+    Growth rules (matching DFNE14/DFNE21/DFNE22 in the original APDG source):
+
+    When *root* is a LIST:
+      - Index in range  → replace that element (others unchanged).
+      - Index out of range → extend with BLANK pads to reach the position.
+
+    When *root* is a scalar (non-list):
+      - Index == 1 → replace the scalar directly.
+      - Index > 1  → discard the scalar entirely, pad with BLANKs, then
+                     place *value* at position *idx*.  This matches the
+                     original's DFNE21/DFNE22 path where a SPINT (special
+                     integer initialisation value) is replaced with BLANKs
+                     rather than preserved as element 1.
+    """
+    if not indices:
+        return value
+
+    idx  = max(1, indices[0])   # 1-based; clamp negative/zero to 1
+    rest = indices[1:]
+
+    if root.kind == ValueKind.LIST:
+        # List case: copy existing elements, replace target.
+        items = list(root.items)
+        # Extend with BLANKs if needed.
+        while len(items) < idx:
+            items.append(Value.blank())
+        target       = items[idx - 1]
+        items[idx - 1] = _set_subscript(target, rest, value) if rest else value
+    else:
+        # Scalar case.
+        if idx == 1:
+            # Replace the scalar directly (treat as 1-element list).
+            inner = _set_subscript(root, rest, value) if rest else value
+            items = [inner]
+        else:
+            # Discard the scalar; pad with BLANKs up to the target position.
+            items = [Value.blank()] * (idx - 1)
+            inner = _set_subscript(Value.blank(), rest, value) if rest else value
+            items.append(inner)
+
+    return Value.list_val(items)
+
+
+# ---------------------------------------------------------------------------
 # Error record
 # ---------------------------------------------------------------------------
 
@@ -166,6 +273,28 @@ class DefPass:
             return None
         return self._eval(tok_lists[0])
 
+    def _eval_index_str(self, raw: str, line_no: int = 0) -> int:
+        """
+        Tokenise and evaluate a raw subscript-index string.
+
+        Used when parsing subscripted label assignments such as
+        ``IAN(INL,:TY) SET value`` where ``INL`` and ``:TY`` are the
+        raw index strings.
+
+        Returns the 1-based integer index.  If the result is UNDEFINED
+        (a forward reference during the DEF pass) or BLANK, returns 1 as
+        a safe default so that the list is at least extended to that position.
+        """
+        from .lexer import ArgTokenizer
+        tok_lists = ArgTokenizer(raw.strip(), line_no=line_no,
+                                 start_col=0).tokenize()
+        if not tok_lists:
+            return 1
+        v, _ = evaluate_arg(tok_lists[0], self.sym)
+        if v.kind == ValueKind.ABSOLUTE:
+            return max(1, v.int_val)
+        return 1   # UNDEFINED / BLANK → safe default
+
     def _eval_modifier_int(self, modifier: str, default: int) -> int:
         """Parse a plain integer from a command-field modifier string."""
         if not modifier:
@@ -211,12 +340,31 @@ class DefPass:
         """
         Define the label field of *stmt* to *value* (or the current $ if
         value is None).  No-ops if the label is absent.
+
+        If the label contains a subscript (e.g. ``IAN(INL,:TY)``), performs
+        a subscripted element replacement on the existing symbol value rather
+        than a whole-symbol replacement.  The symbol is always stored with
+        SET semantics (re-definable) when a subscript is used, matching the
+        original assembler's behaviour (DFNE10/DFNE11 in apdgctt.txt).
         """
         if not stmt.label:
             return
         if value is None:
             value = self.sym.dollar_value()
-        self.sym.define(stmt.label, value, is_set=is_set)
+
+        parsed = _parse_subscript_label(stmt.label)
+        if parsed is None:
+            # Plain label — existing path unchanged.
+            self.sym.define(stmt.label, value, is_set=is_set)
+            return
+
+        # Subscripted label: navigate into the list and replace one element.
+        name, index_strs = parsed
+        indices = [self._eval_index_str(s, stmt.line_no) for s in index_strs]
+        entry   = self.sym.lookup_or_create(name)
+        new_root = _set_subscript(entry.value, indices, value)
+        # Subscripted assignment always uses SET semantics.
+        self.sym.define(name, new_root, is_set=True)
 
     # ------------------------------------------------------------------
     # Error helpers
