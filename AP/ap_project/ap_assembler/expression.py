@@ -39,6 +39,32 @@ from .value import (
     _add_values, _negate, _complement, _int_binop,
     apply_address_function,
 )
+
+
+def _subscript(v: Value, indices: list) -> Value:
+    """
+    Navigate a (possibly nested) list value using a sequence of 1-based indices.
+
+    AP rule (from source ENDSSYM7 / SCBLNK):
+      - If v is a LIST and 1 <= idx <= len(v.items): recurse into that element.
+      - If v is a LIST and idx > len(v.items):       return Value.blank().
+      - If v is a scalar and len(indices)==1 and idx==1: return v (scalar).
+      - Any other combination on a non-list:          return Value.blank().
+    """
+    result = v
+    for depth, idx_val in enumerate(indices):
+        idx = idx_val.int_val if idx_val.kind == ValueKind.ABSOLUTE else 1
+        if result.kind == ValueKind.LIST:
+            if 1 <= idx <= len(result.items):
+                result = result.items[idx - 1]
+            else:
+                return Value.blank()
+        else:
+            # Scalar: only X(1) with a single subscript returns the scalar itself
+            if idx == 1 and depth == len(indices) - 1:
+                return result
+            return Value.blank()
+    return result
 from .symbol_table import SymbolTable
 
 
@@ -313,9 +339,17 @@ class ExpressionEvaluator:
         # --- Parenthesised expression -------------------------------------
         if tok.type == TT.LPAREN:
             self._consume()
-            inner = self._parse_or()
+            first = self._parse_or()
+            # If a COMMA follows, this is a parenthesised list literal: (a, b, c)
+            if self._peek() is not None and self._peek().type == TT.COMMA:
+                items = [first]
+                while self._peek() is not None and self._peek().type == TT.COMMA:
+                    self._consume()   # eat COMMA
+                    items.append(self._parse_or())
+                self._expect(TT.RPAREN)
+                return Value.list_val(items)
             self._expect(TT.RPAREN)
-            return inner
+            return first
 
         # --- Literal references -------------------------------------------
         if tok.type == TT.LIT_L:
@@ -409,9 +443,13 @@ class ExpressionEvaluator:
             self._skip_to_rparen()
             return Value.undefined()
 
-        # --- Subscripted symbol: SYMBOL(index) ---------------------------
-        # Evaluate the subscript and use it to index a list-typed symbol.
-        arg = self._parse_or()
+        # --- Subscripted symbol: SYMBOL(i) or SYMBOL(i, j, ...) ----------
+        # Collect all comma-separated subscript indices (already tokenised by
+        # _parse_subscript_args in the lexer, so COMMA tokens are present).
+        indices = [self._parse_or()]
+        while self._peek() is not None and self._peek().type == TT.COMMA:
+            self._consume()   # eat COMMA
+            indices.append(self._parse_or())
         self._expect(TT.RPAREN)
 
         entry = self._sym.lookup(name)
@@ -419,10 +457,7 @@ class ExpressionEvaluator:
             self._sym.lookup_or_create(name)
             return Value.undefined()
 
-        # List subscript evaluation is deferred to the code generator
-        # (the list structure lives in the symbol table as a Value with
-        # kind=COMPLEX_SUM or similar).  Return the symbol's value for now.
-        return entry.value
+        return _subscript(entry.value, indices)
 
     def _skip_to_rparen(self) -> None:
         """Consume tokens up to and including the matching RPAREN."""

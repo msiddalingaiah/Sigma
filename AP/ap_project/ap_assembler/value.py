@@ -52,6 +52,7 @@ class ValueKind(Enum):
     FS           = auto()   # FS'...'  floating-point short
     FL           = auto()   # FL'...'  floating-point long
     BLANK        = auto()   # blank / absent argument
+    LIST         = auto()   # ordered sequence of Values
 
 
 class Resolution(Enum):
@@ -117,6 +118,7 @@ class Value:
     resolution:  Resolution          = Resolution.WORD
     raw:         object              = None      # constant body (str for PKDEC/CHARSTR/etc.)
     addends:     List[Addend]        = field(default_factory=list)
+    items:       list                = field(default_factory=list)  # LIST elements
     name:        str                 = ''        # EXTERNAL symbol name
     is_defined:  bool                = True      # False for UNDEFINED
 
@@ -148,6 +150,11 @@ class Value:
     @classmethod
     def blank(cls) -> 'Value':
         return cls(kind=ValueKind.BLANK)
+
+    @classmethod
+    def list_val(cls, items: list) -> 'Value':
+        """Create a list value from a sequence of Values."""
+        return cls(kind=ValueKind.LIST, items=list(items))
 
     @classmethod
     def external(cls, name: str, resolution: Resolution = Resolution.WORD) -> 'Value':
@@ -183,6 +190,9 @@ class Value:
 
     def is_address(self) -> bool:
         return self.kind in (ValueKind.RELOCATABLE, ValueKind.COMPLEX_SUM)
+
+    def is_list(self) -> bool:
+        return self.kind == ValueKind.LIST
 
     def is_constant(self) -> bool:
         return self.kind in (ValueKind.PKDEC, ValueKind.CHARSTR,

@@ -186,6 +186,21 @@ class DefPass:
             self._err(stmt.line_no, "Integer constant required")
         return default
 
+    def _eval_all_args(self, stmt: Statement) -> Value:
+        """
+        Evaluate all argument positions of a statement.
+
+        A single argument returns its scalar value.
+        Multiple arguments (X EQU 1,2,3) return a LIST Value.
+        A parenthesised multi-element argument (X EQU (1,2)) is already
+        handled by the expression evaluator returning a LIST Value.
+        """
+        if not stmt.args:
+            return Value.blank()
+        if len(stmt.args) == 1:
+            return self._eval(stmt.args[0])
+        return Value.list_val([self._eval(a) for a in stmt.args])
+
     # ------------------------------------------------------------------
     # Label definition helper
     # ------------------------------------------------------------------
@@ -222,13 +237,13 @@ class DefPass:
     # --- EQU / SET --------------------------------------------------
 
     def _handle_equ(self, stmt: Statement, modifier: str) -> None:
-        """EQU: define label = expr  (not re-definable)."""
-        v = self._eval_arg(stmt, 0, Value.undefined())
+        """EQU: define label = expr, or a list if multiple args (not re-definable)."""
+        v = self._eval_all_args(stmt)
         self._define_label(stmt, v, is_set=False)
 
     def _handle_set(self, stmt: Statement, modifier: str) -> None:
-        """SET: define label = expr  (re-definable)."""
-        v = self._eval_arg(stmt, 0, Value.undefined())
+        """SET: define label = expr, or a list if multiple args (re-definable)."""
+        v = self._eval_all_args(stmt)
         self._define_label(stmt, v, is_set=True)
 
     # --- RES --------------------------------------------------------

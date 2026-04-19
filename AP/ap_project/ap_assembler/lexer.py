@@ -725,11 +725,20 @@ class ArgTokenizer:
         col = self._col()
 
         if ch == '(':
-            # Parenthesised sub-expression
+            # Parenthesised sub-expression or parenthesised list literal.
+            # Collect all comma-separated expressions so that (a,b,c) produces
+            # [LPAREN, a-tokens, COMMA, b-tokens, COMMA, c-tokens, RPAREN].
+            # A single expression (a) is still a plain grouped sub-expression.
             self._get()
             tokens = [Token(TT.LPAREN, None, '(', self._line_no, col)]
             tokens.extend(self._parse_expr())
             self._skip_blanks()
+            while self._peek() == ',':
+                comma_col = self._col()
+                self._get()   # consume ','
+                tokens.append(Token(TT.COMMA, None, ',', self._line_no, comma_col))
+                tokens.extend(self._parse_expr())
+                self._skip_blanks()
             if self._peek() == ')':
                 self._get()
                 tokens.append(Token(TT.RPAREN, None, ')', self._line_no, self._col() - 1))

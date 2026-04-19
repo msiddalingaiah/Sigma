@@ -243,19 +243,28 @@ class GenPass(DefPass):
     # --- EQU / SET --------------------------------------------------
 
     def _handle_equ(self, stmt: Statement, modifier: str) -> None:
-        v = self._eval_arg(stmt, 0, Value.undefined())
+        v = self._eval_all_args(stmt)
         self._define_label(stmt, v, is_set=False)
         self._show_value(v)
 
     def _handle_set(self, stmt: Statement, modifier: str) -> None:
-        v = self._eval_arg(stmt, 0, Value.undefined())
+        v = self._eval_all_args(stmt)
         self._define_label(stmt, v, is_set=True)
         self._show_value(v)
 
     def _show_value(self, v: Value) -> None:
-        """Record the value in the listing hex column without emitting bytes."""
+        """Record the value in the listing hex column without emitting bytes.
+
+        For a LIST, show the first element if it is a simple integer.
+        For a non-integer, leave the hex column blank (the original showed
+        a 4-char type tag like 'LIST'; we just leave it empty for now).
+        """
         if v.kind in (ValueKind.ABSOLUTE, ValueKind.RELOCATABLE):
             self._list_value = v.int_val
+        elif v.kind == ValueKind.LIST and v.items:
+            first = v.items[0]
+            if first.kind == ValueKind.ABSOLUTE:
+                self._list_value = first.int_val
 
     # --- RES --------------------------------------------------------
 
