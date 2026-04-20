@@ -12,6 +12,8 @@ if __name__ == '__main__':
 *  Small test program
          REF      M:LO
 A        SET      (8,6,9),15
+         DISP     NUM(A)
+         DISP     NUM(A(1))
 START    EQU      0
          DATA     X'12345678'
          GEN,8,8,8,8 A(1,1),A(1,2),A(1,3),A(2)

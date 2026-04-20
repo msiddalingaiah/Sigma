@@ -413,3 +413,103 @@ class GenPass(DefPass):
     # _handle_cname, _handle_fname, _handle_proc, _handle_pend are all
     # inherited.  No overrides needed — the GEN pass uses the same
     # body-storage and call-stack machinery as the DEF pass.
+
+    # --- DISP: assembly-time display directive -----------------------
+
+    def _handle_disp(self, stmt: Statement, modifier: str) -> None:
+        """DISP expr[,expr,...]: evaluate and display values in the listing.
+
+        DISP is purely diagnostic — it emits no object bytes.  Each
+        evaluated value is shown as a hex line in the listing prefixed
+        with the directive's source line.
+
+        In the DEF pass (inherited stub) this is a no-op.
+        In the GEN pass we evaluate every argument and record the value(s)
+        in the listing.  A LIST value is expanded element by element.
+        """
+        def fmt(v: Value) -> str:
+            """Format a Value for display in the listing hex column."""
+            if v.kind == ValueKind.ABSOLUTE:
+                return f'{v.int_val & 0xFFFFFFFF:08X}'
+            if v.kind == ValueKind.RELOCATABLE:
+                return f'{v.int_val & 0xFFFFFFFF:08X}'
+            if v.kind == ValueKind.BLANK:
+                return '(blank)'
+            if v.kind == ValueKind.UNDEFINED:
+                return '(undef)'
+            if v.kind == ValueKind.LIST:
+                return f'(list/{len(v.items)})'
+            return '(?)'
+
+        # first_shown tracks whether the original source text has been
+        # placed on a listing line yet.  It appears on the first scalar
+        # emitted, so the user can see which DISP produced which values.
+        first_shown = [False]
+
+        def display_value(v: Value, line_no: int, path: str = '') -> None:
+            """
+            Add listing lines for v, expanding lists with path labels.
+
+            *path* tracks the index trail, e.g. '' for top-level,
+            '[1]' for first element, '[1][2]' for second element of first
+            sub-list, etc.
+
+            Matches the original DISP behaviour:
+              - Each scalar gets one listing line.  The first scalar carries
+                the original source text; subsequent lines carry path labels.
+              - Each sub-list is expanded recursively, closed with '****'.
+            """
+            nonlocal first_shown
+            if v.kind == ValueKind.LIST:
+                for i, item in enumerate(v.items, start=1):
+                    display_value(item, line_no, path + f'[{i}]')
+                # End-of-list marker (original DISP5 prints '****')
+                end_label = f'  {path}****' if path else '  ****'
+                self._lst.add_line(
+                    line_no = line_no,
+                    hex_val = '  ****',
+                    section = self.sym._current,
+                    offset  = self.sym.exec_lc(),
+                    source  = end_label,
+                )
+            else:
+                if not first_shown[0]:
+                    label = stmt.source
+                    first_shown[0] = True
+                else:
+                    label = f'  {path}' if path else ''
+                self._lst.add_line(
+                    line_no = line_no,
+                    hex_val = fmt(v),
+                    section = self.sym._current,
+                    offset  = self.sym.exec_lc(),
+                    source  = label,
+                )
+
+        if not stmt.args:
+            return
+
+        all_values = [self._eval(arg) for arg in stmt.args]
+
+        # For a single scalar, route through _list_value so _dispatch emits
+        # one clean listing line with source text — no duplicates.
+        if len(all_values) == 1:
+            v = all_values[0]
+            if v.kind in (ValueKind.ABSOLUTE, ValueKind.RELOCATABLE):
+                self._list_value = v.int_val
+                return
+            # Non-scalar (LIST, BLANK, etc.): expand via display_value.
+            # _dispatch will emit a trailing blank source line; that's fine.
+            display_value(v, stmt.line_no)
+        else:
+            # Multiple arguments: expand each in turn.
+            # If the first is a scalar, use _list_value so _dispatch gives it
+            # the source line; otherwise expand all via display_value.
+            v0 = all_values[0]
+            if v0.kind in (ValueKind.ABSOLUTE, ValueKind.RELOCATABLE):
+                self._list_value = v0.int_val
+                for v in all_values[1:]:
+                    display_value(v, stmt.line_no)
+            else:
+                for v in all_values:
+                    display_value(v, stmt.line_no)

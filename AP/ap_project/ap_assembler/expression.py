@@ -535,38 +535,35 @@ class ExpressionEvaluator:
 
     def _eval_num(self) -> Value:
         """
+        NUM(expr)     → length of a list value, or 1 for a scalar.
         NUM(AF)       → count of operand args in current frame.
         NUM(CF)       → count of command-field args.
         NUM(AF(n))    → count of items in the nth arg (if it is a list).
-        NUM(list_val) → length of a list value.
-        Outside a procedure: 0.
+        Works at source level for list-valued symbols (e.g. NUM(A) where A
+        is an EQU/SET list); procedure-arg forms require an active frame.
         """
-        if self._frame is None:
-            self._skip_to_rparen()
-            return Value.absolute(0)
-
         # Peek: is the argument a bare AF / CF / LF (no subscript)?
-        tok = self._peek()
-        if tok is not None and tok.type == TT.SYMBOL:
-            upper = tok.value.upper()
-            # Peek one further to see if there's a '(' following
-            next_tok = self._tokens[self._pos + 1]                 if self._pos + 1 < len(self._tokens) else None
-            if upper in ('AF', 'AFA') and (
-                    next_tok is None or next_tok.type == TT.RPAREN):
-                # NUM(AF) — bare, no subscript → count of oprnd args
-                self._consume()   # eat AF
-                self._expect(TT.RPAREN)
-                return Value.absolute(self._frame.num_af())
-            if upper == 'CF' and (
-                    next_tok is None or next_tok.type == TT.RPAREN):
-                self._consume()
-                self._expect(TT.RPAREN)
-                return Value.absolute(self._frame.num_cf())
-            if upper == 'LF' and (
-                    next_tok is None or next_tok.type == TT.RPAREN):
-                self._consume()
-                self._expect(TT.RPAREN)
-                return Value.absolute(len(self._frame.label_args))
+        # These are frame-specific; outside a procedure they return 0.
+        if self._frame is not None:
+            tok = self._peek()
+            if tok is not None and tok.type == TT.SYMBOL:
+                upper = tok.value.upper()
+                next_tok = self._tokens[self._pos + 1]                     if self._pos + 1 < len(self._tokens) else None
+                if upper in ('AF', 'AFA') and (
+                        next_tok is None or next_tok.type == TT.RPAREN):
+                    self._consume()
+                    self._expect(TT.RPAREN)
+                    return Value.absolute(self._frame.num_af())
+                if upper == 'CF' and (
+                        next_tok is None or next_tok.type == TT.RPAREN):
+                    self._consume()
+                    self._expect(TT.RPAREN)
+                    return Value.absolute(self._frame.num_cf())
+                if upper == 'LF' and (
+                        next_tok is None or next_tok.type == TT.RPAREN):
+                    self._consume()
+                    self._expect(TT.RPAREN)
+                    return Value.absolute(len(self._frame.label_args))
 
         # General case: evaluate the inner expression
         inner = self._parse_or()
@@ -578,7 +575,10 @@ class ExpressionEvaluator:
         if inner.kind == ValueKind.LIST:
             return Value.absolute(len(inner.items))
         if inner.kind in (ValueKind.BLANK, ValueKind.UNDEFINED):
-            return Value.absolute(self._frame.num_af())
+            # Bare AF with no frame: 0; with frame: argument count
+            if self._frame is not None:
+                return Value.absolute(self._frame.num_af())
+            return Value.absolute(0)
         if inner.kind == ValueKind.ABSOLUTE:
             return Value.absolute(1)   # scalar = 1 element
         return Value.absolute(0)
