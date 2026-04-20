@@ -254,7 +254,8 @@ class DefPass:
     def _eval(self, arg_tokens: List[Token]) -> Value:
         """Evaluate one argument-position token list."""
         frame = self._call_stack[-1] if self._call_stack else None
-        v, errs = evaluate_arg(arg_tokens, self.sym, call_frame=frame)
+        v, errs = evaluate_arg(arg_tokens, self.sym, call_frame=frame,
+                               executor=self)
         for msg in errs:
             self._err(0, msg)
         return v
@@ -305,6 +306,83 @@ class DefPass:
         if v.kind == ValueKind.ABSOLUTE:
             return max(1, v.int_val)
         return 1   # UNDEFINED / BLANK → safe default
+
+    def _exec_fname(self, body, arg_lists: list,
+                    parent_frame, line_no: int) -> 'Value':
+        """
+        Execute an FNAME body synchronously during expression evaluation
+        and return the value produced by its PEND expression.
+
+        Called by ExpressionEvaluator when it sees FNAME_NAME(args) inside
+        an expression.  The body runs to completion and the PEND operand
+        is evaluated to produce the return value.
+        """
+        from .procedure import CallFrame
+
+        if len(self._call_stack) >= 31:
+            return Value.absolute(0)
+
+        # CF(1) = placeholder symbol token
+        base_tok = [Token(TT.SYMBOL, '', '', line_no, 0)]
+        cmd_args = [base_tok]
+
+        # Eagerly evaluate arg_lists using current frame context
+        def eager(toks):
+            has_intrinsic = any(
+                t.type == TT.SYMBOL and t.value in (
+                    'AF', 'CF', 'LF', 'AFA', 'NAME', 'META')
+                for t in toks
+            )
+            if has_intrinsic and self._call_stack:
+                v = self._eval(toks)
+                return [Token(TT.INT, v.int_val, str(v.int_val), line_no, 0)]
+            return toks
+
+        oprnd_args = [eager(a) for a in arg_lists]
+
+        frame = CallFrame(
+            body         = body,
+            body_pos     = body.body_start,
+            return_stmts = self.stmts,
+            return_pos   = self.pos,
+            label_args   = [],
+            cmd_args     = cmd_args,
+            oprnd_args   = oprnd_args,
+            do_stack     = self._do_stack,
+        )
+        self._call_stack.append(frame)
+        self._do_stack = []
+
+        # Save state and redirect into body
+        saved_stmts = self.stmts
+        saved_pos   = self.pos
+        self.stmts  = body.stmts
+        self.pos    = body.body_start - 1
+
+        # Mini-loop: run body until PEND
+        while self.pos < body.pend_index:
+            self.pos += 1
+            if self.pos > body.pend_index:
+                break
+            stmt = self.stmts[self.pos]
+            if stmt.is_comment or stmt.command is None:
+                continue
+            base = stmt.command.partition(',')[0].upper()
+            if base == 'PEND':
+                if stmt.args:
+                    frame.fname_result = self._eval(stmt.args[0])
+                break
+            else:
+                self._dispatch(stmt)
+
+        # Restore state
+        if self._call_stack and self._call_stack[-1] is frame:
+            self._call_stack.pop()
+        self._do_stack = frame.do_stack
+        self.stmts    = saved_stmts
+        self.pos      = saved_pos
+
+        return frame.fname_result if frame.fname_result is not None else Value.blank()
 
     def _eval_modifier_int(self, modifier: str, default: int) -> int:
         """Parse a plain integer from a command-field modifier string."""
@@ -740,56 +818,100 @@ class DefPass:
         """FNAME: define a function-name procedure (PEND returns a value)."""
         self._define_procedure(stmt, is_fname=True)
 
+    # Directives that may legally appear between a CNAME/FNAME and its PROC
+    # without terminating the definition block.
+    _PROC_INTERSTITIAL = frozenset({
+        'OPEN', 'CLOSE', 'SET', 'EQU', 'LOCAL',
+        'TITLE', 'SPACE', 'PAGE', 'PCC', 'PSR', 'PSYS', 'LIST',
+        'BOUND', 'DISP', 'ERROR',
+    })
+
     def _define_procedure(self, stmt: Statement, is_fname: bool) -> None:
         """
         Common logic for CNAME and FNAME.
 
-        Finds the matching PROC/PEND block (if present) and stores a
-        ProcedureBody in the symbol table keyed on the label.
-        If there is no matching PROC, stores Value.absolute(0) as a
-        placeholder (e.g. for forward-declared procedures).
+        Scans forward from the current position to find the shared PROC/PEND
+        body.  Handles three patterns found in the AP source files:
+
+        1. Simple: ``NAME CNAME op`` immediately followed by ``PROC``.
+        2. Multiple siblings: consecutive ``CNAME``/``FNAME`` lines sharing
+           one ``PROC``/``PEND`` body (e.g. ``LV``/``CV``/``AV``).
+        3. Interstitials: ``OPEN``, ``SET``, ``EQU``, etc. between the last
+           sibling and ``PROC`` (e.g. the ``IF``/``#IF``/``THEF`` group).
+
+        All sibling CNAMEs in a consecutive block receive the same
+        ProcedureBody reference.  Each uses its own CNAME operand value as
+        its individual ``name_value``.
+
+        If no ``PROC`` is found before a non-sibling, non-interstitial
+        directive, the CNAME is recorded as a forward declaration
+        (``proc_body = None``) and the scan stops without advancing pos.
         """
         if not stmt.label:
-            # No label → nothing to register; skip to PEND
+            # Unlabelled CNAME — skip to matching PEND (error at source level)
             pend_idx = find_pend(self.stmts, self.pos + 1)
             self.pos = pend_idx
             return
 
-        # Evaluate the CNAME operand (e.g. the opcode value X'32')
-        name_value = self._eval_arg(stmt, 0, Value.blank())
-
-        # Find the PROC line and the matching PEND
+        # Collect all consecutive sibling CNAMEs/FNAMEs (including this one)
+        # and scan past interstitial directives until we find PROC or stop.
+        siblings: List[Tuple[Statement, bool]] = [(stmt, is_fname)]
         proc_idx = None
+
         for i in range(self.pos + 1, len(self.stmts)):
             s = self.stmts[i]
             if s.is_comment or s.command is None:
                 continue
             base = s.command.partition(',')[0].upper()
+
             if base == 'PROC':
                 proc_idx = i
                 break
-            # Any other non-comment directive before PROC → no body
-            break
+            elif base == 'CNAME':
+                if s.label:
+                    siblings.append((s, False))
+                # continue scanning
+            elif base == 'FNAME':
+                if s.label:
+                    siblings.append((s, True))
+            elif base in self._PROC_INTERSTITIAL:
+                # Execute interstitial directives now so symbols they define
+                # (e.g. SET/EQU/OPEN inside the CNAME group) are available.
+                # Also advance self.pos past them so the main loop does not
+                # re-execute them.
+                self.pos = i
+                self._dispatch(s)
+            else:
+                # Structural directive (DATA, DO, another CNAME group, etc.)
+                # — the PROC does not belong to this group.
+                break
 
         if proc_idx is None:
-            # No PROC follows — forward declaration only
-            self.sym.define(stmt.label, Value.absolute(0))
-            # Do NOT skip ahead; the next PROC/PEND pair belongs elsewhere
+            # No PROC found — each sibling is a forward declaration.
+            for sib, _ in siblings:
+                if sib.label:
+                    self.sym.define(sib.label, Value.absolute(0))
             return
 
         pend_idx = find_pend(self.stmts, proc_idx + 1)
-        body = ProcedureBody(
-            stmts      = self.stmts,
-            body_start = proc_idx + 1,   # first statement inside body
-            pend_index = pend_idx,
-            name_value = name_value,
-            is_fname   = is_fname,
-        )
-        self.sym.define(stmt.label, Value.absolute(0), is_set=True)
-        entry = self.sym.lookup(stmt.label)
-        entry.proc_body = body            # attach body to the entry
 
-        # Skip past the PEND — the main loop will +1 past it
+        # Register every sibling with its own name_value but the shared body.
+        for sib, sib_is_fname in siblings:
+            if not sib.label:
+                continue
+            sib_name_value = self._eval_arg(sib, 0, Value.blank())
+            body = ProcedureBody(
+                stmts      = self.stmts,
+                body_start = proc_idx + 1,
+                pend_index = pend_idx,
+                name_value = sib_name_value,
+                is_fname   = sib_is_fname,
+            )
+            self.sym.define(sib.label, Value.absolute(0), is_set=True)
+            entry = self.sym.lookup(sib.label)
+            entry.proc_body = body
+
+        # Skip past the PEND — the main loop will +1 past it.
         self.pos = pend_idx
 
     def _handle_proc(self, stmt: Statement, modifier: str) -> None:

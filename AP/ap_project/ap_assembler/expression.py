@@ -92,13 +92,14 @@ class ExpressionEvaluator:
     """
 
     def __init__(self, tokens: List[Token], sym: SymbolTable, line_no: int = 0,
-                 call_frame=None):
-        self._tokens  = tokens
-        self._pos     = 0
-        self._sym     = sym
-        self._line_no = line_no
+                 call_frame=None, executor=None):
+        self._tokens   = tokens
+        self._pos      = 0
+        self._sym      = sym
+        self._line_no  = line_no
         self._errors:  List[str] = []
-        self._frame   = call_frame   # Optional[CallFrame] — current proc frame
+        self._frame    = call_frame   # Optional[CallFrame] — current proc frame
+        self._executor = executor     # Optional[DefPass] — for FNAME calls
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -386,9 +387,8 @@ class ExpressionEvaluator:
             if name == 'META':
                 # META EQU 1**128 — evaluates to 0 in 32-bit arithmetic
                 return Value.absolute(0)
-            if name == 'P#':
-                # P# = pass number: 1 for DEF pass, 2 for GEN pass
-                return Value.absolute(self._sym._pass)
+            # P# is an ordinary SET symbol in ap-ilnotese that accumulates
+            # via  P# SET S:UFV(P#)+1 — handled by normal symbol lookup.
             if name == 'NAME' and self._frame is not None:
                 # NAME = the CNAME/FNAME operand value (e.g. the opcode constant)
                 return self._frame.body.name_value
@@ -408,6 +408,26 @@ class ExpressionEvaluator:
         """
         upper = name.upper()
         self._consume()  # consume LPAREN
+
+        # --- FNAME check: if symbol has an FNAME body and executor available,
+        #     use the real body BEFORE any hardcoded stubs. This ensures that
+        #     once S:S, BC, NXTIN etc. are defined as FNAMEs, the real body
+        #     runs rather than a simplified approximation. ----------------
+        if self._executor is not None:
+            _entry = self._sym.lookup(name)
+            if (_entry is not None
+                    and _entry.proc_body is not None
+                    and _entry.proc_body.is_fname):
+                _arg_lists = []
+                while True:
+                    if self._peek() is not None and self._peek().type == TT.RPAREN:
+                        break
+                    _arg_lists.append(self._collect_arg_tokens())
+                    if self._peek() is not None and self._peek().type == TT.COMMA:
+                        self._consume()
+                self._expect(TT.RPAREN)
+                return self._executor._exec_fname(
+                    _entry.proc_body, _arg_lists, self._frame, self._line_no)
 
         # --- Simple one-argument addressing functions ----------------------
         if upper in _ADDR_FUNCS:
@@ -467,11 +487,18 @@ class ExpressionEvaluator:
             self._skip_to_rparen()
             return Value.undefined()
 
-        # --- Subscripted symbol: SYMBOL(i) or SYMBOL(i, j, ...) ----------
-        indices = [self._parse_or()]
-        while self._peek() is not None and self._peek().type == TT.COMMA:
-            self._consume()
-            indices.append(self._parse_or())
+        # --- FNAME call: SYMBOL(args) where SYMBOL is a function procedure ---
+        # Collect the argument token lists (comma-separated inside the parens).
+        arg_lists = []
+        while True:
+            if self._peek() is not None and self._peek().type == TT.RPAREN:
+                break
+            # Collect one argument — everything up to the next top-level comma
+            # or RPAREN.
+            arg_toks = self._collect_arg_tokens()
+            arg_lists.append(arg_toks)
+            if self._peek() is not None and self._peek().type == TT.COMMA:
+                self._consume()
         self._expect(TT.RPAREN)
 
         entry = self._sym.lookup(name)
@@ -479,6 +506,15 @@ class ExpressionEvaluator:
             self._sym.lookup_or_create(name)
             return Value.undefined()
 
+        # If this is an FNAME with a body and we have an executor, call it.
+        if (entry.proc_body is not None and entry.proc_body.is_fname
+                and self._executor is not None):
+            return self._executor._exec_fname(entry.proc_body, arg_lists,
+                                              self._frame, self._line_no)
+
+        # Otherwise fall back to list subscript navigation.
+        indices = [evaluate_arg(a, self._sym, self._line_no, self._frame)[0]
+                   for a in arg_lists]
         return _subscript(entry.value, indices)
 
     # ------------------------------------------------------------------
@@ -656,6 +692,31 @@ class ExpressionEvaluator:
             elif tok.type == TT.RPAREN:
                 depth -= 1
 
+    def _collect_arg_tokens(self) -> List[Token]:
+        """
+        Collect tokens for one argument position, respecting paren depth.
+
+        Stops (without consuming) at a top-level COMMA or RPAREN.
+        Returns the collected tokens as a list suitable for evaluate_arg.
+        """
+        toks: List[Token] = []
+        depth = 0
+        while self._pos < len(self._tokens):
+            tok = self._peek()
+            if tok is None:
+                break
+            if tok.type == TT.RPAREN and depth == 0:
+                break
+            if tok.type == TT.COMMA and depth == 0:
+                break
+            self._consume()
+            toks.append(tok)
+            if tok.type == TT.LPAREN:
+                depth += 1
+            elif tok.type == TT.RPAREN:
+                depth -= 1
+        return toks
+
 
 # ---------------------------------------------------------------------------
 # Convenience function
@@ -663,16 +724,22 @@ class ExpressionEvaluator:
 
 def evaluate_arg(tokens: List[Token], sym: SymbolTable,
                  line_no: int = 0,
-                 call_frame=None) -> Tuple[Value, List[str]]:
+                 call_frame=None,
+                 executor=None) -> Tuple[Value, List[str]]:
     """
     Evaluate a single argument-position token list.
 
     *call_frame* is an optional ``CallFrame`` providing AF/CF/LF context
     when evaluating inside a procedure body.
 
+    *executor* is an optional reference to the active DefPass/GenPass
+    instance, used to execute FNAME bodies inline during expression
+    evaluation.
+
     Returns (value, error_list).  error_list is empty on success.
     """
-    ev = ExpressionEvaluator(tokens, sym, line_no, call_frame=call_frame)
+    ev = ExpressionEvaluator(tokens, sym, line_no, call_frame=call_frame,
+                             executor=executor)
     try:
         v = ev.evaluate()
     except AssemblerError as exc:

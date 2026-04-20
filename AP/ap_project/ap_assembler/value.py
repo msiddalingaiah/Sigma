@@ -396,11 +396,16 @@ def _int_binop(op: str, a: Value, b: Value) -> Value:
             raise AssemblerError("Division by zero (covered quotient)")
         result = _s32(av // bv if (av >= 0) == (bv >= 0) else -(abs(av) // abs(bv)))
     elif op == '**':
-        # Binary shift: a ** b means shift a left by b (right if b < 0)
-        if bv >= 0:
-            result = _s32(_u32(av) << (bv & 31))
+        # Binary shift: a ** b shifts a left by b bits (right if b < 0).
+        # Shifts of 32 or more produce 0 (all bits shifted out).
+        if bv >= 32:
+            result = 0
+        elif bv >= 0:
+            result = _s32(_u32(av) << bv)
+        elif bv <= -32:
+            result = 0
         else:
-            result = _s32(_u32(av) >> ((-bv) & 31))
+            result = _s32(_u32(av) >> (-bv))
     elif op == '&':
         result = _s32(_u32(av) & _u32(bv))
     elif op == '|':

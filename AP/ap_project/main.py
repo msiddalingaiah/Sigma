@@ -10,7 +10,7 @@ from ap_assembler.hex_output import VerilogHexWriter
 if __name__ == '__main__':
     source = """\
 *  Small test program
-         REF      M:LO
+         REF      M:LO         
 A        SET      (8,6,9),15
          DISP     NUM(A)
          DISP     NUM(A(1))
