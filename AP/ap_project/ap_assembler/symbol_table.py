@@ -141,6 +141,7 @@ class SymbolEntry:
     defined_pass:     int                  = 0
     appeared_as_cmd:  bool                 = False
     decl_num:         int                  = 0
+    proc_body:        object               = None  # ProcedureBody | None
 
     @property
     def is_defined(self) -> bool:

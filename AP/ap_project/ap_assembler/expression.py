@@ -91,12 +91,14 @@ class ExpressionEvaluator:
     will be resolved in later passes.
     """
 
-    def __init__(self, tokens: List[Token], sym: SymbolTable, line_no: int = 0):
+    def __init__(self, tokens: List[Token], sym: SymbolTable, line_no: int = 0,
+                 call_frame=None):
         self._tokens  = tokens
         self._pos     = 0
         self._sym     = sym
         self._line_no = line_no
         self._errors:  List[str] = []
+        self._frame   = call_frame   # Optional[CallFrame] — current proc frame
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -381,6 +383,15 @@ class ExpressionEvaluator:
                 return self._sym.dollar_value()
             if name == '%%':
                 return self._sym.dollar_dollar_value()
+            if name == 'META':
+                # META EQU 1**128 — evaluates to 0 in 32-bit arithmetic
+                return Value.absolute(0)
+            if name == 'P#':
+                # P# = pass number: 1 for DEF pass, 2 for GEN pass
+                return Value.absolute(self._sym._pass)
+            if name == 'NAME' and self._frame is not None:
+                # NAME = the CNAME/FNAME operand value (e.g. the opcode constant)
+                return self._frame.body.name_value
 
             # Regular symbol lookup
             entry = self._sym.lookup_or_create(name)
@@ -392,10 +403,8 @@ class ExpressionEvaluator:
 
     def _parse_function_or_subscript(self, name: str) -> Value:
         """
-        Parse NAME(arg1, arg2, ...) — either an addressing function call
-        or a subscripted symbol reference.
-
-        Addressing functions: BA, HA, WA, DA, ABSVAL, L, CS, NUM, ...
+        Parse NAME(arg1, arg2, ...) — addressing function, intrinsic, or
+        subscripted symbol reference.
         """
         upper = name.upper()
         self._consume()  # consume LPAREN
@@ -414,41 +423,54 @@ class ExpressionEvaluator:
                 return Value.absolute(arg.csect)
             return Value.absolute(0)
 
-        # --- NUM() — number of elements (procedure arg count) -----------
-        # NUM() is only meaningful inside a procedure; return 0 at top level
-        if upper == 'NUM':
-            # Consume arguments without evaluating
-            self._skip_to_rparen()
-            return Value.absolute(0)
-
-        # --- S:UFV() — use forward value; evaluate arg ignoring fwd refs --
+        # --- S:UFV() — evaluate suppressing UNDEFINED errors ---------------
         if upper == 'S:UFV':
             arg = self._parse_or()
             self._expect(TT.RPAREN)
-            return arg   # same as regular evaluation here
+            # If the result is UNDEFINED, treat as 0 (forward-value semantics)
+            if arg.kind == ValueKind.UNDEFINED:
+                return Value.absolute(0)
+            return arg
 
-        # --- SCOR() / TCOR() — symbol/type correspondence (proc only) ----
-        if upper in ('SCOR', 'TCOR'):
+        # --- NUM() — argument count ----------------------------------------
+        if upper == 'NUM':
+            return self._eval_num()
+
+        # --- SCOR(x, k1, k2, ...) — index of matching keyword ------------
+        if upper == 'SCOR':
+            return self._eval_scor()
+
+        # --- TCOR — type correspondence (deferred stub) -------------------
+        if upper == 'TCOR':
             self._skip_to_rparen()
-            return Value.absolute(0)   # deferred to procedure engine
+            return Value.absolute(0)
 
-        # --- AF() CF() LF() — argument field intrinsics (proc only) ------
-        if upper in ('AF', 'CF', 'LF', 'AFA', 'NAME', 'S:KEYS',
-                      'S:NUMC', 'S:PT', 'S:UT', 'S:IFR', 'S:LFR',
-                      'S:AAD', 'S:RAD', 'S:EXT', 'S:SUM', 'S:LIST',
-                      'S:D', 'S:C', 'S:INT', 'S:FS', 'S:FL', 'S:FX',
-                      'S:FR', 'S:DPI'):
-            # These are only meaningful inside a procedure body; return a
-            # placeholder value when encountered outside one.
+        # --- S:S(cond, true_val, false_val) — conditional select -----------
+        if upper == 'S:S':
+            return self._eval_ss()
+
+        # --- AF / CF / LF / AFA / NAME — procedure argument intrinsics ----
+        if upper in ('AF', 'CF', 'LF', 'AFA'):
+            return self._eval_arg_intrinsic(upper)
+
+        if upper == 'NAME':
+            self._skip_to_rparen()
+            if self._frame is not None:
+                return self._frame.body.name_value
+            return Value.blank()
+
+        # --- Other proc-only intrinsics (stub: undefined outside proc) ----
+        if upper in ('S:KEYS', 'S:NUMC', 'S:PT', 'S:UT', 'S:IFR',
+                      'S:LFR', 'S:AAD', 'S:RAD', 'S:EXT', 'S:SUM',
+                      'S:LIST', 'S:D', 'S:C', 'S:INT', 'S:FS', 'S:FL',
+                      'S:FX', 'S:FR', 'S:DPI'):
             self._skip_to_rparen()
             return Value.undefined()
 
         # --- Subscripted symbol: SYMBOL(i) or SYMBOL(i, j, ...) ----------
-        # Collect all comma-separated subscript indices (already tokenised by
-        # _parse_subscript_args in the lexer, so COMMA tokens are present).
         indices = [self._parse_or()]
         while self._peek() is not None and self._peek().type == TT.COMMA:
-            self._consume()   # eat COMMA
+            self._consume()
             indices.append(self._parse_or())
         self._expect(TT.RPAREN)
 
@@ -458,6 +480,169 @@ class ExpressionEvaluator:
             return Value.undefined()
 
         return _subscript(entry.value, indices)
+
+    # ------------------------------------------------------------------
+    # Procedure intrinsic helpers
+    # ------------------------------------------------------------------
+
+    def _eval_arg_toks(self, tok_lists: list) -> Value:
+        """Evaluate a List[List[Token]] argument list and return its Value."""
+        if not tok_lists:
+            return Value.blank()
+        v, _ = evaluate_arg(tok_lists[0], self._sym,
+                             line_no=self._line_no, call_frame=self._frame)
+        return v
+
+    def _eval_arg_intrinsic(self, upper: str) -> Value:
+        """
+        Evaluate AF(n), CF(n), LF(n), or AFA.
+
+        Outside a procedure frame these return Value.undefined().
+        """
+        # Collect the subscript index if present
+        idx_val = self._parse_or()
+        # Handle optional second subscript for AF(n) within NUM-count forms
+        while self._peek() is not None and self._peek().type == TT.COMMA:
+            self._consume()
+            self._parse_or()   # discard extra subscripts for now
+        self._expect(TT.RPAREN)
+
+        if self._frame is None:
+            return Value.undefined()
+
+        if idx_val.kind == ValueKind.BLANK:
+            # AF with no index: evaluate all args as a list
+            if upper == 'AF':
+                items = [self._eval_arg_toks([a])
+                         for a in self._frame.oprnd_args]
+                return Value.list_val(items) if items else Value.blank()
+            return Value.blank()
+
+        n = idx_val.int_val if idx_val.kind == ValueKind.ABSOLUTE else 1
+
+        if upper in ('AF', 'AFA'):
+            toks = self._frame.get_af(n)
+        elif upper == 'CF':
+            toks = self._frame.get_cf(n)
+        else:  # LF
+            toks = self._frame.get_lf(n)
+
+        if not toks:
+            return Value.blank()
+        v, _ = evaluate_arg(toks, self._sym,
+                             line_no=self._line_no, call_frame=self._frame)
+        return v
+
+    def _eval_num(self) -> Value:
+        """
+        NUM(AF)       → count of operand args in current frame.
+        NUM(CF)       → count of command-field args.
+        NUM(AF(n))    → count of items in the nth arg (if it is a list).
+        NUM(list_val) → length of a list value.
+        Outside a procedure: 0.
+        """
+        if self._frame is None:
+            self._skip_to_rparen()
+            return Value.absolute(0)
+
+        # Peek: is the argument a bare AF / CF / LF (no subscript)?
+        tok = self._peek()
+        if tok is not None and tok.type == TT.SYMBOL:
+            upper = tok.value.upper()
+            # Peek one further to see if there's a '(' following
+            next_tok = self._tokens[self._pos + 1]                 if self._pos + 1 < len(self._tokens) else None
+            if upper in ('AF', 'AFA') and (
+                    next_tok is None or next_tok.type == TT.RPAREN):
+                # NUM(AF) — bare, no subscript → count of oprnd args
+                self._consume()   # eat AF
+                self._expect(TT.RPAREN)
+                return Value.absolute(self._frame.num_af())
+            if upper == 'CF' and (
+                    next_tok is None or next_tok.type == TT.RPAREN):
+                self._consume()
+                self._expect(TT.RPAREN)
+                return Value.absolute(self._frame.num_cf())
+            if upper == 'LF' and (
+                    next_tok is None or next_tok.type == TT.RPAREN):
+                self._consume()
+                self._expect(TT.RPAREN)
+                return Value.absolute(len(self._frame.label_args))
+
+        # General case: evaluate the inner expression
+        inner = self._parse_or()
+        while self._peek() is not None and self._peek().type == TT.COMMA:
+            self._consume()
+            self._parse_or()
+        self._expect(TT.RPAREN)
+
+        if inner.kind == ValueKind.LIST:
+            return Value.absolute(len(inner.items))
+        if inner.kind in (ValueKind.BLANK, ValueKind.UNDEFINED):
+            return Value.absolute(self._frame.num_af())
+        if inner.kind == ValueKind.ABSOLUTE:
+            return Value.absolute(1)   # scalar = 1 element
+        return Value.absolute(0)
+
+    def _eval_scor(self) -> Value:
+        """
+        SCOR(x, k1, k2, ..., kn)
+        Returns i (1-based) if x equals ki, else 0.
+        Blank ki entries (consecutive commas) are skipped (never match).
+        """
+        first = self._parse_or()   # the value to search for
+        matches = []
+        while self._peek() is not None and self._peek().type == TT.COMMA:
+            self._consume()   # eat the comma
+            # A blank argument is two consecutive commas — peek ahead
+            nxt = self._peek()
+            if nxt is not None and nxt.type in (TT.COMMA, TT.RPAREN):
+                matches.append(Value.blank())
+            else:
+                matches.append(self._parse_or())
+        self._expect(TT.RPAREN)
+
+        if first.kind not in (ValueKind.ABSOLUTE, ValueKind.CHARSTR):
+            return Value.absolute(0)
+
+        for i, candidate in enumerate(matches, start=1):
+            if candidate.kind == ValueKind.BLANK:
+                continue
+            if candidate.kind == first.kind and candidate.int_val == first.int_val:
+                return Value.absolute(i)
+            # Also match CHARSTR vs raw symbol name comparisons
+            if (candidate.kind == ValueKind.CHARSTR
+                    and first.kind == ValueKind.CHARSTR
+                    and candidate.raw == first.raw):
+                return Value.absolute(i)
+        return Value.absolute(0)
+
+    def _eval_ss(self) -> Value:
+        """
+        S:S(cond, true_val, false_val)
+        If cond is non-zero (and not BLANK/UNDEFINED) return true_val,
+        else return false_val.
+        Missing/blank args are treated as zero / BLANK.
+        """
+        args = []
+        # First arg
+        args.append(self._parse_or())
+        while self._peek() is not None and self._peek().type == TT.COMMA:
+            self._consume()
+            args.append(self._parse_or())
+        self._expect(TT.RPAREN)
+
+        # Pad to 3
+        while len(args) < 3:
+            args.append(Value.blank())
+
+        cond, true_val, false_val = args[0], args[1], args[2]
+
+        # Condition is true if non-zero absolute, or RELOCATABLE/EXTERNAL
+        if cond.kind == ValueKind.ABSOLUTE:
+            return true_val if cond.int_val != 0 else false_val
+        if cond.kind in (ValueKind.BLANK, ValueKind.UNDEFINED):
+            return false_val
+        return true_val   # RELOCATABLE etc. treated as true
 
     def _skip_to_rparen(self) -> None:
         """Consume tokens up to and including the matching RPAREN."""
@@ -477,13 +662,17 @@ class ExpressionEvaluator:
 # ---------------------------------------------------------------------------
 
 def evaluate_arg(tokens: List[Token], sym: SymbolTable,
-                 line_no: int = 0) -> Tuple[Value, List[str]]:
+                 line_no: int = 0,
+                 call_frame=None) -> Tuple[Value, List[str]]:
     """
     Evaluate a single argument-position token list.
 
+    *call_frame* is an optional ``CallFrame`` providing AF/CF/LF context
+    when evaluating inside a procedure body.
+
     Returns (value, error_list).  error_list is empty on success.
     """
-    ev = ExpressionEvaluator(tokens, sym, line_no)
+    ev = ExpressionEvaluator(tokens, sym, line_no, call_frame=call_frame)
     try:
         v = ev.evaluate()
     except AssemblerError as exc:

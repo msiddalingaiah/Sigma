@@ -46,7 +46,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from .do_control import DoFrame, find_else_fin, find_pend, find_label
 from .expression import evaluate_arg
-from .lexer import Statement, TT, Token
+from .lexer import ArgTokenizer, Statement, TT, Token
+from .procedure import ProcedureBody, CallFrame
 from .symbol_table import CsectKind, SymbolTable, PASS_DEF
 from .value import Value, ValueKind, Resolution, AssemblerError
 
@@ -195,6 +196,7 @@ class DefPass:
         self.errors:   List[AssemblyError] = []
         self.pos:      int              = 0       # current statement index
         self._do_stack: List[DoFrame]  = []       # active DO frames
+        self._call_stack: List[CallFrame] = []    # procedure call stack
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -229,6 +231,14 @@ class DefPass:
         base, _, modifier = cmd.partition(',')
         base = base.upper()
 
+        # Check for CNAME/FNAME procedure call BEFORE the handler map.
+        # This check runs in both DefPass and GenPass (no override needed).
+        if base not in _HANDLER_MAP:
+            entry = self.sym.lookup(base)
+            if entry is not None and entry.proc_body is not None:
+                self._call_procedure(stmt, entry.proc_body)
+                return
+
         # Look up the method name, then resolve it on *self* so that
         # subclass overrides (GenPass) are found through Python's MRO.
         method_name = _HANDLER_MAP.get(base)
@@ -243,7 +253,8 @@ class DefPass:
 
     def _eval(self, arg_tokens: List[Token]) -> Value:
         """Evaluate one argument-position token list."""
-        v, errs = evaluate_arg(arg_tokens, self.sym)
+        frame = self._call_stack[-1] if self._call_stack else None
+        v, errs = evaluate_arg(arg_tokens, self.sym, call_frame=frame)
         for msg in errs:
             self._err(0, msg)
         return v
@@ -351,6 +362,34 @@ class DefPass:
             return
         if value is None:
             value = self.sym.dollar_value()
+
+        # Inside a procedure body, the special label 'LF' means "define
+        # the call-site label at the current LC" — it uses the label from
+        # the call site (frame.label_args[0]), not the literal symbol 'LF'.
+        label = stmt.label
+        if label == 'LF' and self._call_stack:
+            frame = self._call_stack[-1]
+            if frame.label_args:
+                # Re-tokenise and extract the symbol name from the first label arg
+                toks = frame.label_args[0]
+                if toks and toks[0].type == TT.SYMBOL:
+                    label = toks[0].value
+                else:
+                    return   # blank label at call site — no definition
+            else:
+                return   # no label at call site
+
+        # Use the (possibly substituted) label for all further processing
+        parsed = _parse_subscript_label(label)
+        if parsed is None:
+            self.sym.define(label, value, is_set=is_set)
+            return
+        name, index_strs = parsed
+        indices = [self._eval_index_str(s, stmt.line_no) for s in index_strs]
+        entry   = self.sym.lookup_or_create(name)
+        new_root = _set_subscript(entry.value, indices, value)
+        self.sym.define(name, new_root, is_set=True)
+        return
 
         parsed = _parse_subscript_label(stmt.label)
         if parsed is None:
@@ -693,30 +732,107 @@ class DefPass:
 
     # --- Procedure stubs (full engine deferred) ----------------------
 
-    def _handle_proc(self, stmt: Statement, modifier: str) -> None:
-        """PROC: begin a procedure definition body — skip to matching PEND."""
-        end = find_pend(self.stmts, self.pos + 1)
-        self.pos = end    # land on PEND; loop will +1 past it
-
-    def _handle_pend(self, stmt: Statement, modifier: str) -> None:
-        """PEND: end of procedure definition (reached only if PROC was skipped)."""
-        pass
-
     def _handle_cname(self, stmt: Statement, modifier: str) -> None:
-        """CNAME: define a command-name procedure."""
-        if stmt.label:
-            # Mark as a command-definition entry (value = placeholder 0)
-            self.sym.define(stmt.label, Value.absolute(0))
-        # Skip the body to the matching PEND
-        end = find_pend(self.stmts, self.pos + 1)
-        self.pos = end
+        """CNAME: define a command-name procedure (normal, non-returning)."""
+        self._define_procedure(stmt, is_fname=False)
 
     def _handle_fname(self, stmt: Statement, modifier: str) -> None:
-        """FNAME: define a function-name procedure."""
-        if stmt.label:
+        """FNAME: define a function-name procedure (PEND returns a value)."""
+        self._define_procedure(stmt, is_fname=True)
+
+    def _define_procedure(self, stmt: Statement, is_fname: bool) -> None:
+        """
+        Common logic for CNAME and FNAME.
+
+        Finds the matching PROC/PEND block (if present) and stores a
+        ProcedureBody in the symbol table keyed on the label.
+        If there is no matching PROC, stores Value.absolute(0) as a
+        placeholder (e.g. for forward-declared procedures).
+        """
+        if not stmt.label:
+            # No label → nothing to register; skip to PEND
+            pend_idx = find_pend(self.stmts, self.pos + 1)
+            self.pos = pend_idx
+            return
+
+        # Evaluate the CNAME operand (e.g. the opcode value X'32')
+        name_value = self._eval_arg(stmt, 0, Value.blank())
+
+        # Find the PROC line and the matching PEND
+        proc_idx = None
+        for i in range(self.pos + 1, len(self.stmts)):
+            s = self.stmts[i]
+            if s.is_comment or s.command is None:
+                continue
+            base = s.command.partition(',')[0].upper()
+            if base == 'PROC':
+                proc_idx = i
+                break
+            # Any other non-comment directive before PROC → no body
+            break
+
+        if proc_idx is None:
+            # No PROC follows — forward declaration only
             self.sym.define(stmt.label, Value.absolute(0))
+            # Do NOT skip ahead; the next PROC/PEND pair belongs elsewhere
+            return
+
+        pend_idx = find_pend(self.stmts, proc_idx + 1)
+        body = ProcedureBody(
+            stmts      = self.stmts,
+            body_start = proc_idx + 1,   # first statement inside body
+            pend_index = pend_idx,
+            name_value = name_value,
+            is_fname   = is_fname,
+        )
+        self.sym.define(stmt.label, Value.absolute(0), is_set=True)
+        entry = self.sym.lookup(stmt.label)
+        entry.proc_body = body            # attach body to the entry
+
+        # Skip past the PEND — the main loop will +1 past it
+        self.pos = pend_idx
+
+    def _handle_proc(self, stmt: Statement, modifier: str) -> None:
+        """
+        PROC: begin a procedure body.
+
+        Normally reached only when a PROC appears without a preceding
+        CNAME/FNAME on the same definition sweep — i.e., on the source
+        level (error) or when called recursively (shouldn't happen at
+        source level).  During a CNAME definition, _define_procedure
+        already advanced self.pos past the PEND, so PROC is never
+        dispatched separately in that case.
+
+        At source level, treat as: skip to matching PEND (error body).
+        """
         end = find_pend(self.stmts, self.pos + 1)
         self.pos = end
+
+    def _handle_pend(self, stmt: Statement, modifier: str) -> None:
+        """
+        PEND: end of a procedure body.
+
+        During definition: reached only if PROC was skipped (source-level
+        PROC without CNAME), so this is a no-op.
+
+        During execution (procedure call): pop the call frame and resume
+        the caller.  For FNAME, evaluate the PEND operand and store it
+        as the frame's return value.
+        """
+        if not self._call_stack:
+            return   # PEND at source level — ignore
+
+        frame = self._call_stack[-1]
+
+        # FNAME: evaluate PEND operand to get the return value
+        if frame.body.is_fname and stmt.args:
+            frame.fname_result = self._eval_arg(stmt, 0, Value.blank())
+
+        # Pop the frame and restore the caller context
+        self._call_stack.pop()
+        self.stmts   = frame.return_stmts
+        self.pos     = frame.return_pos    # will be +1'd by the outer loop
+        self._do_stack = frame.do_stack
 
     # --- DO / DO1 / ELSE / FIN / GOTO -------------------------------
 
@@ -893,13 +1009,92 @@ class DefPass:
 
     def _handle_instruction(self, stmt: Statement) -> None:
         """
-        Instruction references and procedure calls in the DEF pass.
+        Unknown command — standard 32-bit Sigma instruction placeholder.
 
-        Standard Sigma instructions are 32 bits (4 bytes).
-        The label is defined at the current LC and the LC is advanced by 4.
+        CNAME/FNAME detection is handled in _dispatch before this is called,
+        so this method only runs for genuinely unknown commands.
         """
         self._define_label(stmt)
         self.sym.advance_lc(4)
+
+    def _call_procedure(self, call_stmt: Statement,
+                        body: 'ProcedureBody') -> None:
+        """
+        Push a CallFrame and redirect execution into the procedure body.
+
+        Argument lists
+        --------------
+        oprnd_args (AF) : call_stmt.args  — the operand field
+        cmd_args   (CF) : the command modifier tokenised into arg lists
+        label_args (LF) : the label field re-tokenised, or []
+
+        After pushing the frame, the main ``run()`` loop continues from
+        body.body_start.  When PEND is reached, ``_handle_pend`` pops the
+        frame and restores self.stmts / self.pos.
+        """
+        if len(self._call_stack) >= 31:
+            self._err(call_stmt.line_no,
+                      "Procedure nesting exceeds maximum depth (31)")
+            return
+
+        # Build CF arg lists: CF(1)=command base name, CF(2+)=modifier tokens.
+        # In AP, the command field "LW,1" has CF(1)='LW' and CF(2)=1.
+        base_cmd = call_stmt.command.partition(',')[0] if call_stmt.command else ''
+        modifier  = call_stmt.command.partition(',')[2] if call_stmt.command else ''
+        base_tok  = [Token(TT.SYMBOL, base_cmd.upper(), base_cmd,
+                           call_stmt.line_no, 0)]
+        mod_args  = ArgTokenizer(modifier, call_stmt.line_no, 0).tokenize()                     if modifier else []
+        cmd_args  = [base_tok] + mod_args
+
+        # Re-tokenise the label field into LF arg lists
+        if call_stmt.label:
+            label_args = ArgTokenizer(call_stmt.label,
+                                      call_stmt.line_no, 0).tokenize()
+        else:
+            label_args = []
+
+        # Eagerly evaluate argument lists using the CURRENT frame so that
+        # AF/CF/LF references inside arguments are resolved at call time.
+        # This prevents infinite recursion when nested CNAME calls pass
+        # AF(n) expressions as arguments (e.g. BYTE AF(1) inside WORD).
+        def eval_arg_toks(tok_list):
+            """Evaluate one arg list, returning a pre-evaluated token list."""
+            if not tok_list:
+                return tok_list
+            # Check if this arg contains any procedure-intrinsic references
+            # that need resolving. If so, evaluate and return as INT constant.
+            has_intrinsic = any(
+                t.type == TT.SYMBOL and t.value in (
+                    'AF', 'CF', 'LF', 'AFA', 'NAME', 'META', 'P#')
+                for t in tok_list
+            )
+            if has_intrinsic and self._call_stack:
+                v = self._eval(tok_list)
+                # Return as a single constant token
+                return [Token(TT.INT, v.int_val, str(v.int_val),
+                              call_stmt.line_no, 0)]
+            return tok_list
+
+        eager_oprnd = [eval_arg_toks(a) for a in call_stmt.args]
+        eager_cmd   = [eval_arg_toks(a) for a in cmd_args]
+        eager_label = [eval_arg_toks(a) for a in label_args]
+
+        frame = CallFrame(
+            body         = body,
+            body_pos     = body.body_start,
+            return_stmts = self.stmts,
+            return_pos   = self.pos,          # PEND will +1 past this
+            label_args   = eager_label,
+            cmd_args     = eager_cmd,
+            oprnd_args   = eager_oprnd,
+            do_stack     = self._do_stack,
+        )
+        self._call_stack.append(frame)
+        self._do_stack = []
+
+        # Redirect execution into the procedure body
+        self.stmts = body.stmts
+        self.pos   = body.body_start - 1     # -1 because run() will +1
 
 
 # ---------------------------------------------------------------------------

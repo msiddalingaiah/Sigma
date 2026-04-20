@@ -409,23 +409,7 @@ class GenPass(DefPass):
         self._define_label(stmt)
         self._emit(b'\x00' * 4)
 
-    # --- Procedure stubs (no object output) -------------------------
-
-    def _handle_proc(self, stmt: Statement, modifier: str) -> None:
-        end = find_pend(self.stmts, self.pos + 1)
-        self.pos = end
-
-    def _handle_pend(self, stmt: Statement, modifier: str) -> None:
-        pass
-
-    def _handle_cname(self, stmt: Statement, modifier: str) -> None:
-        if stmt.label:
-            self.sym.define(stmt.label, Value.absolute(0))
-        end = find_pend(self.stmts, self.pos + 1)
-        self.pos = end
-
-    def _handle_fname(self, stmt: Statement, modifier: str) -> None:
-        if stmt.label:
-            self.sym.define(stmt.label, Value.absolute(0))
-        end = find_pend(self.stmts, self.pos + 1)
-        self.pos = end
+    # --- Procedure handlers: inherited from DefPass via MRO -----------
+    # _handle_cname, _handle_fname, _handle_proc, _handle_pend are all
+    # inherited.  No overrides needed — the GEN pass uses the same
+    # body-storage and call-stack machinery as the DEF pass.

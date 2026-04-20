@@ -26,10 +26,10 @@ Reference manual:
 | Verilog `$readmemh` output | `hex_output.py` | ✅ Complete | 58 |
 | List values & subscripts | `value.py`, `expression.py` | ✅ Complete | 69 |
 | Subscripted label assignment | `def_pass.py` | ✅ Complete | 49 |
-| Phase 2: Procedure engine | `procedure.py` | 🔧 Designed | — |
+| Phase 2: Procedure engine | `procedure.py`, `def_pass.py`, `expression.py` | ✅ Complete (MVS) | 51 |
 | Phase 4: Concordance | `concordance.py` | 🔲 Planned | — |
 
-**562 tests passing.**
+**613 tests passing.**
 
 ---
 
@@ -582,7 +582,7 @@ original Sigma hardware.
 
 | Feature | Notes |
 |---------|-------|
-| Procedure engine | `PROC`/`PEND`, `AF`/`CF`/`LF`, `NUM`, `SCOR`/`TCOR`, `S:S`, `META` — the largest remaining piece |
+| FNAME-as-expression | `DBL(n)` in `DATA DBL(n)` — FNAME return value in expressions |
 | Instruction encoding | All Sigma mnemonics are defined as CNAME procedures in the AP%IL system; requires the procedure engine |
 | Constant encoding | `FX`/`FS`/`FL`/`PKDEC` currently emit zeros; full BCD and floating-point conversion not yet done |
 | Literal pool | `L(expr)` and `=expr` return placeholder Values; the GEN pass literal section is not yet wired up |
@@ -597,6 +597,7 @@ cd ap_project
 python -m pytest                             # all 513 tests
 python -m pytest tests/test_lists.py -v              # list support (69 tests)
 python -m pytest tests/test_subscript_assign.py -v  # subscript assignment (49 tests)
+python -m pytest tests/test_procedure.py -v           # procedure engine (51 tests)
 python -m pytest tests/test_hex_output.py   # Verilog hex output (58 tests)
 python -m pytest -k "do_loop"               # filter by name
 ```
@@ -612,6 +613,7 @@ python -m pytest -k "do_loop"               # filter by name
 | `test_hex_output.py` | 58 | Word encoding, @address markers, multi-section layout, word sizes (1/2/4/8), fill_gaps, comments, integration through full pipeline |
 | `test_lists.py` | 69 | Lexer paren-list tokenisation, LIST Value kind and factory, `_subscript()` helper, list literals in expressions, multi-arg EQU/SET, subscript access in assembly, nested lists, DO loop patterns, round-trip |
 | `test_subscript_assign.py` | 49 | `_parse_subscript_label`, `_set_subscript` (all edge cases), DEF pass IAN/IAL patterns, 2D tables, DO loop fill, GEN pass byte emission, two-pass LC consistency |
+| `test_procedure.py` | 51 | CNAME/FNAME definition, ProcedureBody storage, AF/CF/LF argument access, NAME intrinsic, LF label substitution, NUM(AF), S:S, SCOR, META, nested CNAME calls, DO loops in bodies, GEN byte emission, two-pass LC consistency |
 
 ---
 
@@ -768,7 +770,7 @@ from running `ap-ilnotese.txt` through the assembler.
 
 ## Procedure Engine — Design
 
-*Status: planned. Implementation follows this specification.*
+*Status: ✅ minimum viable subset implemented. This section documents the design.*
 
 ### What it is
 
