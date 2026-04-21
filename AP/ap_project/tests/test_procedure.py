@@ -657,3 +657,178 @@ class TestDataclasses:
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+# ---------------------------------------------------------------------------
+# 11. LOCAL / OPEN / CLOSE scoping
+# ---------------------------------------------------------------------------
+
+class TestLocalOpenClose:
+    """LOCAL, OPEN, and CLOSE all work through the same mechanism:
+    LOCAL/OPEN declare symbols in the innermost local scope frame;
+    CLOSE is a no-op (cleanup happens at PEND via pop_local_scope).
+    """
+
+    def _asm(self, src):
+        stmts = list(tokenize_text(src))
+        sym = SymbolTable()
+        DefPass(stmts, sym).run()
+        obj = ObjectWriter(); lst = ListingWriter()
+        GenPass(stmts, sym, obj, lst).run()
+        return sym, sec_bytes(obj)
+
+    def test_local_shadows_global_in_body(self):
+        sym, raw = self._asm("""\
+BT       EQU      0
+P        CNAME    0
+         PROC
+         LOCAL    BT
+BT       SET      1
+LF       DATA     BT
+         PEND
+         P
+""")
+        assert raw == bytes([0, 0, 0, 1])
+
+    def test_local_global_restored_after_pend(self):
+        sym, _ = self._asm("""\
+BT       EQU      0
+P        CNAME    0
+         PROC
+         LOCAL    BT
+BT       SET      1
+         PEND
+         P
+AFTER    EQU      BT
+""")
+        assert sym_val(sym, 'BT').int_val == 0
+        assert sym_val(sym, 'AFTER').int_val == 0
+
+    def test_open_identical_to_local(self):
+        sym, raw = self._asm("""\
+BT       EQU      0
+P        CNAME    0
+         PROC
+         OPEN     BT
+BT       SET      7
+LF       DATA     BT
+         CLOSE    BT
+         PEND
+         P
+AFTER    EQU      BT
+""")
+        assert raw == bytes([0, 0, 0, 7])
+        assert sym_val(sym, 'BT').int_val == 0
+        assert sym_val(sym, 'AFTER').int_val == 0
+
+    def test_no_bleed_between_calls(self):
+        sym, raw = self._asm("""\
+X        EQU      0
+P        CNAME    0
+         PROC
+         OPEN     X
+X        SET      AF(1)
+LF       DATA     X
+         CLOSE    X
+         PEND
+         P        X'11'
+         P        X'22'
+         P        X'33'
+AFTER    EQU      X
+""")
+        assert raw == bytes([0, 0, 0, 0x11, 0, 0, 0, 0x22, 0, 0, 0, 0x33])
+        assert sym_val(sym, 'X').int_val == 0
+
+    def test_open_multiple_symbols(self):
+        sym, raw = self._asm("""\
+A        EQU      1
+B        EQU      2
+P        CNAME    0
+         PROC
+         OPEN     A,B
+A        SET      10
+B        SET      20
+LF       DATA     A
+         DATA     B
+         CLOSE    A,B
+         PEND
+         P
+""")
+        assert raw == bytes([0, 0, 0, 10, 0, 0, 0, 20])
+        assert sym_val(sym, 'A').int_val == 1
+        assert sym_val(sym, 'B').int_val == 2
+
+    def test_p_hash_accumulates_across_passes(self):
+        # P# SET S:UFV(P#)+1 as an OPEN interstitial must survive both
+        # DEF and GEN passes without being reset by declare_local.
+        src = """\
+S:S      FNAME
+         PROC
+         PEND     AF(AF(1)+2)
+         OPEN     P#
+P#       SET      S:UFV(P#)+1
+         CLOSE    P#
+"""
+        stmts = list(tokenize_text(src))
+        sym = SymbolTable()
+        DefPass(stmts, sym).run()
+        assert sym_val(sym, 'P#').int_val == 1
+        obj = ObjectWriter(); lst = ListingWriter()
+        GenPass(stmts, sym, obj, lst).run()
+        assert sym_val(sym, 'P#').int_val == 2
+
+    def test_nested_procs_independent_scopes(self):
+        sym, raw = self._asm("""\
+X        EQU      0
+INNER    CNAME    0
+         PROC
+         OPEN     X
+X        SET      AF(1)
+LF       DATA,8   X
+         CLOSE    X
+         PEND
+OUTER    CNAME    0
+         PROC
+         OPEN     X
+X        SET      X'FF'
+         INNER    X'AB'
+         INNER    X'CD'
+         CLOSE    X
+         PEND
+         OUTER
+AFTER    EQU      X
+""")
+        assert raw == bytes([0xAB, 0xCD])
+        assert sym_val(sym, 'AFTER').int_val == 0
+
+    def test_close_is_noop_cleanup_at_pend(self):
+        # CLOSE before PEND is a no-op; the scope is cleaned up at PEND.
+        # A symbol declared OPEN is still visible between CLOSE and PEND.
+        sym, raw = self._asm("""\
+Y        EQU      0
+P        CNAME    0
+         PROC
+         OPEN     Y
+Y        SET      X'42'
+         CLOSE    Y
+LF       DATA,8   Y
+         PEND
+         P
+AFTER    EQU      Y
+""")
+        assert raw == bytes([0x42])   # Y still visible after CLOSE
+        assert sym_val(sym, 'AFTER').int_val == 0
+
+    def test_local_does_not_affect_outer_scope_globals(self):
+        sym, _ = self._asm("""\
+GVAR     EQU      55
+P        CNAME    0
+         PROC
+         LOCAL    LVAR
+LVAR     SET      99
+         PEND
+         P
+RESULT   EQU      GVAR
+""")
+        assert sym_val(sym, 'GVAR').int_val == 55
+        assert sym_val(sym, 'RESULT').int_val == 55

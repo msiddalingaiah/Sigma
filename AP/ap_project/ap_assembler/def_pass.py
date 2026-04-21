@@ -352,6 +352,7 @@ class DefPass:
         )
         self._call_stack.append(frame)
         self._do_stack = []
+        self.sym.push_local_scope()   # fresh scope for LOCAL/OPEN
 
         # Save state and redirect into body
         saved_stmts = self.stmts
@@ -375,7 +376,8 @@ class DefPass:
             else:
                 self._dispatch(stmt)
 
-        # Restore state
+        # Pop local scope, then restore state
+        self.sym.pop_local_scope()
         if self._call_stack and self._call_stack[-1] is frame:
             self._call_stack.pop()
         self._do_stack = frame.do_stack
@@ -754,19 +756,36 @@ class DefPass:
     # --- Symbol scope -----------------------------------------------
 
     def _handle_local(self, stmt: Statement, modifier: str) -> None:
-        """LOCAL sym,...: declare symbols as local to the current scope."""
+        """LOCAL/OPEN sym,...: declare symbols as local to the current scope.
+
+        In the original assembler, LOCAL and OPEN are semantically identical
+        at the directive-processing level — both reserve entries in the local
+        symbol table.  CLOSE is a genuine no-op (cleanup happens at PEND via
+        the scope pop).
+
+        See apdgctt.txt LOCALSTA / LCLDLTE for the original implementation.
+        """
         for arg in stmt.args:
             if arg and arg[0].type == TT.SYMBOL:
                 self.sym.declare_local(arg[0].value)
 
     def _handle_open(self, stmt: Statement, modifier: str) -> None:
-        """OPEN sym,...: make symbols visible beyond the current scope."""
-        # Handled in Phase 1 (APNCD); no-op in Phase 2.
-        pass
+        """OPEN sym,...: identical to LOCAL — declares symbols as local.
+
+        In apdgctt.txt, OPEN falls through to LINE5 (no special handling)
+        but the LOCALFLG mechanism and LOCALSTA ensure consecutive LOCAL/OPEN
+        directives accumulate into the same local scope.  We just delegate
+        to _handle_local.
+        """
+        self._handle_local(stmt, modifier)
 
     def _handle_close(self, stmt: Statement, modifier: str) -> None:
-        """CLOSE sym,...: limit symbol visibility to the current scope."""
-        # Handled in Phase 1; no-op in Phase 2.
+        """CLOSE sym,...: no-op.
+
+        In the original, CLOSE falls through to LINE5 — it has no effect on
+        the local symbol table.  Cleanup of local symbols happens automatically
+        at PEND when the scope is popped.
+        """
         pass
 
     # --- SYSTEM / listing directives --------------------------------
@@ -949,6 +968,9 @@ class DefPass:
         # FNAME: evaluate PEND operand to get the return value
         if frame.body.is_fname and stmt.args:
             frame.fname_result = self._eval_arg(stmt, 0, Value.blank())
+
+        # Pop the local scope (discards LOCAL/OPEN declarations)
+        self.sym.pop_local_scope()
 
         # Pop the frame and restore the caller context
         self._call_stack.pop()
@@ -1213,6 +1235,7 @@ class DefPass:
         )
         self._call_stack.append(frame)
         self._do_stack = []
+        self.sym.push_local_scope()   # fresh scope for LOCAL/OPEN declarations
 
         # Redirect execution into the procedure body
         self.stmts = body.stmts

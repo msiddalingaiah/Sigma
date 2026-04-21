@@ -349,10 +349,16 @@ class SymbolTable:
                 entry = SymbolEntry(name=uname)
                 self._locals[-1][uname] = entry
         else:
-            entry = self._globals.get(uname)
-            if entry is None:
-                entry = SymbolEntry(name=uname)
-                self._globals[uname] = entry
+            # If the symbol already exists in the innermost local scope
+            # (e.g. declared with LOCAL/OPEN earlier), update it there
+            # rather than creating a separate global entry.
+            if self._locals and uname in self._locals[-1]:
+                entry = self._locals[-1][uname]
+            else:
+                entry = self._globals.get(uname)
+                if entry is None:
+                    entry = SymbolEntry(name=uname)
+                    self._globals[uname] = entry
 
         entry.value        = value
         entry.is_set       = is_set
@@ -392,12 +398,22 @@ class SymbolTable:
         """
         Declare a symbol as LOCAL.  It will shadow any global with the same
         name within the current local scope.
+
+        If the symbol already exists in the innermost local scope (e.g. it was
+        declared LOCAL in the DEF pass and still holds a value in the GEN pass),
+        the existing entry is returned unchanged.  This prevents re-processing
+        of OPEN/LOCAL interstitials from resetting accumulated values like P#.
         """
         uname = name.upper()
-        # Save any existing global temporarily by creating a local shadow
-        entry = SymbolEntry(name=uname, value=Value.undefined(), is_local=True)
         if self._locals:
+            existing = self._locals[-1].get(uname)
+            if existing is not None:
+                return existing          # already declared — keep existing value
+            entry = SymbolEntry(name=uname, value=Value.undefined(), is_local=True)
             self._locals[-1][uname] = entry
+            return entry
+        # No local scope active — fall back to a global entry
+        entry = SymbolEntry(name=uname, value=Value.undefined(), is_local=True)
         return entry
 
     # ------------------------------------------------------------------
