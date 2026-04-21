@@ -26,6 +26,21 @@ Operator precedence (lowest to highest, matching the original):
   6. **           (scale / shift)
   7. ~ unary-     (complement, negate)
   8. primary      (constants, symbols, parenthesised)
+
+AP source correspondence
+------------------------
+The original AP expression evaluator is a **stack machine** implemented in
+``SCAN`` (apdgctt.txt, label ``SCAN`` ~line 4561).  It walks a pre-encoded
+text stream (produced by the Phase-1 name collector) and maintains two
+parallel evaluation stacks: the Expression Control Table (ECT, indexed by
+register XS) and the Expression Value Table (EVT).  Operators are dispatched
+via a jump table at ``SC4%JUMP`` (~line 6420).
+
+This Python module replaces the stack machine with **recursive descent**:
+the Python call stack plays the role of the ECT/EVT, and each
+``_parse_*`` method corresponds to a level of the operator-precedence
+hierarchy.  The semantic results are identical; the structural difference
+is noted in each method below.
 """
 
 from __future__ import annotations
@@ -45,11 +60,17 @@ def _subscript(v: Value, indices: list) -> Value:
     """
     Navigate a (possibly nested) list value using a sequence of 1-based indices.
 
-    AP rule (from source ENDSSYM7 / SCBLNK):
-      - If v is a LIST and 1 <= idx <= len(v.items): recurse into that element.
-      - If v is a LIST and idx > len(v.items):       return Value.blank().
-      - If v is a scalar and len(indices)==1 and idx==1: return v (scalar).
-      - Any other combination on a non-list:          return Value.blank().
+    AP: ``SCENDSSYM`` (apdgctt.txt ~line 5219) handles end-of-subscripted-symbol
+    in the SCAN loop.  When the subscript exceeds the list length, execution
+    falls through to ``SCBLNK`` (~line 4780, via checks at ~5268/5286), producing
+    a blank result rather than an error.  ``SCBLNKSYM`` (~line 4780) handles the
+    case where an implicit blank is needed for a missing subscript.
+
+    Rules (ENDSSYM7 / SCBLNK):
+      - LIST, 1 <= idx <= len(items): recurse into that element.
+      - LIST, idx > len(items):        return Value.blank().
+      - scalar, single subscript idx==1: return scalar unchanged.
+      - any other combination on non-list: return Value.blank().
     """
     result = v
     for depth, idx_val in enumerate(indices):
@@ -89,6 +110,13 @@ class ExpressionEvaluator:
     The evaluator modifies no state except reading from the symbol table.
     Forward references (undefined symbols) produce Value.undefined(), which
     will be resolved in later passes.
+
+    AP: ``SCAN`` / ``EV%CLN%OPRND`` (apdgctt.txt ~line 4557).
+    ``EV%CLN%OPRND`` is the directive-level entry point that loads the operand
+    field index (XW) before falling into ``SCAN``.  Both entry points share the
+    same evaluation loop ``SCLOOP`` (~line 4575), which dispatches on encoded
+    item type via ``SC1%JUMP`` (~line 4597).  Operators are handled later via
+    ``V%OPERATOR`` / ``SC4%JUMP`` (~lines 6300, 6420).
     """
 
     def __init__(self, tokens: List[Token], sym: SymbolTable, line_no: int = 0,
@@ -106,7 +134,17 @@ class ExpressionEvaluator:
     # ------------------------------------------------------------------
 
     def evaluate(self) -> Value:
-        """Evaluate the token list and return the resulting Value."""
+        """Evaluate the token list and return the resulting Value.
+
+        AP: entry point for ``SCAN`` (apdgctt.txt ~line 4561).  The original
+        has two entry points: ``SCAN1`` for a single expression (``1ARG=1``)
+        and ``SCAN`` for a series of expressions (``1ARG=0``).  We always
+        evaluate one argument position, corresponding to ``SCAN1``.
+
+        Blank arguments (``SCBLNK``, ~line 4612), indirect-address markers, and
+        literal-pool tokens (``SCLITF``, ~line 4994) are handled here before
+        the recursive-descent grammar begins.
+        """
         if not self._tokens:
             return Value.blank()
 
@@ -167,7 +205,14 @@ class ExpressionEvaluator:
     # ------------------------------------------------------------------
 
     def _parse_or(self) -> Value:
-        """OR-level:  expr | expr   and   expr || expr"""
+        """OR-level:  ``expr | expr``   and   ``expr || expr``.
+
+        AP: ``SCOPOR`` (apdgctt.txt ~line 6438) and ``SCOPEOR`` (~line 6442)
+        in the ``SC4%JUMP`` binary-operator dispatch table.  Bitwise OR and
+        bitwise XOR (exclusive-OR) on 32-bit integers.  In SCAN these are
+        evaluated after both operands are on the stack; here they are the
+        lowest-precedence level in the recursive-descent grammar.
+        """
         lhs = self._parse_and()
         while True:
             tok = self._peek()
@@ -186,7 +231,11 @@ class ExpressionEvaluator:
         return lhs
 
     def _parse_and(self) -> Value:
-        """AND-level:  expr & expr"""
+        """AND-level:  ``expr & expr``.
+
+        AP: ``SCOPAND`` (apdgctt.txt ~line 6446) in ``SC4%JUMP``.
+        Bitwise AND on 32-bit integers.
+        """
         lhs = self._parse_compare()
         while True:
             tok = self._peek()
@@ -199,7 +248,16 @@ class ExpressionEvaluator:
         return lhs
 
     def _parse_compare(self) -> Value:
-        """Comparison:  = ~= >= <= > <"""
+        """Comparison operators:  ``= ~= >= <= > <``.
+
+        AP: ``SCOPEQ`` (~6450), ``SCOPNE`` (~6456), ``SCOPGE`` (~6460),
+        ``SCOPLE`` (~6464), ``SCOPG`` (~6468), ``SCOPL`` (~6472) in ``SC4%JUMP``.
+        All comparison operators use the ``CD`` (Compare Double) instruction and
+        branch to ``SCOPTRUE`` (sets result to ``DBLONE`` = -1) or ``SCOP6``
+        (sets result to ``ZERO`` = 0).  AP boolean convention: -1 = true, 0 = false.
+        ``DO``-loop semantics depend on this: ``DO -1`` (true condition) skips
+        the body (executes ELSE), because the count -1 ≤ 0.
+        """
         lhs = self._parse_add()
         while True:
             tok = self._peek()
@@ -224,7 +282,15 @@ class ExpressionEvaluator:
         return lhs
 
     def _parse_add(self) -> Value:
-        """Additive:  + -"""
+        """Additive:  ``+ -``.
+
+        AP: ``SCOPPLS`` (apdgctt.txt ~line 6481) and ``SCOPMNS`` (~6476) in
+        ``SC4%JUMP``.  Addition uses ``AD`` (Add Double), subtraction uses
+        ``SD`` (Subtract Double).  Both trap overflow and call ``TERR``.
+        Address arithmetic (RELOCATABLE + offset) is handled separately via
+        ``SCADDSUM`` / ``SCCMPSUM`` — our Python equivalent is ``_add_values``
+        in value.py, which preserves the RELOCATABLE kind.
+        """
         lhs = self._parse_mul()
         while True:
             tok = self._peek()
@@ -245,7 +311,20 @@ class ExpressionEvaluator:
         return lhs
 
     def _parse_mul(self) -> Value:
-        """Multiplicative:  * / // **"""
+        """Multiplicative:  ``* / // **``.
+
+        AP: ``SCOPMLT`` (~6496), ``SCOPDVD`` (~6489), ``SCOPCQ`` (~6483),
+        ``SCOPSHFT`` (~6501) in ``SC4%JUMP``.
+
+        - ``*``  → ``SCOPMLT``: ``MW`` (Multiply Word) — lower 32 bits of product.
+        - ``/``  → ``SCOPDVD``: ``DW`` (Divide Word) — quotient (sign-extended).
+        - ``//`` → ``SCOPCQ``: covered quotient — ``AD`` then ``SD`` by 1; rounds
+          toward zero like C integer division.
+        - ``**`` → ``SCOPSHFT``: ``SLD`` (Shift Left Double) by shift count.
+          Shift counts ≥ 64 produce zero (``SCOP6`` path).  Our Python
+          implementation caps at 32 bits (shifts ≥ 32 → 0) since AP values
+          are 32-bit.
+        """
         lhs = self._parse_unary()
         while True:
             tok = self._peek()
@@ -272,7 +351,15 @@ class ExpressionEvaluator:
         return lhs
 
     def _parse_unary(self) -> Value:
-        """Unary:  -expr  ~expr  +expr"""
+        """Unary:  ``-expr``  ``~expr``  ``+expr``.
+
+        AP: Unary minus is handled in the ``V%OPERATOR`` framework
+        (apdgctt.txt ~line 6300) via the ``LCD`` (Load Complement Double)
+        instruction at ~line 6333.  Bitwise complement (~) is not a separate
+        AP operator; it is equivalent to ``EOR`` with all-ones (our ``_complement``
+        in value.py computes ``~x & 0xFFFFFFFF``).
+        Unary plus is a no-op in both AP and here.
+        """
         tok = self._peek()
         if tok is None:
             return Value.blank()
@@ -290,16 +377,34 @@ class ExpressionEvaluator:
         return self._parse_primary()
 
     def _parse_primary(self) -> Value:
-        """
-        Primary expressions:
-          integer / hex / octal / packed-decimal constant
-          FX / FS / FL constant
-          character string constant
-          symbol reference
-          addressing function call: BA(x), HA(x), WA(x), DA(x), ABSVAL(x)
-          L(expr) literal reference
-          % / %% location counter
-          (expr) parenthesised sub-expression
+        """Parse a primary: constant, symbol, function call, or parenthesised expr.
+
+        AP: ``SC1%JUMP`` (apdgctt.txt ~line 4597) dispatches on encoded item type:
+
+        ============  ===================  ============================
+        AP label      Our token type       Description
+        ============  ===================  ============================
+        ``SCBLNK``    BLANK_ARG            Blank expression → blank value
+        ``SCSINT``    INT (small)          Small integer constant (~4662)
+        ``SCINT``     INT / HEX / OCT      Larger integer / hex / octal (~4853)
+        ``SCGSYM``    SYMBOL               Global symbol lookup (~4674)
+        ``SCLSYM``    SYMBOL (local)       Local symbol lookup (~4695)
+        ``SCGSSYM``   SYMBOL + LPAREN      Global subscripted symbol (~4619)
+        ``SCLSSYM``   SYMBOL + LPAREN      Local subscripted symbol (~4646)
+        ``SCLITF``    LIT_EQ / LIT_L       Literal pool reference (~4994)
+        ============  ===================  ============================
+
+        The AP distinction between global/local symbols and small/large integers
+        is encoded in the pre-tokenised text; our lexer produces uniform token
+        types so we treat them identically here.
+
+        Parenthesised list literals ``(a, b, c)`` are a Python-side extension:
+        the AP encoder represents lists via a separate list-building mechanism;
+        we detect the comma after the first element and build a LIST Value.
+
+        Special symbols handled here: ``%`` / ``%%`` (location counters),
+        ``META`` (evaluates to 0 — identity for OR chains), ``NAME`` (CNAME
+        operand value in a procedure body).
         """
         tok = self._peek()
         if tok is None:
@@ -402,9 +507,29 @@ class ExpressionEvaluator:
         return Value.blank()
 
     def _parse_function_or_subscript(self, name: str) -> Value:
-        """
-        Parse NAME(arg1, arg2, ...) — addressing function, intrinsic, or
-        subscripted symbol reference.
+        """Parse ``NAME(args)`` — FNAME call, intrinsic, or subscripted symbol.
+
+        AP: Subscripted symbols are handled by ``SCGSSYM`` / ``SCLSSYM``
+        (apdgctt.txt ~lines 4619/4646) which push a subscript-symbol control
+        word, then evaluate the subscript expression, then dispatch via
+        ``SCENDSSYM`` (~line 5219) when the closing paren is reached.
+
+        Intrinsic functions (NUM, SCOR, S:UFV, CS, BA/HA/WA/DA etc.) are
+        encoded as special symbol numbers; ``SC7%JUMP`` (~line 5291) dispatches
+        on the intrinsic number extracted from the encoded item.  The relevant
+        AP labels for each intrinsic are noted in the individual ``_eval_*``
+        methods below.
+
+        FNAME calls: in the original AP, procedure-call dispatch happens at the
+        directive level, not inside the expression evaluator.  FNAMEs are a
+        special class: they are invoked inline during operand evaluation via the
+        ``PARTIC`` module (appartt.txt).  We replicate this by checking for an
+        FNAME body before all other cases and calling ``_exec_fname`` if one is
+        found and an ``executor`` is available.
+
+        Important ordering: the FNAME check must precede all hardcoded stubs so
+        that once ``S:S``, ``BC``, ``NXTIN`` etc. are defined as FNAMEs in the
+        source, the real body executes rather than any simplified fallback.
         """
         upper = name.upper()
         self._consume()  # consume LPAREN
@@ -430,12 +555,17 @@ class ExpressionEvaluator:
                     _entry.proc_body, _arg_lists, self._frame, self._line_no)
 
         # --- Simple one-argument addressing functions ----------------------
+        # AP: BA/HA/WA/DA/ABSVAL dispatched via ``SC7%JUMP`` (~line 5291).
+        # BA=byte address (*4), HA=halfword (*2), WA=word (×1), DA=doubleword (×½),
+        # ABSVAL=absolute value.  Each scales the argument by the appropriate factor.
         if upper in _ADDR_FUNCS:
             arg = self._parse_or()
             self._expect(TT.RPAREN)
             return apply_address_function(upper, arg)
 
         # --- CS() — returns control section number of argument -----------
+        # AP: ``V%E`` / ``SCCS`` (apdgctt.txt ~line 5348), dispatched via SC7%JUMP.
+        # Extracts the CSECT number from a relocatable value's type field.
         if upper == 'CS':
             arg = self._parse_or()
             self._expect(TT.RPAREN)
@@ -444,6 +574,12 @@ class ExpressionEvaluator:
             return Value.absolute(0)
 
         # --- S:UFV() — evaluate suppressing UNDEFINED errors ---------------
+        # AP: ``UFVINTRINSIC`` (apdgctt.txt ~line 5590), dispatched via SC7%JUMP.
+        # "UFV" = Undefined-to-Forward-Value.  The routine strips the undefined
+        # marker from ECT/EVT entries, replacing them with the pass-definition
+        # field so downstream code sees a blank/zero instead of an error.
+        # Used in patterns like ``S:UFV(P#)+1`` to safely read a symbol that
+        # may not yet be defined.  We simply return 0 for undefined operands.
         if upper == 'S:UFV':
             arg = self._parse_or()
             self._expect(TT.RPAREN)
@@ -453,23 +589,41 @@ class ExpressionEvaluator:
             return arg
 
         # --- NUM() — argument count ----------------------------------------
+        # AP: ``NUMINTRINSIC`` (apdgctt.txt ~line 5308), dispatched via SC7%JUMP.
         if upper == 'NUM':
             return self._eval_num()
 
         # --- SCOR(x, k1, k2, ...) — index of matching keyword ------------
+        # AP: ``SCSCOR`` (apdgctt.txt ~line 5001), dispatched via SC7%JUMP.
         if upper == 'SCOR':
             return self._eval_scor()
 
         # --- TCOR — type correspondence (deferred stub) -------------------
+        # AP: ``TCOR`` dispatched via SC7%JUMP (~line 5291); similar to SCOR but
+        # matches on VALUE TYPE rather than value equality.  Not yet implemented.
         if upper == 'TCOR':
             self._skip_to_rparen()
             return Value.absolute(0)
 
-        # --- S:S(cond, true_val, false_val) — conditional select -----------
+        # --- S:S — conditional select (fallback stub) --------------------
+        # AP: S:S is defined as an FNAME in ap-ilnotese.txt (line 26) with
+        # body ``PEND AF(AF(1)+2)``.  The executor-based FNAME path above handles
+        # it when ap-ilnotese has been loaded; this stub fires only when the FNAME
+        # body is unavailable (e.g. in tests that don't load ap-ilnotese).
+        # NOTE: ``_eval_ss`` has DIFFERENT semantics from the FNAME body — it
+        # treats arg1 as a boolean (nonzero→arg2, zero→arg3), whereas the real
+        # FNAME body uses arg1 as a 0-based numeric index (arg1+2 selects the
+        # argument).  Use the FNAME path whenever possible.
         if upper == 'S:S':
             return self._eval_ss()
 
-        # --- AF / CF / LF / AFA / NAME — procedure argument intrinsics ----
+        # --- AF / CF / LF / AFA — procedure argument access ---------------
+        # AP: these are special encoded symbols processed by the ``PARTIC``
+        # module (appartt.txt).  During procedure body execution, ``PARTIC``
+        # substitutes the actual argument tokens in place of the encoded
+        # placeholder.  Our equivalent evaluates the corresponding token list
+        # from the active CallFrame.  AF=operand args, CF=command-field args,
+        # LF=label-field args, AFA=all operand args as a list.
         if upper in ('AF', 'CF', 'LF', 'AFA'):
             return self._eval_arg_intrinsic(upper)
 
@@ -479,7 +633,12 @@ class ExpressionEvaluator:
                 return self._frame.body.name_value
             return Value.blank()
 
-        # --- Other proc-only intrinsics (stub: undefined outside proc) ----
+        # --- Other proc-only intrinsics (stubs) ----------------------------
+        # AP: S:NUMC (~line 5332), S:PT/S:UT (~5659/~5629), S:IFR (~5590,
+        # same handler as S:UFV), S:AAD/S:RAD (address arithmetic), S:EXT
+        # (external reference), S:SUM/S:LIST (structure builders), S:D/S:C/S:INT
+        # (type coercions), S:FS/S:FL/S:FX/S:FR/S:DPI (float conversions).
+        # All dispatched via SC7%JUMP (~line 5291).  Not yet implemented.
         if upper in ('S:KEYS', 'S:NUMC', 'S:PT', 'S:UT', 'S:IFR',
                       'S:LFR', 'S:AAD', 'S:RAD', 'S:EXT', 'S:SUM',
                       'S:LIST', 'S:D', 'S:C', 'S:INT', 'S:FS', 'S:FL',
@@ -522,7 +681,11 @@ class ExpressionEvaluator:
     # ------------------------------------------------------------------
 
     def _eval_arg_toks(self, tok_lists: list) -> Value:
-        """Evaluate a List[List[Token]] argument list and return its Value."""
+        """Evaluate the first token list in *tok_lists* and return its Value.
+
+        Helper used internally when AF/AFA returns a list of argument token
+        lists and we need to reduce one to a Value.
+        """
         if not tok_lists:
             return Value.blank()
         v, _ = evaluate_arg(tok_lists[0], self._sym,
@@ -530,10 +693,22 @@ class ExpressionEvaluator:
         return v
 
     def _eval_arg_intrinsic(self, upper: str) -> Value:
-        """
-        Evaluate AF(n), CF(n), LF(n), or AFA.
+        """Evaluate ``AF(n)``, ``CF(n)``, ``LF(n)``, or bare ``AFA``.
 
-        Outside a procedure frame these return Value.undefined().
+        AP: Handled by the ``PARTIC`` module (appartt.txt), which scans the
+        encoded procedure body and replaces AF/CF/LF placeholders with the
+        actual argument token sequences from the call site.  In the original,
+        this substitution happens at the encoded-text level before SCAN even
+        runs; here we evaluate the corresponding token list from the active
+        ``CallFrame`` at expression-evaluation time.
+
+        - ``AF(n)`` — n-th operand argument (1-based).  Blank if n > num_args.
+        - ``CF(n)`` — n-th command-field argument: CF(1)=base command name,
+          CF(2)=first modifier token, etc.
+        - ``LF(n)`` — n-th label-field argument (usually only LF(1) is used).
+        - ``AFA``   — bare (no subscript); returns all operand args as a LIST.
+
+        Outside an active procedure frame all forms return ``Value.undefined()``.
         """
         # Collect the subscript index if present
         idx_val = self._parse_or()
@@ -570,13 +745,25 @@ class ExpressionEvaluator:
         return v
 
     def _eval_num(self) -> Value:
-        """
-        NUM(expr)     → length of a list value, or 1 for a scalar.
-        NUM(AF)       → count of operand args in current frame.
-        NUM(CF)       → count of command-field args.
-        NUM(AF(n))    → count of items in the nth arg (if it is a list).
-        Works at source level for list-valued symbols (e.g. NUM(A) where A
-        is an EQU/SET list); procedure-arg forms require an active frame.
+        """``NUM(expr)`` — count the items in an expression.
+
+        AP: ``NUMINTRINSIC`` (apdgctt.txt ~line 5308), dispatched via
+        ``SC7%JUMP`` (~line 5291).  The original counts the ECT entries
+        consumed by evaluating the argument; LIST items contribute their
+        element count.  Bare ``NUM(AF)`` / ``NUM(CF)`` / ``NUM(LF)`` count
+        the argument slots in the call frame.
+
+        Forms:
+          - ``NUM(list_symbol)`` → number of elements in the list.
+          - ``NUM(scalar)``      → 1.
+          - ``NUM(AF)``          → number of operand args in current frame (0 outside).
+          - ``NUM(CF)``          → number of command-field args in current frame.
+          - ``NUM(AF(n))``       → element count of the n-th operand arg.
+
+        The frame-specific forms (bare ``AF``/``CF``/``LF``) are detected by
+        peeking ahead for a symbol token not followed by ``(``.  This matches
+        the AP encoding where ``AF`` alone is a special encoded token, not a
+        symbol+subscript pair.
         """
         # Peek: is the argument a bare AF / CF / LF (no subscript)?
         # These are frame-specific; outside a procedure they return 0.
@@ -620,10 +807,21 @@ class ExpressionEvaluator:
         return Value.absolute(0)
 
     def _eval_scor(self) -> Value:
-        """
-        SCOR(x, k1, k2, ..., kn)
-        Returns i (1-based) if x equals ki, else 0.
-        Blank ki entries (consecutive commas) are skipped (never match).
+        """``SCOR(x, k1, k2, ..., kn)`` — search list, return 1-based position.
+
+        AP: ``SCSCOR`` (apdgctt.txt ~line 5001), dispatched via ``SC7%JUMP``.
+        Iterates over ``k1..kn`` comparing each to ``x``; returns the 1-based
+        position of the first match, or 0 if not found.
+
+        Blank arguments (consecutive commas → empty ECT entries) are skipped
+        and never match.  Our Python implementation detects blank arguments by
+        peeking for a COMMA or RPAREN immediately after consuming a COMMA
+        (two consecutive commas = blank entry).
+
+        Used in ``BC`` procedure body to look up condition codes:
+        ``SCOR(AF(2), GE, LE, EQ, AZ, ..., L, G, NE, ANZ, ...)``
+        returns the index of the condition-code keyword, which then becomes
+        the bit-field value OR'd into the branch instruction word.
         """
         first = self._parse_or()   # the value to search for
         matches = []
@@ -653,11 +851,22 @@ class ExpressionEvaluator:
         return Value.absolute(0)
 
     def _eval_ss(self) -> Value:
-        """
-        S:S(cond, true_val, false_val)
-        If cond is non-zero (and not BLANK/UNDEFINED) return true_val,
-        else return false_val.
-        Missing/blank args are treated as zero / BLANK.
+        """Fallback stub for ``S:S`` when no FNAME body is available.
+
+        AP: ``S:S`` is defined as an FNAME in ap-ilnotese.txt (label ``S:S``,
+        line 26) with body ``PEND AF(AF(1)+2)``.  This stub is used only when
+        that FNAME has not yet been loaded (e.g. isolated unit tests).
+
+        **Warning — semantics differ from the real FNAME body.**  This stub
+        treats ``S:S(cond, t, f)`` as a ternary: ``cond != 0`` → ``t``,
+        ``cond == 0`` → ``f``.  The real body does numeric index selection:
+        ``S:S(n, v0, v1, ...)`` selects ``AF(n+2)``, so ``S:S(0,a,b)=a``,
+        ``S:S(1,a,b)=b``.  The stub is correct for boolean-convention usage
+        (where ``cond`` is 0 or -1) only when the caller follows the pattern
+        ``S:S(bool, t, f)`` — which happens to agree with the FNAME body for
+        ``cond=-1`` (true: FNAME gives ``AF(1)=-1``, not ``t``; but for typical
+        use ``t`` is the desired true-branch value at position 2 when cond=0).
+        In practice, always prefer the FNAME path by loading ap-ilnotese first.
         """
         args = []
         # First arg
@@ -681,7 +890,12 @@ class ExpressionEvaluator:
         return true_val   # RELOCATABLE etc. treated as true
 
     def _skip_to_rparen(self) -> None:
-        """Consume tokens up to and including the matching RPAREN."""
+        """Consume tokens up to and including the matching RPAREN.
+
+        Used to skip over unimplemented or stubbed intrinsics
+        (TCOR, S:NUMC, S:PT, etc.) without leaving the token stream in an
+        inconsistent state.  No AP equivalent — utility method.
+        """
         depth = 1
         while depth > 0 and self._pos < len(self._tokens):
             tok = self._consume()
@@ -693,11 +907,17 @@ class ExpressionEvaluator:
                 depth -= 1
 
     def _collect_arg_tokens(self) -> List[Token]:
-        """
-        Collect tokens for one argument position, respecting paren depth.
+        """Collect tokens for one FNAME argument, respecting paren depth.
 
-        Stops (without consuming) at a top-level COMMA or RPAREN.
-        Returns the collected tokens as a list suitable for evaluate_arg.
+        Stops (without consuming) at a top-level COMMA or RPAREN, so a
+        series of calls collects the comma-separated arguments inside a
+        function call.
+
+        AP: No direct equivalent.  The original AP receives pre-tokenised
+        encoded text; argument boundaries are marked by the encoder (Phase 1).
+        This method is needed because Python receives a flat token list and
+        must re-discover argument boundaries when invoking FNAME bodies inline
+        from within expression evaluation.
         """
         toks: List[Token] = []
         depth = 0
@@ -726,17 +946,23 @@ def evaluate_arg(tokens: List[Token], sym: SymbolTable,
                  line_no: int = 0,
                  call_frame=None,
                  executor=None) -> Tuple[Value, List[str]]:
-    """
-    Evaluate a single argument-position token list.
+    """Evaluate a single argument-position token list.
 
-    *call_frame* is an optional ``CallFrame`` providing AF/CF/LF context
+    Top-level convenience wrapper around ``ExpressionEvaluator``.
+
+    AP: corresponds to calling ``EV1OPRNDEXP`` or ``EV%CLN%OPRND``
+    (apdgctt.txt ~line 4557) for a single expression.
+
+    *call_frame* — optional ``CallFrame``; provides AF/CF/LF/NAME context
     when evaluating inside a procedure body.
 
-    *executor* is an optional reference to the active DefPass/GenPass
-    instance, used to execute FNAME bodies inline during expression
-    evaluation.
+    *executor* — optional ``DefPass``/``GenPass`` instance; enables FNAME
+    bodies to be called inline during expression evaluation (the
+    ``_exec_fname`` mechanism).
 
-    Returns (value, error_list).  error_list is empty on success.
+    Returns ``(value, error_list)``.  ``error_list`` is empty on success;
+    assembler errors (division by zero, truncation) are returned as strings
+    rather than raised, so partial results can still be used.
     """
     ev = ExpressionEvaluator(tokens, sym, line_no, call_frame=call_frame,
                              executor=executor)
