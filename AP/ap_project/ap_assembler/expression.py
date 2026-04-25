@@ -545,11 +545,18 @@ class ExpressionEvaluator:
                     and _entry.proc_body.is_fname):
                 _arg_lists = []
                 while True:
-                    if self._peek() is not None and self._peek().type == TT.RPAREN:
+                    _tok = self._peek()
+                    if _tok is None or _tok.type == TT.RPAREN:
                         break
-                    _arg_lists.append(self._collect_arg_tokens())
-                    if self._peek() is not None and self._peek().type == TT.COMMA:
+                    _arg_toks = self._collect_arg_tokens()
+                    _arg_lists.append(_arg_toks)
+                    _nxt = self._peek()
+                    if _nxt is not None and _nxt.type == TT.COMMA:
                         self._consume()
+                    elif _nxt is None or _nxt.type == TT.RPAREN:
+                        break
+                    else:
+                        self._consume()   # no progress — skip to avoid loop
                 self._expect(TT.RPAREN)
                 return self._executor._exec_fname(
                     _entry.proc_body, _arg_lists, self._frame, self._line_no)
@@ -650,13 +657,19 @@ class ExpressionEvaluator:
         # Collect the argument token lists (comma-separated inside the parens).
         arg_lists = []
         while True:
-            if self._peek() is not None and self._peek().type == TT.RPAREN:
-                break
-            # Collect one argument — everything up to the next top-level comma
-            # or RPAREN.
+            tok = self._peek()
+            if tok is None or tok.type == TT.RPAREN:
+                break   # end of stream or closing paren — stop collecting
             arg_toks = self._collect_arg_tokens()
             arg_lists.append(arg_toks)
-            if self._peek() is not None and self._peek().type == TT.COMMA:
+            nxt = self._peek()
+            if nxt is not None and nxt.type == TT.COMMA:
+                self._consume()
+            elif nxt is None or nxt.type == TT.RPAREN:
+                break   # nothing left or closing paren reached
+            else:
+                # Unexpected token — _collect_arg_tokens made no progress;
+                # consume it to avoid an infinite loop.
                 self._consume()
         self._expect(TT.RPAREN)
 

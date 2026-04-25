@@ -140,7 +140,10 @@ class Statement:
 # ---------------------------------------------------------------------------
 
 # AP symbol characters: letters, digits, $, @, #, : (colon), _ (break char)
-_ALPHA = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz$@#:_')
+# Note: % is included in _ALPHA so symbols like %OR%, %IF%, P# retain their
+# full name.  Standalone % and %% (location counters) are handled in
+# _parse_primary before the alpha branch fires.
+_ALPHA = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz$@#:_%')
 _DIGIT = frozenset('0123456789')
 _ALNUM = _ALPHA | _DIGIT
 _HEX   = frozenset('0123456789ABCDEFabcdef')

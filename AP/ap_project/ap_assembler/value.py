@@ -354,30 +354,53 @@ def _add_values(a: Value, b: Value, sign: int = +1) -> Value:
 
 
 def _negate(v: Value) -> Value:
-    """Negate a value. Only valid for absolute integers."""
+    """Negate a value.
+
+    AP: ``SCMAP`` (apdgctt.txt ~line 6573) converts BLANK to zero before
+    any operator is applied (``SCMAPBL`` loads ``ZERO`` into the result
+    register).  We follow the same rule: BLANK → 0 → negate → 0.
+    """
     if v.kind == ValueKind.ABSOLUTE:
         return Value.absolute(_s32(-v.int_val))
-    if v.kind == ValueKind.UNDEFINED:
+    if v.kind in (ValueKind.UNDEFINED,):
         return v
+    if v.kind == ValueKind.BLANK:
+        return Value.absolute(0)
     raise AssemblerError(f"Cannot negate a {v.kind.name} value")
 
 
 def _complement(v: Value) -> Value:
-    """Bitwise complement (~). Only valid for absolute integers."""
+    """Bitwise complement (~).
+
+    AP: ``SCMAPBL`` maps BLANK to zero before operator application, so
+    ``~BLANK`` = ``~0`` = -1 (all bits set).
+    """
     if v.kind == ValueKind.ABSOLUTE:
         return Value.absolute(_s32(~v.int_val))
     if v.kind == ValueKind.UNDEFINED:
         return v
+    if v.kind == ValueKind.BLANK:
+        return Value.absolute(_s32(~0))   # ~0 = -1 = all ones
     raise AssemblerError(f"Cannot complement a {v.kind.name} value")
 
 
 def _int_binop(op: str, a: Value, b: Value) -> Value:
-    """
-    Apply a binary integer operator that requires both operands to be
-    absolute integers.  Returns UNDEFINED if either operand is undefined.
+    """Apply a binary integer operator to two values.
+
+    AP: ``SCMAP`` (apdgctt.txt ~line 6573) converts each operand to an
+    integer representation before the operator fires.  ``SCMAPBL`` maps
+    BLANK to zero (``LD,TX3 ZERO``), so BLANK participates in arithmetic
+    as 0.  UNDEFINED propagates as UNDEFINED (``SCMAPU`` pushes an
+    undefined item back).  All other non-integer types (RELOCATABLE etc.)
+    produce an error.
     """
     if a.kind == ValueKind.UNDEFINED or b.kind == ValueKind.UNDEFINED:
         return Value.undefined()
+    # BLANK maps to zero before operators are applied (AP: SCMAPBL → ZERO)
+    if a.kind == ValueKind.BLANK:
+        a = Value.absolute(0)
+    if b.kind == ValueKind.BLANK:
+        b = Value.absolute(0)
     if a.kind != ValueKind.ABSOLUTE or b.kind != ValueKind.ABSOLUTE:
         raise AssemblerError(
             f"Operator '{op}' requires integer operands, "

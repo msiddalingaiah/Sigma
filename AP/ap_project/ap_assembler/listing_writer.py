@@ -84,6 +84,10 @@ class ListingWriter:
         self._title  = title
         self._lines: List[ListingLine] = []
 
+    def set_title(self, title: str) -> None:
+        """Update the listing title (from a TITLE directive)."""
+        self._title = title
+
     # ------------------------------------------------------------------
     # Adding lines
     # ------------------------------------------------------------------

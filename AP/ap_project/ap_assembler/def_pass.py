@@ -1120,8 +1120,12 @@ class DefPass:
             if k_val is not None and k_val.kind == ValueKind.ABSOLUTE:
                 k = k_val.int_val
 
-        k = max(1, k)
-        idx = k - 1   # 0-based
+        # k is 1-based: GOTO,1 A,B → A; GOTO,2 A,B → B.
+        # k=0 or negative: skip the GOTO (fall through), per original BLEZ LINE5.
+        # AP: GOTO handler at apdgctt.txt ~line 2642; see GOTO10/GOTO20.
+        if k <= 0:
+            return   # fall through (no branch taken)
+        idx = k - 1   # convert to 0-based
         if idx < len(stmt.args) and stmt.args[idx]:
             tok = stmt.args[idx][0]
             if tok.type == TT.SYMBOL:
@@ -1129,7 +1133,7 @@ class DefPass:
                 if target >= 0:
                     self.pos = target - 1   # -1 because loop will +1
                     return
-        self._err(stmt.line_no, f"GOTO: label not found in arg {k}")
+        self._err(stmt.line_no, f"GOTO: label not found at index {idx + 1}")
 
     # --- END --------------------------------------------------------
 

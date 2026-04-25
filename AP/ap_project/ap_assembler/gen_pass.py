@@ -409,6 +409,17 @@ class GenPass(DefPass):
         self._define_label(stmt)
         self._emit(b'\x00' * 4)
 
+    # --- Listing control directives ------------------------------------
+
+    def _handle_title(self, stmt: Statement, modifier: str) -> None:
+        """TITLE 'text' — set the assembly listing page header."""
+        if stmt.args and stmt.args[0]:
+            v = self._eval(stmt.args[0])
+            if v.kind == ValueKind.CHARSTR:
+                self._lst.set_title(v.raw if isinstance(v.raw, str) else str(v.raw))
+            elif v.kind == ValueKind.ABSOLUTE:
+                self._lst.set_title(str(v.int_val))
+
     # --- Procedure handlers: inherited from DefPass via MRO -----------
     # _handle_cname, _handle_fname, _handle_proc, _handle_pend are all
     # inherited.  No overrides needed — the GEN pass uses the same
