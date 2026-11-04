@@ -225,8 +225,9 @@ class CalProcessor:
     # --- the trap ----------------------------------------------------------------------
 
     def trap(self, u, req):
-        """CAL1P (ENTRY.txt:248) and T:CTRAPM: trap X'48', into the monitor."""
-        psd = self.place(u, req)
+        """CAL1P (ENTRY.txt:248) and T:CTRAPM: trap X'48', into the monitor. A stand-in's
+        CAL is placed first; an interpreted program's is in its memory already."""
+        psd = req.psd if hasattr(req, "psd") else self.place(u, req)
         self.s.S_CLOCK4 = (u, "OVHTIM")                # T:CTRAPM: overhead
         try:
             ctx = self.cal1p11(u, psd)
@@ -482,8 +483,7 @@ class CalProcessor:
         block = ctx.r6 & 0x1FFFF
         if block:                                      # the four-word block
             text = f"{hr:02d}:{mi:02d} {MONTHS[mo]} {da:02d},'{yr:02d}"
-            for i in range(4):
-                s.umem[u][block + i] = text[4 * i:4 * i + 4]
+            self.put_text(u, block, text[:16])
         if self.fetch(u, ctx.r7 - 1) & TMS:            # 'TMS': SR1-SR3
             day = da + CALEN[mo]
             if yr % 4 == 0 and mo >= 3:
@@ -549,21 +549,22 @@ class CalProcessor:
         return self.monitor_dcbs.get(a) or self.dcb_objs.get(u, {}).get(a)
 
     def put_text(self, u, address, text, textc=False):
-        """Store text in the user's memory, four characters a word (TEXTC: count first)."""
+        """Store text in the user's memory, four characters a word, big-endian (TEXTC:
+        the count first). Memory holds 32-bit words only; a character is its Latin-1
+        byte (EBCDIC: an open question, docs/interpreter.md)."""
         if textc:
             text = chr(len(text)) + text
-        for i in range(0, len(text), 4):
-            self.s.umem[u][address + i // 4] = text[i:i + 4].ljust(4, "\0")
+        data = text.encode("latin-1")
+        data += bytes(-len(data) % 4)
+        for i in range(0, len(data), 4):
+            self.s.umem[u][address + i // 4] = int.from_bytes(data[i:i + 4], "big")
 
     def read_text(self, u, address, btd, count):
-        """Bytes from the user's memory: word ``address`` plus ``btd`` bytes."""
-        out, n = [], btd + count
-        for i in range((n + 3) // 4):
-            w = self.s.umem[u].get(address + i, "")
-            if isinstance(w, int):
-                w = "".join(chr((w >> s) & 0xFF) for s in (24, 16, 8, 0))
-            out.append(str(w).ljust(4, "\0"))
-        return "".join(out)[btd:n]
+        """Bytes from the user's memory, as characters: word ``address`` plus ``btd``."""
+        n = btd + count
+        out = b"".join((self.s.umem[u].get(address + i, 0) & 0xFFFFFFFF).to_bytes(4, "big")
+                       for i in range((n + 3) // 4))
+        return out[btd:n].decode("latin-1")
 
     def _params(self, u, words):
         """JHKBIT  IORT.txt:393 - take a parameter word: indirect through memory or a register."""
@@ -884,11 +885,12 @@ class CalProcessor:
         return self.read_text(u, dcb.kad, 1, n).encode(EBCDIC)   # memory holds characters
 
     def write_bytes(self, u, address, btd, data):
-        """RECTRAN into the user's buffer: ``data`` at word ``address`` + ``btd`` bytes."""
-        old = self.read_text(u, address, 0, btd + len(data))
-        new = old[:btd] + data.decode("latin-1")
-        for i in range(0, len(new), 4):
-            self.s.umem[u][address + i // 4] = new[i:i + 4].ljust(4, "\0")
+        """RECTRAN into the user's buffer: ``data`` at word ``address`` + ``btd`` bytes;
+        the other bytes of the first and last words are kept."""
+        mem = self.s.umem[u]
+        for i, c in enumerate(bytes(data)):
+            a, k = address + (btd + i) // 4, 3 - (btd + i) % 4
+            mem[a] = (mem.get(a, 0) & ~(0xFF << 8 * k) & 0xFFFFFFFF) | (c << 8 * k)
 
     def isequb(self, ctx, dcb):
         """ISEQUB  RDF.txt:2443 - a keyed read (KAD) or the next record (after KBUF)."""

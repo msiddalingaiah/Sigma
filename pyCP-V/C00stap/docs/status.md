@@ -17,6 +17,7 @@ of the source contains. Last updated 2026-11-03.
 | [`rdwr.md`](rdwr.md) | User read and write: the parameter decode, device writes (the typewriter), `IOQUEUE`, COOP, IOQ's `QUEUE`/`FRONTEND`/`REQCOM` for a DCB, the wait and the completion codes |
 | [`cal.md`](cal.md) | CAL dispatch: the trap entry, decoding the FPT, the CAL1,1–CAL1,9 tables, the DCB check, monitor overlays (`T:OVERLAY` and `E:AP`), and the returns |
 | [`scheduler.md`](scheduler.md) | `SCHED`: user states and queues, events and the transition tables, priorities, resources, the exit path (quanta, preemption, DO lists), log-on, `T:SE` and the idle loop, and the `T:SS` swap scheduler |
+| [`interpreter.md`](interpreter.md) | A design for a user-mode instruction interpreter: the user's machine state, decoding and effective addresses, the instruction groups from simh's Sigma simulator, traps and the hand-off to the Python monitor, memory, and what programs to run |
 
 Every claim and line reference in them was checked against the `.txt` sources. Anything not
 settled is listed under each document's **Open questions**.
@@ -24,7 +25,7 @@ settled is listed under each document's **Open questions**.
 ## Translated (`python/uts`)
 
 A hand translation on a small machine model with stubbed devices, not an instruction emulator.
-264 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
+301 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
 simplification; the top-level `README.md` has the commands.
 
 | Area | Module | Status |
@@ -62,10 +63,10 @@ python -m uts --disc sys.json.gz ...         keep the discs (monitor and files) 
 
 ## The biggest open points
 
-- **The `INT` instruction.** How `MONINIT` and RECOVER read X'2A' rests on the Sigma definition of
-  `INT` (`recovery.md` §6), taken from the architecture rather than this source. It makes every boot
-  type consistent with GHOST1's `BOOTYPE` table, but predicts that a shutdown (`ZAP`) ends by
-  branching to the tape install. A Sigma 7/9 reference manual would settle it.
+- **The `INT` instruction** (resolved 2026-11-04): simh's Sigma simulator confirms the definition
+  used in `recovery.md` §6 ([`interpreter.md`](interpreter.md) §1). Every boot type is consistent
+  with GHOST1's `BOOTYPE` table. What remains open is its prediction that a shutdown (`ZAP`) ends
+  by branching to the tape install (`recovery.md`, open questions).
 - **No linked `M:MON`.** Without the real load module, the module list, sizes, table addresses and
   SYSGEN values in `python/uts/config.py` are invented, though consistent with what the code assumes.
 - **Assumed values:** the ghost table and `MING` (slots 1-3 KEYIN, ALLOCAT, RBBAT; `MING` = 4
@@ -126,10 +127,15 @@ ways on:
    - more of read/write: device reads (`MSRRED`/`MSROTHR`), the printer (`MSRLP`);
    - `docs/swapper.md` (put off by choice);
    - `docs/ghost1.md` for the whole start-up.
-2. **A Sigma instruction emulator**, which would also need the source assembled (a Meta-Symbol
-   assembler), because there is no `M:MON` binary. **Decided against (2026-11-02): too much work.**
-   The project stays with what can be done without one: documentation, plus hand translation of
-   monitor mechanisms.
+2. **A Sigma instruction emulator** for the whole system, which would also need the monitor
+   assembled. **Decided against (2026-11-02): too much work.** In its place (2026-11-04): a
+   **user-mode interpreter** ([`interpreter.md`](interpreter.md)). It runs real user programs, with
+   every trap and CAL going to the Python monitor. The instruction semantics come from simh's Sigma
+   simulator, test programs from the Python port of AP, and real load modules from Sigma tapes.
+   Phase 1 runs (2026-11-04): the integer core (`python/uts/cpu.py`), a small assembler for
+   test programs, and assembled programs as `GJOB` ghosts whose CALs go to `cal.py`. Next: DCBs
+   in the user's memory (file I/O from machine code), then floating point, CP-V's user trap
+   handling, and real load modules.
 
 For documentation alone, GHOST1 (`docs/ghost1.md`), the file system, and ANALZ are the other
 self-contained pieces worth writing up.

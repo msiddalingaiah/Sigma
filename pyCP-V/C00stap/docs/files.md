@@ -641,8 +641,9 @@ A list that doesn't fit in the FIT is cut short an entry at a time (`FIL3`, `6C2
 A refusal is **`OPENER03`, code X'14'** (`OBSE.txt:212`–`:213`). A refused password also wipes the FIT
 out of the DCB's buffer (`CLRFIB`, `:415`).
 
-`CLM` compares an entry with `NONE` and `ALL` at once. Which branch goes with which word is taken
-from the comments ("NO ACCESS" for `NONE`, "GIVE ACCESS" for `ALL`, `:370`–`:373`).
+`CLM` compares an entry with `NONE` and `ALL` at once: CC3/CC4 against the first word, CC1/CC2
+against the second (simh, `sigma_cpu.c:1215`–`:1222`). That matches the comments ("NO ACCESS" for
+`NONE`, "GIVE ACCESS" for `ALL`, `:370`–`:373`).
 
 ### Other rules (`OPNF.txt`)
 
@@ -766,9 +767,10 @@ Digits come after letters, and specials such as `:` before them.
 
 - **Unidentified entry bytes**: two in each directory entry, and the last two of a master-index
   entry.
-- **`INT` again**: the consecutive control-word fields are as FIX1, `SEQPOS` and the read code
-  take them apart with `INT` ([`recovery.md`](recovery.md) §6). The writer builds the same layout
-  with ordinary shifts (`SLD,12 16`, `WRTF.txt:458`), which supports the assumption.
+- **`INT` again** (resolved): the consecutive control-word fields are as FIX1, `SEQPOS` and the
+  read code take them apart with `INT`, whose definition simh's simulator confirms
+  ([`interpreter.md`](interpreter.md) §1). The writer builds the same layout with ordinary
+  shifts (`SLD,12 16`, `WRTF.txt:458`).
 - **`CHKCON` against the writer and the cut.** As read, FIX1 rejects three layouts that the
   monitor's own code produces. Random testing of the translation found only these:
   - **An unblocked segment at word 3.** `CHKCON` starts each granule as if a backspace control
@@ -808,8 +810,9 @@ Digits come after letters, and specials such as `:` before them.
   is the case it exists for. Without the backup, such a record can't be found once the pyramid is
   built; random testing found this in the earlier translation.
 - **OPEN's checks**:
-  - **`CLM` and the two words.** Which of `CLM`'s condition codes goes with `NONE` and which
-    with `ALL` is taken from the comments (`OBSE.txt:370`–`:373`).
+  - **`CLM` and the two words** (resolved): `CLM` sets CC3/CC4 from the first word and CC1/CC2
+    from the second (simh, `sigma_cpu.c:1215`–`:1222`), so `NONE` and `ALL` go as the comments
+    say (`OBSE.txt:370`–`:373`).
   - **A file already open.** Whether the CFU-scan path (`SCANCFU3D`, `CHKSHARE`, `OPNF.txt:623`,
     `:962`) reaches `SECCHK` wasn't traced. The translation checks every open.
   - **A ghost's privilege** isn't set anywhere read so far. The translation gives ghosts 0.

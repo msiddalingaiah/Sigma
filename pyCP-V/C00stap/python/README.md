@@ -50,6 +50,8 @@ python -m pytest
 | Granule allocation (GRAN.txt `GBG`/`RBG`/`CHKTHRSH`/`GNBG`/`RNBG`, GRANSUB.txt `GETBIT`/`CMNGNG`/`CMNRG`, ALLYCAT.txt `ADJBUFS`, HGPSTK.txt, SCHED.txt `STUQFAC`) | `files.Hgp`, `files.Stack`, `files.Disc`, `ghosts.allocat` | One device's bit map (the last get remembered, runs from the end, dual allocations logged) and the pack stack (128 slots, levels 40/80, thresholds 16/100). Gets pop it and releases push it; a threshold wakes the ALLOCAT ghost, whose fill or emptying stays pending until `E:UQFAC` and `STUQFAC`. The scheduler's buffer 1 is the stack |
 | Random files (GRAND.txt, WRTF.txt `RWRAND`, CLS.txt `RELRAND`) | `files.RandomFile`, `cal.rwrand` | The FIT's own granule, a contiguous run from the end of the map, reads and writes by granule number (the key word moves on; X'42' past the end, X'44' cut short), release of the run. `cpv`: `open(..., org="random", size=n)`, `read(gran, size)`, `write(data, gran)` |
 | OPEN's checks (OBSE.txt `CHKFLACN`/`SECCHK`, OPNF.txt `OP1`/`OP71`, CLS.txt FIT build and `CLSFIL2M`) | `files.secchk`, `files.protection`, `files.Opener`, `FileSystem.open(who=...)` | The FIT's password (X'03') and account lists (write X'06', read X'05', execute X'14' with the vehicle X'15'), written in CLOSE's order and cut to its room; `SECCHK`'s rules, X'14' on refusal; creating only in one's own account below X'C0'; no release of another's file opened IN below X'C0'. A ghost's account is its `GJOB` account, its privilege 0. Host-side tools (`--file`) aren't checked |
+| A user-mode CPU (simh's `sigma_cpu.c`, X11-style license) | `cpu` | Slave-mode instructions: loads/stores, arithmetic with CC and `TR_FIX`, logical, compare, shifts, `CVA`/`CVS`, the stack, `EXU`/branches/`BAL`, `INT`, `ANLZ`, `LAS`, byte strings. Traps as on the machine (privileged X'40', unimplemented X'41', the CALs X'48'–X'4B'). No floating point, decimal or `SF` yet. See `docs/interpreter.md` |
+| Interpreted programs (**not a translation**) | `interp`, `asm` | An absolute image in a keyed file, run as a ghost a slice at a time; its CAL1s go to `cal.py` (`CalAt`), other traps end it with a message. `asm` is a small assembler for test programs; `--file host.s=NAME` stores one |
 | Python programs as ghost jobs (**not a translation**) | `pyprog` | Programs stored as EDIT-style keyed files, a loader stand-in for the ghost's first step, a thread per program bridged so that each service call is a yield, and the `cpv` library (`type`, `message`, `keyin`, `time`, `wait`, `compute`, keyed files). `--file` imports them. Every departure from CP-V is listed in `docs/python-programs.md` |
 | Disc images (**not a translation**) | `image` | `--disc PATH` saves the swap disc (sectors and the attached root variables) and the public disc (granules, the HGP bit map and the stack, account directory address) as gzipped JSON when a run ends, and loads them when the next starts. See `docs/python-programs.md`, "Disc images" |
 | Pack swappers, `SWAPPER` | — | Not translated: swaps are stand-ins that complete at once. |
@@ -88,8 +90,8 @@ the files outlive a recovery or reboot, and `--disc` keeps it between runs.
   zeroes the tail.
 - X'2A' holds what the source puts there: the bootstraps' first instructions (`LI,1 n`,
   `RD,0 0`), −1 for the F option, and `RCVCTL`'s recovery flags. `MONINIT` decides with
-  `machine.interpret`, which follows the Sigma `INT` definition as assumed in
-  `docs/recovery.md` §6. `F` follows its comment (see the open questions in `docs/boot.md`).
+  `machine.interpret`, which follows the Sigma `INT` definition in `docs/recovery.md` §6
+  (confirmed by simh's simulator, `docs/interpreter.md` §1). `F` follows its comment (see the open questions in `docs/boot.md`).
 - Disc addresses are relative sector numbers: `DSCCVT`/`SEEKCVT` are identities and the
   cylinder fields (`PB:C#`, `PB:DC#`) stay 0. Only a RAD swapper is handled (`S:DP` = 0),
   with one swapper.

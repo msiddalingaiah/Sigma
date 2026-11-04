@@ -180,8 +180,9 @@ When `MONINIT` then does `INT,11 X'2A'` / `BCR,15 REQDELT` ("NO RT OR DATE/TIME 
 for all three recovery values. On a normal disc or tape boot, X'2A' holds the bootstrap's first instruction
 (`RD,0 0` or `LI,1 n`), which has a non-zero opcode nibble. So only a recovery skips the dialog.
 
-**Assuming the Sigma `INT` definition** (CC ← bits 0–3, R ← bits 4–15, Ru1 ← bits 16–31; for an
-odd R such as R11 or R15, R ends up with bits 16–31), the low halfword then tells the boots apart:
+**By the Sigma `INT` definition** (CC ← bits 0–3, R ← bits 4–15, Ru1 ← bits 16–31; for an odd R
+such as R11 or R15, R ends up with bits 16–31; confirmed by simh's Sigma simulator, `sigma_cpu.c:870`–`:878` ([`interpreter.md`](interpreter.md) §1)), the low
+halfword then tells the boots apart:
 
 | X'2A' holds | Low halfword | `MONINIT` |
 |---|---|---|
@@ -208,9 +209,8 @@ whether to initialise ALLYCAT's data or to read the recovery buffer back from `R
 
 ## Open questions
 
-- **The `INT` assumption** in §6 comes from the Sigma instruction definition, not from this source.
-  It makes the disc, tape, F and recovery cases all consistent, but needs confirming against a Sigma
-  reference manual.
+- **The `INT` definition** in §6 (resolved): simh's Sigma simulator, `sigma_cpu.c:870`–`:878` ([`interpreter.md`](interpreter.md) §1) does exactly this. It makes the
+  disc, tape, F and recovery cases all consistent.
 - **The shutdown code and `TBOOT:`.** After code X'404', X'2A' is X'00040404'. Under the `INT`
   assumption, `MONINIT` goes straight to `REQDELT` with R11 = X'0404', and `BDR,11 TBOOT:` would then
   branch to the tape install. Whether a shutdown really ends in a tape boot, or whether the `INT`

@@ -233,6 +233,13 @@ class Cal1:
 
 
 @dataclass
+class CalAt:
+    """A CAL1 already in the user's memory at ``psd`` (an interpreted program,
+    interp.py): trap X'48' with that PSD. Returns as Cal1 does."""
+    psd: int
+
+
+@dataclass
 class Call:
     """A CAL into monitor code outside SCHED, run as ``fn(sched, user)``; then the
     user goes back through the exit path (TRAPEXIT)."""
@@ -1713,7 +1720,7 @@ class Scheduler:
             if not stack:
                 return self.t_delus(u)                 # the program ended: it logs off
             return self._cal().finish(u, e.value)      # the monitor's CAL processing ended
-        if isinstance(req, Cal1):
+        if isinstance(req, (Cal1, CalAt)):
             stack.append(self._cal().trap(u, req))     # trap X'48': into the monitor
             return ("RUN", u)
         if isinstance(req, Compute):

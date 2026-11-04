@@ -146,7 +146,7 @@ def test_m_wait_sleeps_for_its_limit():
 def test_m_time_block_and_tms():
     def body(s, u, out):
         yield Cal1(8, Fpt(0x10, word0=C.TMS | 0xB000))
-        out.append(("".join(s.umem[u][0xB000 + i] for i in range(4)), list(s.uregs[u][8:11])))
+        out.append((s.cal.read_text(u, 0xB000, 0, 16), list(s.uregs[u][8:11])))
     _, out = run(body)
     (text, (sr1, sr2, sr3)), = out
     assert text == "13:45 JUN 15,'76"

@@ -121,6 +121,17 @@ A write before the end of the file cuts the file at that point first, as CP-V do
 | A reserved slot that logs off | (T:DELUS not read) | Ghosts in reserved slots (below `MING`, such as KEYIN) leave the null queue when they log off, since `ADDGJOB` links them in again when they next start | Found as a bug: KEYIN's user was being reused by the next ghost |
 | Stopping a program | The monitor deletes the user; its pages go away | `T:DELUS` closes the user's generators, and the bridge tells the program's thread to stop (`Killed`) | Threads must be stopped explicitly |
 
+## Machine code instead
+
+A ghost can also be **real Sigma machine code**, run by the user-mode interpreter
+([`interpreter.md`](interpreter.md)). An assembly source given to `--file` (`.s` or `.asm`) is
+assembled by `python/uts/asm.py` and stored as an absolute image. `GJOB NAME` then runs it
+instruction by instruction, and its `CAL1`s go to the same translated monitor:
+
+```
+python -m uts --replies 06/15/76 13:45 N --file hello.s=HELLO --keyins "GJOB HELLO"
+```
+
 ## Running one
 
 ```

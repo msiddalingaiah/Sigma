@@ -137,7 +137,15 @@ def import_files(mon, specs):
         host, _, target = spec.partition("=")
         name, _, account = (target or host.rsplit("/", 1)[-1].split(".")[0].upper()).partition(".")
         with open(host, encoding="utf-8") as f:
-            pyprog.store_source(mon.sched.cal.fs, name[:7].upper(), account or ":SYS", f.read())
+            text = f.read()
+        if host.lower().endswith((".s", ".asm")):       # assembly: an absolute image
+            from .asm import assemble
+            from .interp import store_image
+            words, start = assemble(text)
+            store_image(mon.sched.cal.fs, name[:7].upper(), account or ":SYS", words,
+                        start if start is not None else min(words))
+        else:
+            pyprog.store_source(mon.sched.cal.fs, name[:7].upper(), account or ":SYS", text)
 
 
 def operator(m, mon, sysgen=None, keyins=(), lp_faults=None, prints=(), files=()):

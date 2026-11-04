@@ -66,6 +66,14 @@ def loader(sched):
 def program(sched, u, name, account):
     """The ghost: load, then run main(cpv) in a thread, then M:EXIT or M:XXX."""
     cal = sched.cal
+    from . import interp
+    image = interp.read_image(cal.fs, name, account)
+    if image is not None:                              # an absolute image: interpreted
+        cal.account[u] = account
+        cal.running[u] = (name, account)
+        yield from interp.program(sched, u, *image, name=name,
+                                  type_line=lambda text: _type(cal, u, text))
+        return
     try:
         source = read_source(cal.fs, name, account)   # the step's load (a stand-in)
         code = compile(source, f"{name}.{account}", "exec")
@@ -203,7 +211,7 @@ class Cpv:
     def time(self):
         """M:TIME: 'HH:MM MON DD,'YY'."""
         self._call(Cal1(8, Fpt(0x10, word0=self.MSG)))
-        return "".join(str(self.s.umem[self.u].get(self.MSG + i, "")) for i in range(4))
+        return self.cal.read_text(self.u, self.MSG, 0, 16)
 
     def compute(self, n):
         """Charge n clock units of CPU time (no CAL: the program 'computes')."""

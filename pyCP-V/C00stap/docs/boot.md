@@ -60,8 +60,8 @@ These codes are not values stored in X'2A'. They are indexes into GHOST1's `BOOT
 `MONINIT` reads the word with `INT`. Its condition code (bits 0–3) is zero only for the recovery
 values, and those skip all operator prompts. The low halfword then separates the tape boot (*n*
 root records, ≥ 4) from the disc boot (0). `BITOTM`, `CCI0` and `SWAPINIT` test for a negative value
-(boot under files). Details, and the assumption about `INT` this relies on, are in
-[`recovery.md`](recovery.md) §6.
+(boot under files). Details, and the `INT` definition this relies on (confirmed by simh's
+simulator, [`interpreter.md`](interpreter.md) §1), are in [`recovery.md`](recovery.md) §6.
 
 ### Boot flags: `BOOTFLG` (byte 0 of X'27')
 
@@ -374,9 +374,9 @@ sector 0 and branching to `BOOTENT` with X'2A' set to 0 (or X'00010000' for oper
   (`BOOTSUBR.txt:1692`).
 - **Code at location 0 in `DBOOT`:** a small clock/console loop (`START`, `CLOCK`, `INTR` over
   `COCBUF`) is assembled at `LOC 0` after the bootstrap. Its purpose isn't clear yet.
-- **Contents of X'2A' during boot:** mostly resolved by GHOST1's `BOOTYPE` table (see the boot-type
-  table above). What remains is confirming the `INT` instruction's definition, which is taken from the
-  Sigma architecture rather than this source (`recovery.md` §6).
+- **Contents of X'2A' during boot** (resolved): GHOST1's `BOOTYPE` table (see the boot-type table
+  above), and the `INT` definition, which simh's simulator confirms
+  ([`interpreter.md`](interpreter.md) §1).
 - **The `F` test:** in `MONINIT`, `CI,5 8` / `BANZ %+3` skips the store of −1 when the AND with
   X'08' is non-zero. That reads as if −1 is stored when F is *not* chosen, which contradicts the comment.
   The CC2 meaning of `CI` needs confirming.
