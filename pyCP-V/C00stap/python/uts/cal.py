@@ -169,6 +169,118 @@ class CalAbort(Exception):
         self.code = code
 
 
+# --- a DCB in the user's memory (docs/dcb.md) -------------------------------------------
+
+FUNCTIONS = {1: "IN", 2: "OUT", 3: "INOUT", 4: "UPDATE", 8: "OUTIN"}   # GETFUN: bits 11-14
+CODES = {v: k for k, v in FUNCTIONS.items()}
+
+# field: (word, shift, mask) in place (docs/dcb.md, "The words")
+DCB_FIELDS = {
+    "open": (0, 21, 1),                        # FCD  X'00200000'
+    "egv": (0, 12, 1),                         # X'1000'
+    "usr": (0, 14, 1),                         # X'4000'
+    "btd": (0, 4, 3),                          # X'30'
+    "asn": (0, 0, 0xF),
+    "tyc": (2, 17, 0x7F),                      # Y00FE
+    "buf": (2, 0, 0x1FFFF),
+    "rsz": (3, 17, 0x7FFF),
+    "ars": (4, 17, 0x7FFF),
+    "org": (5, 0, 0x30),
+    "keym": (12, 24, 0xFF),
+    "rstore": (20, 0, 0xFFFFFFFF),
+}
+PROT_CODES = (0x03, 0x05, 0x06, 0x14, 0x15)
+
+
+class MemDcb:
+    """A DCB in a user's memory (an interpreted program's own): its fields read and
+    written in place (DCB_FIELDS, FUN, WAT), its name, account and protection from its
+    VLPs. What the model keeps as Python objects (the CFU, a consecutive file's
+    position, the request's key) is kept beside it, as in a sched.Dcb."""
+
+    _SIDE = Dcb()                                      # defaults for the rest
+
+    def __init__(self, cal, u, address):
+        object.__setattr__(self, "_cal", cal)
+        object.__setattr__(self, "_u", u)
+        object.__setattr__(self, "address", address)
+        object.__setattr__(self, "_side", {})
+
+    def _w(self, i):
+        return self._cal.s.umem[self._u].get(self.address + i, 0) & 0xFFFFFFFF
+
+    def _setw(self, i, v):
+        self._cal.s.umem[self._u][self.address + i] = v & 0xFFFFFFFF
+
+    def __getattr__(self, name):
+        if name in DCB_FIELDS:
+            w, sh, m = DCB_FIELDS[name]
+            v = (self._w(w) >> sh) & m
+            return bool(v) if name in ("open", "egv", "usr") else v
+        if name == "fun":
+            return FUNCTIONS.get((self._w(1) >> 17) & 0xF, "IN")
+        if name == "wat":
+            return bool(self._w(0) & 0x00100400)
+        if name == "name":
+            return f"DCB X'{self.address:X}'"
+        if name == "fname":
+            return self._text(0x01)
+        if name == "account":
+            return self._text(0x02, count=False)
+        if name == "prot":
+            v = self._vlps()
+            return {c: self._ebcdic(c, v[c]) for c in PROT_CODES if c in v}
+        side = self._side
+        if name in side:
+            return side[name]
+        return getattr(self._SIDE, name)
+
+    def __setattr__(self, name, value):
+        if name in DCB_FIELDS:
+            w, sh, m = DCB_FIELDS[name]
+            self._setw(w, (self._w(w) & ~(m << sh)) | ((int(value) & m) << sh))
+        elif name == "fun":
+            self._setw(1, (self._w(1) & ~(0xF << 17)) | (CODES.get(value, 1) << 17))
+        elif name == "wat":
+            self._setw(0, (self._w(0) | 0x00100400) if value else (self._w(0) & ~0x00100400))
+        else:
+            self._side[name] = value
+
+    def _vlps(self):
+        """The VLP list at FLP: {code: [data words]} (the words used, else reserved)."""
+        mem, out = self._cal.s.umem[self._u], {}
+        a = self._w(6) & 0x1FFFF
+        for _ in range(32):
+            if not a:
+                break
+            cw = mem.get(a, 0) & 0xFFFFFFFF
+            code, last, used, reserved = cw >> 24, (cw >> 16) & 0xFF, (cw >> 8) & 0xFF, cw & 0xFF
+            n = used or reserved
+            out[code] = [mem.get(a + 1 + i, 0) & 0xFFFFFFFF for i in range(n)]
+            if last:
+                break
+            a += 1 + reserved
+        return out
+
+    @staticmethod
+    def _ebcdic(code, words):
+        """Memory text is Latin-1 here, the file system's protection EBCDIC (files.py):
+        a protection VLP's characters are converted (the vehicle's count byte kept)."""
+        data = b"".join(w.to_bytes(4, "big") for w in words)
+        head, rest = (data[:1], data[1:]) if code == 0x15 else (b"", data)
+        data = head + rest.decode("latin-1").encode("cp037")
+        return [int.from_bytes(data[i:i + 4], "big") for i in range(0, len(data), 4)]
+
+    def _text(self, code, count=True):
+        words = self._vlps().get(code)
+        if not words:
+            return self._side.get("account", "") if code == 0x02 else ""
+        data = b"".join(w.to_bytes(4, "big") for w in words)
+        if count:
+            data = data[1:1 + data[0]]
+        return data.decode("latin-1").rstrip(" \0")
+
+
 class CalProcessor:
     """The CAL1 trap and dispatch for a Scheduler."""
 
@@ -180,6 +292,7 @@ class CalProcessor:
         self.dcbs = {}                                 # J:DCBLINK per user: {name: address}
         self.prompt = {}                               # JB:PROMPT per user
         self.priv = {}                                 # JB:PRIV per user
+        self.mem_dcbs = {}                             # DCBs in users' memory (MemDcb)
         self.account = {}                              # J:JIT's ACCN per user (:SYS if none)
         self.running = {}                              # M:XX: (name, account) of the program
         self.ended = {}                                # user -> how a CAL ended them
@@ -545,8 +658,22 @@ class CalProcessor:
         return dcb
 
     def dcb_at(self, u, address):
+        """A DCB: the monitor's, one registered by a stand-in (cpv), or one in the user's
+        memory (an interpreted program's: MemDcb, docs/dcb.md)."""
         a = address & 0x1FFFF
-        return self.monitor_dcbs.get(a) or self.dcb_objs.get(u, {}).get(a)
+        dcb = self.monitor_dcbs.get(a) or self.dcb_objs.get(u, {}).get(a)
+        if dcb is not None or a < 0x10:
+            return dcb
+        mem_dcbs = self.mem_dcbs.setdefault(u, {})
+        if a not in mem_dcbs:
+            w0 = self.s.umem[u].get(a, 0)
+            if not w0:
+                return None                            # nothing there
+            asn = w0 & 0xF
+            if asn != 1:
+                raise NotTranslated(f"DCB X'{a:X}' in user memory with ASN {asn} (only files)")
+            mem_dcbs[a] = MemDcb(self, u, a)
+        return mem_dcbs[a]
 
     def put_text(self, u, address, text, textc=False):
         """Store text in the user's memory, four characters a word, big-endian (TEXTC:

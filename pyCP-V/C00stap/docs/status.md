@@ -17,6 +17,7 @@ of the source contains. Last updated 2026-11-03.
 | [`rdwr.md`](rdwr.md) | User read and write: the parameter decode, device writes (the typewriter), `IOQUEUE`, COOP, IOQ's `QUEUE`/`FRONTEND`/`REQCOM` for a DCB, the wait and the completion codes |
 | [`cal.md`](cal.md) | CAL dispatch: the trap entry, decoding the FPT, the CAL1,1–CAL1,9 tables, the DCB check, monitor overlays (`T:OVERLAY` and `E:AP`), and the returns |
 | [`scheduler.md`](scheduler.md) | `SCHED`: user states and queues, events and the transition tables, priorities, resources, the exit path (quanta, preemption, DO lists), log-on, `T:SE` and the idle loop, and the `T:SS` swap scheduler |
+| [`dcb.md`](dcb.md) | The DCB in the user's memory: its words and bits (from the system DCB procedure and how the code tests each field), the VLP list, and how the translation reads and writes it |
 | [`interpreter.md`](interpreter.md) | A design for a user-mode instruction interpreter: the user's machine state, decoding and effective addresses, the instruction groups from simh's Sigma simulator, traps and the hand-off to the Python monitor, memory, and what programs to run |
 
 Every claim and line reference in them was checked against the `.txt` sources. Anything not
@@ -25,7 +26,7 @@ settled is listed under each document's **Open questions**.
 ## Translated (`python/uts`)
 
 A hand translation on a small machine model with stubbed devices, not an instruction emulator.
-301 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
+304 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
 simplification; the top-level `README.md` has the commands.
 
 | Area | Module | Status |
@@ -133,9 +134,9 @@ ways on:
    every trap and CAL going to the Python monitor. The instruction semantics come from simh's Sigma
    simulator, test programs from the Python port of AP, and real load modules from Sigma tapes.
    Phase 1 runs (2026-11-04): the integer core (`python/uts/cpu.py`), a small assembler for
-   test programs, and assembled programs as `GJOB` ghosts whose CALs go to `cal.py`. Next: DCBs
-   in the user's memory (file I/O from machine code), then floating point, CP-V's user trap
-   handling, and real load modules.
+   test programs, and assembled programs as `GJOB` ghosts whose CALs go to `cal.py`. Their own
+   DCBs in memory work for file I/O ([`dcb.md`](dcb.md)). Next: CP-V's user trap handling,
+   floating point, and real load modules.
 
 For documentation alone, GHOST1 (`docs/ghost1.md`), the file system, and ANALZ are the other
 self-contained pieces worth writing up.

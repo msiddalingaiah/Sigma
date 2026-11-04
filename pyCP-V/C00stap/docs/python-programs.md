@@ -132,6 +132,15 @@ instruction by instruction, and its `CAL1`s go to the same translated monitor:
 python -m uts --replies 06/15/76 13:45 N --file hello.s=HELLO --keyins "GJOB HELLO"
 ```
 
+`examples/guests.s` is a visitors' book in machine code. It asks the operator's name with
+`M:KEYIN` and appends it to a consecutive file through its own DCB ([`dcb.md`](dcb.md)), then
+types every name so far. With a disc image the book grows from run to run:
+
+```
+python -m uts --disc book.json.gz --replies 06/15/76 13:45 N --file examples/guests.s=GUESTS --keyins "GJOB GUESTS" ADA
+python -m uts --disc book.json.gz --replies 06/16/76 09:00 N --keyins "GJOB GUESTS" GRACE
+```
+
 ## Running one
 
 ```

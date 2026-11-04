@@ -201,9 +201,9 @@ runs about 10 million instructions in each 10 simulated seconds of a key-in sess
 **Limits of phase 1:**
 - **Where programs go.** They belong at X'D000' and up: the `pyprog` stand-ins use X'A000'–X'C1FF'
   for their FPT, CAL and buffers, and an aborting program's message and `CAL1,9` go there too.
-- **No file I/O yet.** A file CAL needs a DCB, and the model's DCBs are Python objects
-  registered at an address (`cal.add_dcb`), not DCBs laid out in the user's memory. Decoding
-  DCBs from memory is the next step.
+- **File I/O** works with the program's own DCBs, read and written in place in its memory
+  ([`dcb.md`](dcb.md)). An image's DCB table, its `F:`/`M:` labels, goes in the user's `J:DCBLINK`.
+  Device DCBs in memory aren't handled yet.
 - **`EXU` past 32 levels** traps as a non-existent instruction. In simh it stops the simulator.
 - **No pre-checks.** The readability checks before a branch or a string move (§7, no protection)
   aren't made.

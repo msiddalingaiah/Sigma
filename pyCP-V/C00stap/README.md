@@ -186,6 +186,9 @@ python -m uts --replies 06/15/76 13:45 N --file examples/hello.py=HELLO --keyins
 # from it with HELLO and its files still there
 python -m uts --disc sys.json.gz --replies 06/15/76 13:45 N --file examples/hello.py=HELLO --keyins "GJOB HELLO"
 python -m uts --disc sys.json.gz --replies 06/16/76 08:00 N --keyins "GJOB HELLO"
+
+# Sigma machine code (the user-mode interpreter): a visitors' book kept in a file
+python -m uts --disc book.json.gz --replies 06/15/76 13:45 N --file examples/guests.s=GUESTS --keyins "GJOB GUESTS" ADA
 ```
 
 ```powershell

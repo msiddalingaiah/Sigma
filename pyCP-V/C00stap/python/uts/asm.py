@@ -15,6 +15,9 @@ procedures, no relocation, no literals. Real programs come from load modules lat
     label   EQU     expr
             END     expr            the start address
 
+A label beginning F: or M: names a DCB: it goes in the image's DCB table, which the
+loader stand-in puts in the user's J:DCBLINK (docs/dcb.md).
+
 An expression is terms joined by + and -: a decimal number, X'hex', a label, BA(expr)
 (a byte address: expr * 4), or *, the current word address. A comment starts with *
 in column 1, or follows the operand field after a blank.
@@ -44,6 +47,7 @@ class Assembler:
     def __init__(self, text):
         self.lines = [l.rstrip() for l in text.splitlines()]
         self.sym = {}
+        self.dcbs = {}                                 # F:/M: labels: the DCB table
 
     def value(self, expr, here):
         total, sign, pos = 0, 1, 0
@@ -81,6 +85,8 @@ class Assembler:
                 base, _, rfield = cmd.partition(",")
                 if label and base != "EQU":
                     self.sym[label] = loc
+                    if label[:2] in ("F:", "M:"):
+                        self.dcbs[label] = loc
                 if base == "EQU":
                     self.sym[label] = self.value(opnd, loc)
                 elif base == "ORG":
@@ -129,6 +135,11 @@ class Assembler:
         return word | (0x80000000 if ind else 0)
 
 
-def assemble(text):
-    """Assemble ``text``; returns (words {word address: value}, start address)."""
-    return Assembler(text).assemble()
+def assemble(text, dcbs=None):
+    """Assemble ``text``; returns (words {word address: value}, start address). With a
+    ``dcbs`` dict, the DCB table (name: address) is put in it too."""
+    a = Assembler(text)
+    result = a.assemble()
+    if dcbs is not None:
+        dcbs.update(a.dcbs)
+    return result
