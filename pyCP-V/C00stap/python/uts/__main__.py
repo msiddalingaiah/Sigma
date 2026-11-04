@@ -1,22 +1,26 @@
 """Run a boot: python -m uts [options]
 
 Examples:
-    python -m uts --replies 06/15/76 13:45 N           # disc boot (installs a disc first)
+    python -m uts --replies 06/15/76 13:45 N               # disc boot (installs a disc first)
     python -m uts --tape --replies IP 06/15/76 13:45 YES -
-    python -m uts -i                                   # answer the prompts yourself
+    python -m uts -i                                       # answer the prompts yourself
+    python -m uts --disc sys.json.gz --tape --replies ...  # install onto a disc image
+    python -m uts --disc sys.json.gz --replies ...         # disc-boot it in a later run
 """
 
 import argparse
+import os
 
 from .bootsubr import bootent, dboot, mtboot
 from .config import Sysgen
 from .devices import CardReader, Console, ConsoleExhausted, DeviceError, Disc, LinePrinter
+from .files import Disc as FilesDisc
 from .initial import initial
 from .machine import BOOT_NAMES, BOOTTYPE, LOADDEV, Machine, MachineType, boot_type
 from .monitor import Halted, Monitor, NotTranslated, SystemUp
 from .reconfig import ndd_address
 from .sched import demo as sched_demo
-from . import keyin, pyprog, recovery
+from . import image, keyin, pyprog, recovery
 from .writemon import WriteMonError, writemon
 
 MODELS = {"sigma7": MachineType.SIGMA7, "sigma9": MachineType.SIGMA9, "x560": MachineType.X560}
@@ -24,7 +28,7 @@ INSTALL_REPLIES = ["", "06/15/76", "13:45"]   # options (default T), date, time
 
 
 def make_machine(model, memory_k, sysgen, console, disc=None, tape=None, cards=(),
-                 extra_devices=None):
+                 extra_devices=None, public_disc=None):
     """Wire the stubs to the addresses the SYSGEN'd DCT gives them."""
     m = Machine(model=model, memory_words=memory_k * 1024, console=console,
                 printer=LinePrinter(), tape=tape, card_reader=CardReader(cards))
@@ -34,6 +38,7 @@ def make_machine(model, memory_k, sysgen, console, disc=None, tape=None, cards=(
         m.devices[ndd_address(entry.ndd, model)] = by_type[entry.type]
     m.devices.update(extra_devices or {})
     m.swap_disc = disc
+    m.public_disc = public_disc
     return m
 
 
@@ -49,7 +54,7 @@ def _run(m, mon, start):
 
 def install(model=MachineType.SIGMA9, memory_k=128, replies=None, interactive=False,
             sense_switches=(), sysgen=None, echo=False, deck=(), cards=(), disc=None,
-            extra_devices=None, root=None):
+            extra_devices=None, root=None, public_disc=None):
     """Tape-boot a system tape that WRITEMON writes from ``sysgen`` and ``deck``.
     Returns (machine, monitor, outcome)."""
     sysgen = sysgen or Sysgen()
@@ -57,7 +62,7 @@ def install(model=MachineType.SIGMA9, memory_k=128, replies=None, interactive=Fa
         replies = [] if interactive else INSTALL_REPLIES[:1] + [""] * sysgen.realtime + INSTALL_REPLIES[1:]
     tape = writemon(sysgen, deck, root)
     m = make_machine(model, memory_k, sysgen, Console(replies, interactive, echo), disc, tape,
-                     cards, extra_devices)
+                     cards, extra_devices, public_disc)
     m.sense_switches = set(sense_switches)
     m.mem[LOADDEV] = ndd_address(sysgen.dct[4].ndd, model)
     mon = Monitor()
@@ -65,16 +70,18 @@ def install(model=MachineType.SIGMA9, memory_k=128, replies=None, interactive=Fa
 
 
 def boot(model=MachineType.SIGMA9, memory_k=128, replies=(), interactive=False,
-         sense_switches=(), sysgen=None, echo=False, disc=None):
+         sense_switches=(), sysgen=None, echo=False, disc=None, public_disc=None):
     """Disc-boot a system. Without ``disc``, one is installed first from tape with
-    default answers. Returns (machine, monitor, outcome)."""
+    default answers. ``public_disc`` holds the files (a new one if None).
+    Returns (machine, monitor, outcome)."""
     sysgen = sysgen or Sysgen()
     if disc is None:
-        im, _, outcome = install(model, memory_k, sysgen=sysgen)
+        im, _, outcome = install(model, memory_k, sysgen=sysgen, public_disc=public_disc)
         if outcome != "up":
             raise RuntimeError(f"install failed: {outcome}")
         disc = im.swap_disc
-    m = make_machine(model, memory_k, sysgen, Console(replies, interactive, echo), disc)
+    m = make_machine(model, memory_k, sysgen, Console(replies, interactive, echo), disc,
+                     public_disc=public_disc)
     m.sense_switches = set(sense_switches)
     m.mem[LOADDEV] = ndd_address(sysgen.dct[sysgen.MB_SDI].ndd, model)
     mon = Monitor()
@@ -213,6 +220,9 @@ def main(argv=None):
     p.add_argument("--realtime", action="store_true", help="SYSGEN as a real-time system")
     p.add_argument("--version", default="C00 ", help="WRITEMON version (4 characters)")
     p.add_argument("--tape", action="store_true", help="tape boot: install from a WRITEMON tape")
+    p.add_argument("--disc", metavar="PATH",
+                   help="disc image: load the swap and public discs from PATH (if it exists)"
+                        " and save them there when the run ends")
     p.add_argument("--reboot", action="store_true",
                    help="after --tape comes up, disc-boot from the disc it wrote")
     p.add_argument("--crash", metavar="CC[-SS]",
@@ -247,23 +257,45 @@ def main(argv=None):
 
     sysgen = Sysgen(realtime=args.realtime, version=args.version.ljust(4)[:4])
     model = MODELS[args.machine]
+    swap = public = None
+    if args.disc and os.path.exists(args.disc):
+        swap, public = image.load(args.disc)
+        print(f"(disc image {args.disc}: {len(swap.sectors)} sectors, "
+              f"{len(public.g)} granules in use)")
+    elif args.disc:
+        public = FilesDisc(2048)
+    machines = []
+    try:
+        run(args, sysgen, model, swap, public, machines)
+    finally:
+        if args.disc and machines:
+            m = machines[-1]
+            image.save(args.disc, m.swap_disc, m.public_disc or public)
+            print(f"\n(disc image saved to {args.disc})")
+
+
+def run(args, sysgen, model, swap, public, machines):
+    """The boot and what follows it; each machine used goes onto ``machines``."""
     try:
         deck = read_deck(args.patches) if args.patches else ()
         if args.tape:
             m, mon, outcome = install(model, args.memory, list(args.replies), args.interactive,
-                                      args.sense, sysgen, deck=deck)
+                                      args.sense, sysgen, deck=deck, disc=swap,
+                                      public_disc=public)
         else:
             m, mon, outcome = boot(model, args.memory, args.replies, args.interactive,
-                                   args.sense, sysgen)
+                                   args.sense, sysgen, disc=swap, public_disc=public)
     except WriteMonError as e:
         print(f"WRITEMON: {e}\n*****  DEF PROCESSOR ABORTED  *****")
         return
+    machines.append(m)
     report(m, mon, outcome, args)
     if args.tape and args.reboot and outcome == "up":
         print("\n=== disc boot from the installed swap disc ===")
         rest = list(m.console.replies)
         m, mon, outcome = boot(model, args.memory, rest, args.interactive, args.sense,
-                               sysgen, disc=m.swap_disc)
+                               sysgen, disc=m.swap_disc, public_disc=m.public_disc)
+        machines.append(m)
         report(m, mon, outcome, args)
     if (args.crash or args.oprec) and outcome == "up":
         m.console.transcript.clear()

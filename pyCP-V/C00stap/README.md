@@ -25,7 +25,7 @@ Open **Start → Anaconda (miniconda3) → Anaconda PowerShell Prompt**, then:
 
 ```powershell
 conda activate p3.13
-cd C:\Users\madhu\Documents\EE\Sigma\C00stap\python
+cd C:\Users\madhu\Documents\github\Sigma\pyCP-V\C00stap\python
 ```
 
 **Option B: an ordinary PowerShell window.**
@@ -39,7 +39,7 @@ Close the window and open a new one. From then on, every PowerShell window can d
 
 ```powershell
 conda activate p3.13
-cd C:\Users\madhu\Documents\EE\Sigma\C00stap\python
+cd C:\Users\madhu\Documents\github\Sigma\pyCP-V\C00stap\python
 ```
 
 If `conda init` reports that running scripts is disabled, allow scripts for your user
@@ -53,7 +53,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 is PowerShell's call operator:
 
 ```powershell
-cd C:\Users\madhu\Documents\EE\Sigma\C00stap\python
+cd C:\Users\madhu\Documents\github\Sigma\pyCP-V\C00stap\python
 & C:\Users\madhu\.conda\envs\p3.13\python.exe -m uts -i
 ```
 
@@ -181,6 +181,11 @@ python -m uts --sched
 
 # A Python program as a ghost job: imported into :SYS, started by the operator's GJOB
 python -m uts --replies 06/15/76 13:45 N --file examples/hello.py=HELLO --keyins "GJOB HELLO"
+
+# The same with a disc image: the discs are saved to sys.json.gz, and the next run disc-boots
+# from it with HELLO and its files still there
+python -m uts --disc sys.json.gz --replies 06/15/76 13:45 N --file examples/hello.py=HELLO --keyins "GJOB HELLO"
+python -m uts --disc sys.json.gz --replies 06/16/76 08:00 N --keyins "GJOB HELLO"
 ```
 
 ```powershell

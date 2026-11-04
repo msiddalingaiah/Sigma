@@ -11,7 +11,8 @@ load and run programs (the step code, the loader, the program's own machine code
 describes it and, most of all, **keeps track of every place it departs from the real system**.
 
 > Code: `python/uts/pyprog.py` (the loader stand-in, the `cpv` library, the thread bridge),
-> `python/uts/keyin.py` (`KIGJOB`, translated), `python/uts/__main__.py` (`--file`). The key-in
+> `python/uts/keyin.py` (`KIGJOB`, translated), `python/uts/__main__.py` (`--file`, `--disc`),
+> `python/uts/image.py` (disc images). The key-in
 > is described from the source in [`keyin.md`](keyin.md) §6.
 
 ## How it fits together
@@ -63,7 +64,10 @@ X'16' is NEWKEY on an existing key. End of file ends the iteration.
 | The operator's reply | Typed on the console while the read is pending; with no reply, the read times out after 60 s and the reply is empty | The next line of the console script (`--keyins`), or what you type with `-i`. While a question is pending, the next line is its answer, not a key-in (a key-in needs INTERRUPT on the real console too). A read starts and completes at once, so the timeout never runs; when the script has no more lines, the reply is empty, as a timeout would give | The console is a script |
 | Asking on a terminal | An on-line user's `M:KEYIN` goes to their `M:UC` | Not translated (`NotTranslated`) | Terminals (COC) aren't translated |
 | Resources (`GJOB NAME,RESOURCE`) | The resource index goes into the task's `M:UC` | Not supported: the key-in answers `EH?` | The resource tables aren't modeled |
-| Getting source onto the disc | An editor, a card reader, a tape | A host-side import: `python -m uts --file host.py=NAME[.ACCOUNT] ...` | No editor, symbionts or card input |
+| Getting source onto the disc | An editor, a card reader, a tape | A host-side import: `python -m uts --file host.py=NAME[.ACCOUNT] ...`. With `--disc`, once is enough | No editor, symbionts or card input |
+| Files between runs | The discs stay on their drives | Only with `--disc PATH`: the swap and public discs are saved to a host file when the run ends and loaded when the next one starts (see "Disc images"). Without it, every run starts with empty discs | Python objects, not drives |
+| Files open when a run ends | Lost with the monitor's memory; at the next start-up, FIX1 repairs the files (HGP reconstruction) | The image is saved as the disc stands, open or not. A file never closed isn't in its directory, so its granules are lost to the free list | FIX1's repair isn't run at start-up |
+| A tape boot onto a disc with files | Decided by GHOST1's `PASS0`/`RECOVER2` path (not read) | The files are kept: the tape boot rewrites the swap disc's monitor only. Delete the image file to start with an empty disc | Not read yet |
 | Accounts | Created by SUPER | `:SYS` exists at boot; `--file` creates other accounts as needed | SUPER not read |
 | A failed load | The step code's own messages (not read) | `nn: LOAD NAME: <error>` typed on the console, then `M:XXX` | Invented |
 | The ID on a ghost's lines | `MSRTYPE` types `J:JIT`'s ID ([`rdwr.md`](rdwr.md) §3) | The user number | `J:JIT`'s ID wasn't traced |
@@ -87,6 +91,36 @@ python -m uts --replies 06/15/76 13:45 N --file examples/ask.py=ASK --keyins "GJ
 
 `examples/hello.py` types the time, writes and reads a keyed file, and shows a `CpvError`. The
 tests are `python/tests/test_pyprog.py`.
+
+## Disc images
+
+`--disc PATH` keeps both discs in a host file between runs, so programs are imported once and
+the files they write are there in the next run:
+
+```
+python -m uts --disc sys.json.gz --replies 06/15/76 13:45 N --file examples/hello.py=HELLO --keyins "GJOB HELLO"
+python -m uts --disc sys.json.gz --replies 06/16/76 08:00 N --keyins "GJOB HELLO"
+```
+
+If `PATH` doesn't exist, the run makes the discs as usual (a disc boot installs from tape first)
+and saves them. If it does, a disc boot reads the monitor that an earlier run's `WRTROOT` wrote
+(boot type 3, RAD boot, with no install), and `--tape` installs onto it, keeping the files.
+The image is saved at the end of every run that booted, including one that stops at code that
+isn't translated.
+
+The image (`python/uts/image.py`) is gzipped JSON: about 10 KB, against about 490 KB
+unzipped, since most of the disc is zeros. `gunzip` (or 7-Zip) gives the readable file, and a
+plain JSON image loads too. It holds:
+
+- **the swap disc**: its sectors, and the root variables attached to the root's first sector
+  (`python/README.md`, "Root variables on disc");
+- **the public disc**: the granules in use, byte for byte, the free list, and the account
+  directory's address. In CP-V that address is `ACNCFU`'s `FDA`, set at start-up in a way not
+  read yet. The free list stands in for the allocation tables (HGP) that the real disc carries
+  ([`files.md`](files.md) §8).
+
+The files also stay with the machine within a run. A crash recovery, `--reboot` or the shutdown's
+reboot mounts the same file system again (`FileSystem.mount`) instead of making a new one.
 
 ## Open points
 

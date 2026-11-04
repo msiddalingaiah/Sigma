@@ -77,8 +77,13 @@ def boot_scheduler(m, mon, sysgen):
     s.cal = CalProcessor(s, date=mon.DATE)
     s.cal.hooks["T:EXIT"] = step_exit
     # The public disc's file system: a disc of its own (the swap disc isn't modeled
-    # as granules), with the :SYS account (SUPER would create accounts).
-    s.cal.fs = FileSystem(Disc(2048), s.log)
+    # as granules), with the :SYS account (SUPER would create accounts). The disc
+    # stays with the machine, so its files outlive a recovery or a reboot.
+    if m.public_disc is None:
+        m.public_disc = Disc(2048)
+    disc = m.public_disc
+    s.cal.fs = FileSystem(disc, s.log, ad_fda=disc.ad_fda or None)
+    disc.ad_fda = s.cal.fs.ad.FDA
     s.cal.fs.add_account(":SYS")
     s.program_loader = pyprog.loader(s)           # GJOB NAME: a Python program (pyprog.py)
     return s

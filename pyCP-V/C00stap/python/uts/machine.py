@@ -112,6 +112,7 @@ class Machine:
     console: object = None
     printer: object = None
     swap_disc: object = None
+    public_disc: object = None    # files.Disc: the file system's granules
     tape: object = None
     card_reader: object = None
     devices: dict = field(default_factory=dict)  # device address -> stub

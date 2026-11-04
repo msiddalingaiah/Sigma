@@ -11,3 +11,6 @@ __pycache__/
 
 # Editor settings
 .vscode/
+
+# Disc images written by python -m uts --disc
+*.json.gz

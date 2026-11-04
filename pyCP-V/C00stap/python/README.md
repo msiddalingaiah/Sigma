@@ -46,6 +46,7 @@ python -m pytest
 | `M:KEYIN` (`MSRKEYIN`, UCAL.txt:1157) | `cal.CalProcessor.msrkey` | The message through `MSROCTY`/`MSRTYPR`, a copy of `M:OC` per caller, the console read through `FRONTEND`/`QUEUE` and `IOSPIN`, and the reply as a TEXTC (length in byte 0). With the console script at its end, the reply is empty, as after a timeout. Not on terminals (`M:UC`) or with an ECB |
 | `GJOB` key-in (`KIGJOB`, KEYN.txt:715) | `keyin.kigjob` | `GJOB NAME[.ACCOUNT]`, the 7-character limit, "DONT START OURSELF", and the three replies. A resource name answers `EH?` |
 | Python programs as ghost jobs (**not a translation**) | `pyprog` | Programs stored as EDIT-style keyed files, a loader stand-in for the ghost's first step, a thread per program bridged so that each service call is a yield, and the `cpv` library (`type`, `message`, `keyin`, `time`, `wait`, `compute`, keyed files). `--file` imports them. Every departure from CP-V is listed in `docs/python-programs.md` |
+| Disc images (**not a translation**) | `image` | `--disc PATH` saves the swap disc (sectors and the attached root variables) and the public disc (granules, free list, account directory address) as gzipped JSON when a run ends, and loads them when the next starts. See `docs/python-programs.md`, "Disc images" |
 | Pack swappers, `SWAPPER` | — | Not translated: swaps are stand-ins that complete at once. |
 
 `crash()` and `operator_recovery()` in `__main__` act on a system that is up: they run the
@@ -54,6 +55,8 @@ sense switch 3 stops, because `SCREECH -1` needs the hung monitor's `RCVPSD` in 
 
 `boot()` disc-boots. Without a `disc` argument it first runs `install()` (a tape boot with
 default answers) to produce one, so every disc boot reads a disc that `TBOOT:` wrote.
+Both take a `public_disc` (`files.Disc`) for the file system. It stays on the `Machine`, so
+the files outlive a recovery or reboot, and `--disc` keeps it between runs.
 
 ## Conventions
 

@@ -55,12 +55,14 @@ class FileError(Exception):
 
 class Disc:
     """Granules by disc address. GETIGRAN/GETDGRAN take from a free list (the GRAN
-    stacks, refilled by ALLOCAT, aren't modeled)."""
+    stacks, refilled by ALLOCAT, aren't modeled). ``ad_fda`` is where the account
+    directory starts (ACNCFU's FDA; how the real start-up finds it hasn't been read)."""
 
     def __init__(self, granules=256, first=0x100):
         self.free = list(range(first, first + granules))
         self.g = {}
         self.reads = 0
+        self.ad_fda = 0
 
     def get(self):
         if not self.free:

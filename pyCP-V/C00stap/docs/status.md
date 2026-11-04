@@ -24,7 +24,7 @@ settled is listed under each document's **Open questions**.
 ## Translated (`python/uts`)
 
 A hand translation on a small machine model with stubbed devices, not an instruction emulator.
-208 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
+213 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
 simplification; the top-level `README.md` has the commands.
 
 | Area | Module | Status |
@@ -37,6 +37,7 @@ simplification; the top-level `README.md` has the commands.
 | I/O | `io.py` | IOQ for monitor requests, the console and printer handlers, injectable printer faults |
 | Scheduler | `sched.py` | States, events and transition tables, priorities, resources, the exit path, log-on, `T:SE` and idle, and `T:SS` on page counts. Users are generator stand-ins; swaps complete at once. `INITIAL` builds it and starts ALLOCAT and GHOST1, and the key-ins run through it (`ghosts.py`) |
 | Keyed files | `files.py`, `cal.py` | Index blocks and entries byte-exact, insertion with block splits, records in data granules, the pyramid (search, build at close), FIX1's checks; account and file directories, OPEN/CLOSE with CFUs; M:OPEN/M:CLOSE/M:DELREC and keyed M:READ/M:WRITE from stand-in programs, through the OPEN and CLOSE overlays |
+| Disc images | `image.py` | `--disc PATH` keeps the swap and public discs in a host file, so files and the installed monitor survive between runs. Not a translation: see `python-programs.md` |
 | Python ghost jobs | `keyin.py` (`GJOB`), `pyprog.py` | `GJOB NAME` runs a Python program from the file system as a ghost; its `cpv` calls are real CALs, including `M:KEYIN` to ask the operator. Not a translation: see `python-programs.md` |
 | Read/write | `cal.py`, `io.py` | M:TYPE/M:MESSAGE/M:PRINT, M:WRITE and M:CHECK to `M:OC` through the console IOQ, with `FRONTEND`, `REQCOM`'s DCB branch, `E:IC`, the wait and the error codes |
 | CAL dispatch | `cal.py` | The trap, FPT decode, the CAL1,1–CAL1,9 tables, overlays through the scheduler (`E:AP`), and the returns. Translated: M:WAIT, M:TIME, M:PC, `T:CLRERR`, and the exits. GHOST1 leaves with M:EXIT to FILL |
@@ -51,6 +52,7 @@ python -m uts ... --crash 2E-03 | --oprec    crash or operator recovery of the r
 python -m uts ... --print TEXT --lp-fault notop --keyins "LPA02,R"
                                              a failing printer answered by the operator
 python -m uts --sched                        the scheduler demo: ghosts, swapping, I/O, shutdown
+python -m uts --disc sys.json.gz ...         keep the discs (monitor and files) between runs
 ```
 
 ## The biggest open points
