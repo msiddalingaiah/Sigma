@@ -577,6 +577,7 @@ class KeyedFile:
             raise FileError(0x75, "FIT inconsistency")  # 75-03
         keym = (vlps[0x09][0] >> 16) & 0xFF
         self.disc, self.name, self.log = disc, name, log if log is not None else []
+        self.prot = {c: w for c, w in vlps.items() if c in PROTECTION}
         self.KEYM, self.SCR = keym, keym + 1
         self.IMT = self.SCR + 13
         self.FLAGOFF = self.IMT - 3
@@ -894,6 +895,7 @@ class KeyedFile:
     def _write_fit(self):
         """The FIT at word X'1B0' of the first block: the name, then the VLPs."""
         put_fit(self.disc.g[self.FDA], NWFITST, WXBUFSIZ, self.name,
+                fit_protection(getattr(self, "prot", {}), NWFITST) +
                 [(0x09, [(2 << 24) | (self.KEYM << 16), 0, 0]),
                  (0x0C, [self.FDA, 0, 0, 0, self.TDA, self.SREC, self.LDA]),
                  (0x0D, [0])])
@@ -1323,6 +1325,7 @@ class ConsecutiveFile:
             raise FileError(0x75, "FIT inconsistency")
         c = vlps[0x0C]
         self.disc, self.name, self.log = disc, name, log if log is not None else []
+        self.prot = {c: w for c, w in vlps.items() if c in PROTECTION}
         self.FDA, self.TDA, self.LDA = c[0], c[4], c[6]
         self.written = False
         return self
@@ -1331,6 +1334,7 @@ class ConsecutiveFile:
         """CLS.txt:2273 ('ASSUME CONSEC'): the name at word 4, organization 1 in the
         X'09' VLP ('MAKE IT EXPLICIT CONSEC', :2392), and the CFU's addresses."""
         put_fit(self.disc.g[self.FDA], CFIT, FITSIZE + CFIT, self.name,
+                fit_protection(getattr(self, "prot", {}), CFIT) +
                 [(0x09, [1 << 24, 0, 0]),
                  (0x0C, [self.FDA, 0, 0, 0, self.TDA, 0, self.LDA]),
                  (0x0D, [0])])
@@ -1468,11 +1472,13 @@ class RandomFile:
             raise FileError(0x75, "FIT inconsistency")
         self.disc, self.name, self.log = disc, name, log if log is not None else []
         self.SREC, (self.FDA, self.TDA) = fit, vlps[0x0C][:2]
+        self.prot = {c: w for c, w in vlps.items() if c in PROTECTION}
         self.written = False
         return self
 
     def _write_fit(self):
         put_fit(self.disc.g[self.SREC], NWFITST, WXBUFSIZ, self.name,
+                fit_protection(getattr(self, "prot", {}), NWFITST) +
                 [(0x09, [3 << 24, 0, 0]),
                  (0x0C, [self.FDA, self.TDA, 0, 0, 0, self.SREC, 0]),
                  (0x0D, [0])])
@@ -1503,6 +1509,116 @@ def open_file(disc, fda, log=None):
     if not word(b, 2) & G_NOTCONSEC:
         return ConsecutiveFile.load(disc, fda, log)
     raise FileError(0x75, "FIT inconsistency")
+
+
+# --- OPEN's checks (docs/files.md section 10) ----------------------------------------------
+
+V_PASSWORD, V_READ, V_WRITE, V_EXECUTE, V_VEHICLE = 0x03, 0x05, 0x06, 0x14, 0x15
+PROTECTION = (V_PASSWORD, V_VEHICLE, V_EXECUTE, V_READ, V_WRITE)   # CLOSE's order, CLS.txt:2288
+LIST_END = 40                   # CI,SR1 40: a list must end before FIT word 40 (FIL3, 6C2)
+WORD_NONE, WORD_ALL = int.from_bytes(as_key("NONE"), "big"), int.from_bytes(as_key("ALL "), "big")
+
+
+def words_of(b):
+    b = bytes(b) + bytes(-len(b) % 4)
+    return [int.from_bytes(b[i:i + 4], "big") for i in range(0, len(b), 4)]
+
+
+def account_words(account):
+    return words_of(account_key(account))              # 8 characters: 2 words
+
+
+def protection(password=None, read=None, write=None, execute=None, vehicle=None):
+    """The DCB's protection VLPs, as CLOSE puts them in a new FIT: {code: words}. A
+    password is 8 characters (2 words; "" is an empty password); a list holds accounts,
+    "ALL" or "NONE"; the vehicle is a processor name (TEXTC)."""
+    p = {}
+    if password is not None:
+        p[V_PASSWORD] = words_of(as_key(password)[:8].ljust(8, as_key(" "))) if password else []
+    for code, accounts in ((V_READ, read), (V_WRITE, write), (V_EXECUTE, execute)):
+        if accounts is not None:
+            p[code] = [w for a in accounts for w in account_words(a)]
+    if vehicle:
+        name = as_key(vehicle)[:11]
+        p[V_VEHICLE] = words_of(bytes([len(name)]) + name)
+    return p
+
+
+def fit_protection(prot, at):
+    """The protection VLPs for a FIT whose name starts at word ``at``: in CLOSE's order,
+    each account list cut short an entry at a time until it ends before FIT word 40;
+    a list with no entry left is dropped (FILIMG2's NO ROOM)."""
+    out, w = [], at + 9
+    for code in PROTECTION:
+        if code not in prot:
+            continue
+        data = list(prot[code])
+        if code in (V_READ, V_WRITE, V_EXECUTE):
+            while data and w + 1 + len(data) - at >= LIST_END:
+                data = data[:-2]                       # REDUCE BY 1 ENTRY
+            if not data:
+                continue
+        out.append((code, data))
+        w += 1 + len(data)
+    return out
+
+
+@dataclass
+class Opener:
+    """Who is opening: J:JIT's account, JB:PRIV, and the program running (M:XX's
+    name and account in MXFPL, for the execute vehicle)."""
+    account: str = ":SYS"
+    priv: int = 0
+    program: tuple = None
+
+
+def secchk(prot, own, fun, who, password=None):
+    """SECCHK  OBSE.txt:310 - may ``who`` open a file with these protection VLPs?
+    ``own`` is the DCB's account equal to the user's (USR clear); ``password`` the
+    DCB's X'03' words. Returns 'own', 'read', 'special' or None (refused: X'14')."""
+    if who.priv >= 0xC0:
+        return "own"                                   # MONITOR CAN OPEN ALL FILES
+    if V_PASSWORD in prot:
+        if not prot[V_PASSWORD]:                       # SECCHK0: empty password
+            return "own" if account_key(who.account) == account_key(":SYS") else None
+        if password != prot[V_PASSWORD]:
+            return None                                # SECCHK05: CLRFIB
+    if own:
+        return "own"                                   # SECCHK1
+    mine = account_words(who.account)
+
+    def search(code):
+        """SECCHK2 / SEC1: True for the user's account or ALL, False for NONE or no
+        match, None for no list."""
+        if code not in prot:
+            return None
+        ws = prot[code]
+        for i in range(0, len(ws) - 1, 2):
+            if ws[i] == WORD_NONE:
+                return False
+            if ws[i] == WORD_ALL or ws[i:i + 2] == mine:
+                return True
+        return False
+
+    if search(V_WRITE):
+        return "own"                                   # SECCHK3 -> SEC3: as its own
+    if fun != "IN":
+        return None                                    # SECCHK4
+    reads = search(V_READ)
+    if reads:
+        return "read"
+    if reads is None and V_EXECUTE not in prot:
+        return "read"                                  # SEC0: GIVE ACCESS
+    if not search(V_EXECUTE):
+        return None                                    # NO ACCESS
+    if V_VEHICLE not in prot:
+        return None                                    # SEC98: not a fetch
+    name, account = who.program or ("", "")
+    vehicle = bytes(b for w in prot[V_VEHICLE] for b in w.to_bytes(4, "big"))
+    vehicle = vehicle[1:1 + vehicle[0]]
+    if account_key(account) != account_key(":SYS") or as_key(name) != vehicle:
+        return None                                    # SEC99M1
+    return "special"                                   # SEC97: SPECIAL ACCESS
 
 
 # --- the file system: OPEN and CLOSE --------------------------------------------------------
@@ -1549,25 +1665,37 @@ class FileSystem:
         return self.file_directory(account).keys()
 
     def open(self, name, account, mode="IN", keym=11, lslides=254, lrdl0=2, spare=102,
-             org=2, size=0):
+             org=2, size=0, who=None, password=None, prot=None):
         """OPNF  OPNF.txt - the CFU scan, then the directory search, then the FIT.
         ``mode`` is IN, OUT, INOUT or UPDATE; a missing file is created for any but IN,
         keyed (``org`` 2), consecutive (1) or random (3, of ``size`` granules: RSTORE).
-        An existing file keeps its own."""
+        An existing file keeps its own.
+
+        With ``who`` (an Opener), OPEN's checks apply (docs/files.md section 10): an
+        existing file goes through SECCHK with the DCB's ``password`` (X'03' words), and
+        only privilege X'C0' creates a file in another account (OP71). Either refusal is
+        X'14'. A new file gets ``prot``, the DCB's protection VLPs, in its FIT. The access
+        granted is left in ``access``. Without ``who`` (host-side tools), no checks."""
         ident = (account_key(account), as_key(name))
+        own = who is None or account_key(account) == account_key(who.account)
+        self.access = "own"
         cfu = self.cfus.get(ident)
         if cfu is not None:                            # CFU SCAN: already open
+            self._secchk(cfu.file, own, mode, who, password)
             cfu.nou += 1
             return cfu
         fd = self.file_directory(account)
         fit = fd.find(name)
         if fit:
             kf = open_file(self.disc, fit, self.log)
+            self._secchk(kf, own, mode, who, password)  # OP3: SECCHK
             if isinstance(kf, KeyedFile):
                 kf.LSLIDES, kf.LRDL0, kf.SPARE = lslides, lrdl0, spare
             new = False
         elif mode == "IN":
-            raise FileError(0x03, f"no such file {name}")
+            raise FileError(0x03, f"no such file {name}")   # OP1: OPENER
+        elif not own and who.priv < 0xC0:
+            raise FileError(0x14, f"{name}.{account}: not the user's account")   # OP71
         elif org == ConsecutiveFile.ORG:
             kf = ConsecutiveFile(self.disc, name, self.log)                          # ENTERO2
             new = True
@@ -1577,10 +1705,20 @@ class FileSystem:
         else:
             kf = KeyedFile(self.disc, name, keym, lslides, lrdl0, spare, self.log)   # ENTER1
             new = True
+        if new:
+            kf.prot = dict(prot or {})                 # into the FIT at close (CLS.txt:2288)
         cfu = self.cfus[ident] = Cfu(account, name, kf, new=new, fd=fd)
         self.log.append(f"OPEN {name}.{account} {mode}: FIT X'{kf.FDA:X}'"
                         + (" (new)" if new else ""))
         return cfu
+
+    def _secchk(self, f, own, mode, who, password):
+        if who is None:
+            return
+        access = secchk(getattr(f, "prot", {}), own, mode, who, password)
+        if access is None:
+            raise FileError(0x14, f"{f.name}: no access")   # OPENER03
+        self.access = access
 
     def close(self, cfu, release=False):
         """CLSFIL  CLS.txt:1443 - the pyramid and the FIT; a new file goes into its

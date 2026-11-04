@@ -70,6 +70,17 @@ granule number:
 Without `gran`, a request continues where the last one ended. A granule past the end is
 `CpvError` X'42', and a request cut short by the end of the file is X'44'.
 
+**Protection** ([`files.md`](files.md) §10). `open` takes the account a file is in (default:
+the program's own), a `password`, and, for a new file, the account lists `read`, `write` and
+`execute` (accounts, `"ALL"` or `"NONE"`) and an execute `vehicle`. OPEN checks them as `SECCHK`
+does: a refusal is `CpvError` X'14'. A program may create files only in its own account.
+
+```python
+    f = cpv.open("LEDGER", fun="OUT", password="SESAME", read=["ALPHA"])   # in :SYS
+    ...
+    f = cpv.open("LEDGER", account=":SYS", password="SESAME")           # from ALPHA: read only
+```
+
 Any file is deleted by closing it with `close(release=True)`, which is `M:CLOSE` with the
 disposition REL, as a CP-V program would do ([`files.md`](files.md) §9). It is ignored while another
 DCB has the file open.
@@ -83,7 +94,7 @@ A write before the end of the file cuts the file at that point first, as CP-V do
 | Area | CP-V | Here | Why |
 |---|---|---|---|
 | What a program is | A load module (`LMN`): Sigma machine code, built by LOAD/LINK | Python source, compiled when the ghost starts | No instruction emulator (decided 2026-11-02) |
-| Where it's kept | A load-module file in the account | A **keyed file** in the account, keyed like an EDIT file: the line number × 1000 as a 3-byte binary key, `KEYM` = 3 (`EDIT.txt:495`, `:1524`) | Keyed files are translated; consecutive files aren't yet |
+| Where it's kept | A load-module file in the account | A **keyed file** in the account, keyed like an EDIT file: the line number × 1000 as a 3-byte binary key, `KEYM` = 3 (`EDIT.txt:495`, `:1524`) | Load modules aren't modeled |
 | Loading | The ghost's first job step: the step code (`STEP`/`STPNR`) and the loader read the load module into the user's pages | `pyprog.load`, run as the ghost's first action. It reads the file through the file system directly (not through CALs, as monitor code would) and compiles it | The step code and the loader haven't been read |
 | Memory | The program's code and data live in its pages, which are swapped | The Python objects live in Python. The pages are only counted (`UB:PCT`), and the CAL parameter areas (FPTs, buffers, keys) are in the user's small word memory | No machine to hold them |
 | Running | The CPU executes it; any instruction can be interrupted, and the quantum ends at the clock | A thread per program. It runs only between service calls, and **each service call is a yield**, a switch point | No emulator. Agreed as good enough: a program that never calls a service holds the system |
@@ -99,7 +110,9 @@ A write before the end of the file cuts the file at that point first, as CP-V do
 | Files open when a run ends | Lost with the monitor's memory; at the next start-up, FIX1 repairs the files (HGP reconstruction) | The image is saved as the disc stands, open or not. A file never closed isn't in its directory, so its granules are lost: neither free nor in a file | FIX1's repair isn't run at start-up |
 | A tape boot onto a disc with files | Decided by GHOST1's `PASS0`/`RECOVER2` path (not read) | The files are kept: the tape boot rewrites the swap disc's monitor only. Delete the image file to start with an empty disc | Not read yet |
 | Organization of a file | The DCB's `ORG` field, set by the program's DCB or OPEN parameters | `cpv.open(..., org="consec")` makes a new file consecutive; the default is keyed. An existing file keeps its own organization, and the DCB follows it | How OPEN treats a DCB whose `ORG` differs from the file's wasn't traced |
-| Deleting another account's file | Only with privilege X'C0' or more (`CLS.txt:1528`–`:1533`) | Any program may delete any file | Users' privileges and file ownership aren't modeled |
+| Deleting another account's file | Opened IN, only with privilege X'C0' or more (`CLS.txt:1528`–`:1533`) | The same (translated) | — |
+| A ghost's account and privilege | Set up when the ghost is started (not traced) | The account of `GJOB NAME.ACCOUNT` (`:SYS` by default), and privilege 0, so OPEN's checks apply to it ([`files.md`](files.md) §10) | A ghost's `JB:PRIV` wasn't traced |
+| OPEN's checks on a file already open | (The CFU-scan path wasn't traced) | `SECCHK` runs on every open, also when the file's CFU is already open | Not traced |
 | Waiting for a granule | A program whose granule stack is empty waits (`E:QFAC`) until ALLOCAT has run and been swapped out | It gets its granule at once: ALLOCAT's fill and the commit run inside the program's CAL | The file code can't be suspended in mid-CAL |
 | Accounts | Created by SUPER | `:SYS` exists at boot; `--file` creates other accounts as needed | SUPER not read |
 | A failed load | The step code's own messages (not read) | `nn: LOAD NAME: <error>` typed on the console, then `M:XXX` | Invented |

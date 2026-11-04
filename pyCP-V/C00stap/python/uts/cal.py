@@ -180,6 +180,8 @@ class CalProcessor:
         self.dcbs = {}                                 # J:DCBLINK per user: {name: address}
         self.prompt = {}                               # JB:PROMPT per user
         self.priv = {}                                 # JB:PRIV per user
+        self.account = {}                              # J:JIT's ACCN per user (:SYS if none)
+        self.running = {}                              # M:XX: (name, account) of the program
         self.ended = {}                                # user -> how a CAL ended them
         self.hooks = {}
         self.io = None                                 # io.IOSystem, from attach_io
@@ -809,13 +811,19 @@ class CalProcessor:
     def _open(self, u, dcb):
         """OPNF: open the DCB's file (its name and account VLPs). Returns 0 or the code."""
         from .files import FileError
-        from .files import ConsecutiveFile, Position, RandomFile
+        from .files import ConsecutiveFile, Opener, Position, RandomFile, account_key
+        who = Opener(self.account.get(u, ":SYS"), self.priv.get(u, 0), self.running.get(u))
+        if not dcb.account:
+            dcb.account = who.account                  # CHKFLACN: the user's own account
+        dcb.usr = account_key(dcb.account) != account_key(who.account)   # USR X'4000'
         try:
             cfu = self.fs.open(dcb.fname, dcb.account, dcb.fun, dcb.keym,
-                               org={0: 1, 0x10: 3}.get(dcb.org, 2), size=dcb.rstore)
+                               org={0: 1, 0x10: 3}.get(dcb.org, 2), size=dcb.rstore,
+                               who=who, password=dcb.prot.get(0x03), prot=dcb.prot)
         except FileError as e:
             return e.code
         dcb.cfu, dcb.open, dcb.kbuf = cfu, True, None
+        dcb.special = self.fs.access == "special"      # SEC97: X'100'
         # An existing file keeps its organization (OPNF reads the X'09' VLP); the DCB
         # follows it. Whether OPEN overrides the DCB's ORG this way wasn't traced.
         if isinstance(cfu.file, ConsecutiveFile):
@@ -851,8 +859,11 @@ class CalProcessor:
         code = 0
         if self.fetch(ctx.u, ctx.r7) & 0x80000000:
             code = self._params(ctx.u, iter([self.fetch(ctx.u, ctx.r7 + 1)]))()
+        release = bool(code & 1)                       # CI,SR1 K1: RELEASE
+        if dcb.fun == "IN" and self.priv.get(ctx.u, 0) < 0xC0 and dcb.usr:
+            release = False                            # ONLY C0 DELETES OTHERS (CLSFIL2M)
         if dcb.open and dcb.cfu is not None:
-            self.fs.close(dcb.cfu, release=bool(code & 1))   # CI,SR1 K1: RELEASE
+            self.fs.close(dcb.cfu, release=release)
         dcb.open, dcb.cfu = False, None
         return ("TRAPEXIT", None)
         yield

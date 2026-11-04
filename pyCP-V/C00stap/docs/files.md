@@ -693,6 +693,7 @@ OPEN doesn't check it, and what acts on it wasn't traced.
 | Deleting a file | `CLSFIL` with REL, `DELF`/`DEL1`, `REL` | The directory entry slid out, then the granules: `SEQ3` for consecutive files, the master index walk for keyed ones |
 | Granule allocation | `GRAN`, `GRANSUB`, ALLOCAT, `HGPSTK`, `STUQFAC` | One device's bit map and the pack stack, ALLOCAT's fill and emptying, and the commit |
 | Random files | `GRAND`, `RWRAND`, `RELRAND` | The run from `CMNGNG`, reads and writes by granule number, release with `RNBG` |
+| OPEN's checks | `CHKFLACN`, `SECCHK`, `OP71`, CLOSE's FIT build | The protection VLPs, the opener's account and privilege |
 | CALs | OPEN, CLOSE, READ/WRITE by key | Through `cal.py`; `ISEQUB`/`IOSFILE` dispatch ([`rdwr.md`](rdwr.md) §2) |
 
 The Python translation of keyed files is `python/uts/files.py`. It covers the byte-exact blocks
@@ -743,6 +744,15 @@ at once), `GSBP`'s directory pairs, and the `GRAVAIL` counts.
 Deleting a keyed record follows `DEL`: control keys at displacement 0 stay null, full granules
 are released at once with the double-release guard, and other entries are slid out. The pyramid
 build keeps null first keys as `MOVEAKEY` does.
+
+**OPEN's checks** (§10) are `files.secchk`, made by `FileSystem.open` when it is given the
+opener (`files.Opener`: account, privilege, running program), as `cal.py` always does:
+- a refusal is X'14';
+- creating a file in another account below privilege X'C0' is refused (`OP71`);
+- a new file's protection VLPs go into its FIT in CLOSE's order, the lists cut to the room;
+- CLOSE drops a release of another account's file opened IN below X'C0'.
+
+Synonyms are not translated.
 
 `FileSystem.open` tells the organizations apart by the first granule, as OPEN does, and the CALs
 go to `seq_read`/`seq_write` in `cal.py` when the DCB's `ORG` is consecutive. Not translated:
@@ -797,6 +807,13 @@ Digits come after letters, and specials such as `:` before them.
   (`MLSET5M1`). The translation backs up when the search key equals the continuation key, which
   is the case it exists for. Without the backup, such a record can't be found once the pyramid is
   built; random testing found this in the earlier translation.
+- **OPEN's checks**:
+  - **`CLM` and the two words.** Which of `CLM`'s condition codes goes with `NONE` and which
+    with `ALL` is taken from the comments (`OBSE.txt:370`–`:373`).
+  - **A file already open.** Whether the CFU-scan path (`SCANCFU3D`, `CHKSHARE`, `OPNF.txt:623`,
+    `:962`) reaches `SECCHK` wasn't traced. The translation checks every open.
+  - **A ghost's privilege** isn't set anywhere read so far. The translation gives ghosts 0.
+  - **Synonyms**: how CLOSE enters one, and how the count in X'09' is kept, wasn't found.
 - **Random files**:
   - **The short-transfer code.** `RWRAND` ends a request cut short by the end of the file with
     `E5744`, `GEN,7,25 X'44',X'57'` (`WRTF.txt:2087`). The translation takes X'44' as the code; how

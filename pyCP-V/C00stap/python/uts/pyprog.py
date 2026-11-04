@@ -19,7 +19,7 @@ import queue
 import threading
 
 from .cal import (F_NWK, F_ONWK, P_ABN, P_BUF, P_ERR, P_KEY, P_SIZE, Fpt)
-from .files import EBCDIC, GRAN, FileError
+from .files import EBCDIC, GRAN, FileError, protection
 from .sched import Cal1, Compute
 
 EXIT, ERROR, ABORT = 1, 2, 3            # CAL1,9 exit types: M:EXIT, M:ERR, M:XXX
@@ -79,6 +79,8 @@ def program(sched, u, name, account):
         return
     sched.trace(f"LOAD {name}.{account}: {len(source.splitlines())} lines")
     yield Compute(1)                                   # loading takes a moment
+    cal.account[u] = account                           # the ghost's account (GJOB NAME.ACCOUNT)
+    cal.running[u] = (name, account)                   # M:XX, for an execute vehicle
     cpv = Cpv(sched, u, name)
     bridge = Bridge(main, cpv)
     yield from bridge.run()
@@ -208,14 +210,19 @@ class Cpv:
         self._bridge.call(Compute(int(n)))
 
     # files
-    def open(self, name, account=":SYS", fun="IN", keym=11, org="keyed", size=0):
+    def open(self, name, account=None, fun="IN", keym=11, org="keyed", size=0,
+             password=None, read=None, write=None, execute=None, vehicle=None):
         """M:OPEN on a new file DCB. ``org`` ("keyed", "consec" or "random", with
-        ``size`` granules) is for a new file; an existing one keeps its own. Returns a
-        File, a ConsecFile or a RandomFile."""
+        ``size`` granules) is for a new file; an existing one keeps its own. Without
+        ``account``, the program's own. ``password`` opens a protected file and, with
+        the account lists ``read``, ``write`` and ``execute`` (accounts, "ALL" or
+        "NONE") and ``vehicle`` (a processor), protects a new one. Returns a File, a
+        ConsecFile or a RandomFile."""
         self._dcbs += 1
         address = 0x9000 + 16 * self._dcbs
         dcb = self.cal.add_dcb(self.u, f"F:{self._dcbs}", address, asn=1, fname=name,
                                account=account, fun=fun, keym=keym, rstore=size,
+                               prot=protection(password, read, write, execute, vehicle),
                                org={"keyed": 0x20, "consec": 0, "random": 0x10}[org])
         self._call(Cal1(1, Fpt(0x14, word0=address, presence=P_ERR | P_ABN,
                                params=[self.ERRR, self.ABNR])))

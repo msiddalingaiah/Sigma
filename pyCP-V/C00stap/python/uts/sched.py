@@ -280,6 +280,9 @@ class Dcb:
     cpos: object = None         # files.Position in a consecutive file
     rstore: int = 0             # RSTORE: a new random file's size in granules
     rgran: int = 0              # KBUF's word in a random file: the next granule
+    prot: dict = field(default_factory=dict)   # protection VLPs (X'03', X'05', X'06', X'14', X'15')
+    usr: bool = False           # USR X'4000': not the user's own file
+    special: bool = False       # X'100': special (execute) access
     kad: int = 0                # key address for this CAL
     kbuf: bytes = None          # KBUF: the key of the last record
     nwk: bool = False           # NEWKEY

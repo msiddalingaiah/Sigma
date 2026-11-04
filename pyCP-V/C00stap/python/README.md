@@ -49,6 +49,7 @@ python -m pytest
 | Deleting files and records (CLS.txt `CLSFIL` with REL, DLT.txt `DELF`/`DEL1`/`DEL`/`REL`/`SEQ3`, MUL.txt `MOVEAKEY`) | `FileSystem.close(release=True)`, `KeyedFile.release`/`delete`, `ConsecutiveFile.release`, `Directory.remove` | `M:CLOSE` with REL deletes a file: its directory entry slid out (unless the file was never entered), then every granule. No release while another user has the file open. A keyed record delete keeps control keys (displacement 0) null, releases full granules at once (with `MTB,3`'s double-release guard) and slides other entries out. The pyramid build keeps null first keys as `MOVEAKEY` does, and the search backs up from a continuation key (`MLSET00`). `cpv`: `close(release=True)` |
 | Granule allocation (GRAN.txt `GBG`/`RBG`/`CHKTHRSH`/`GNBG`/`RNBG`, GRANSUB.txt `GETBIT`/`CMNGNG`/`CMNRG`, ALLYCAT.txt `ADJBUFS`, HGPSTK.txt, SCHED.txt `STUQFAC`) | `files.Hgp`, `files.Stack`, `files.Disc`, `ghosts.allocat` | One device's bit map (the last get remembered, runs from the end, dual allocations logged) and the pack stack (128 slots, levels 40/80, thresholds 16/100). Gets pop it and releases push it; a threshold wakes the ALLOCAT ghost, whose fill or emptying stays pending until `E:UQFAC` and `STUQFAC`. The scheduler's buffer 1 is the stack |
 | Random files (GRAND.txt, WRTF.txt `RWRAND`, CLS.txt `RELRAND`) | `files.RandomFile`, `cal.rwrand` | The FIT's own granule, a contiguous run from the end of the map, reads and writes by granule number (the key word moves on; X'42' past the end, X'44' cut short), release of the run. `cpv`: `open(..., org="random", size=n)`, `read(gran, size)`, `write(data, gran)` |
+| OPEN's checks (OBSE.txt `CHKFLACN`/`SECCHK`, OPNF.txt `OP1`/`OP71`, CLS.txt FIT build and `CLSFIL2M`) | `files.secchk`, `files.protection`, `files.Opener`, `FileSystem.open(who=...)` | The FIT's password (X'03') and account lists (write X'06', read X'05', execute X'14' with the vehicle X'15'), written in CLOSE's order and cut to its room; `SECCHK`'s rules, X'14' on refusal; creating only in one's own account below X'C0'; no release of another's file opened IN below X'C0'. A ghost's account is its `GJOB` account, its privilege 0. Host-side tools (`--file`) aren't checked |
 | Python programs as ghost jobs (**not a translation**) | `pyprog` | Programs stored as EDIT-style keyed files, a loader stand-in for the ghost's first step, a thread per program bridged so that each service call is a yield, and the `cpv` library (`type`, `message`, `keyin`, `time`, `wait`, `compute`, keyed files). `--file` imports them. Every departure from CP-V is listed in `docs/python-programs.md` |
 | Disc images (**not a translation**) | `image` | `--disc PATH` saves the swap disc (sectors and the attached root variables) and the public disc (granules, the HGP bit map and the stack, account directory address) as gzipped JSON when a run ends, and loads them when the next starts. See `docs/python-programs.md`, "Disc images" |
 | Pack swappers, `SWAPPER` | — | Not translated: swaps are stand-ins that complete at once. |
@@ -117,8 +118,10 @@ the files outlive a recovery or reboot, and `--disc` keeps it between runs.
   numbers, not sectors with a DCT index.
 - Random files: no disc limit (`TMDCRM`), scratch files, private packs or cylinders; transfers
   aren't split by track.
-- Deleting: no privilege or ownership check (users and accounts aren't modeled), no synonyms
-  or free-sector pool. An emptied file directory is never removed, as in the source
+- Deleting: no synonyms or free-sector pool.
+- OPEN's checks: no synonyms, special (X'01') names, `*` files, test files or fetch (`J:STAR`);
+  a replacing OUT open doesn't check the organization (an existing file is opened as it is).
+  `SECCHK` also runs when the file's CFU is already open. An emptied file directory is never removed, as in the source
   (`DELFD` is assembled out).
 - Consecutive files: no backward reads, positioning CALs (`M:PFIL`, `M:PRECORD`), read-ahead
   or private-pack volume switching. A DCB's position is a `files.Position` (`DCBCDAM`, `HACMD`'s
