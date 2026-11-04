@@ -809,11 +809,21 @@ class CalProcessor:
     def _open(self, u, dcb):
         """OPNF: open the DCB's file (its name and account VLPs). Returns 0 or the code."""
         from .files import FileError
+        from .files import ConsecutiveFile, Position, RandomFile
         try:
-            cfu = self.fs.open(dcb.fname, dcb.account, dcb.fun, dcb.keym)
+            cfu = self.fs.open(dcb.fname, dcb.account, dcb.fun, dcb.keym,
+                               org={0: 1, 0x10: 3}.get(dcb.org, 2), size=dcb.rstore)
         except FileError as e:
             return e.code
         dcb.cfu, dcb.open, dcb.kbuf = cfu, True, None
+        # An existing file keeps its organization (OPNF reads the X'09' VLP); the DCB
+        # follows it. Whether OPEN overrides the DCB's ORG this way wasn't traced.
+        if isinstance(cfu.file, ConsecutiveFile):
+            dcb.org, dcb.cpos = 0, Position()
+        elif isinstance(cfu.file, RandomFile):
+            dcb.org, dcb.rgran = 0x10, 0
+        else:
+            dcb.org = 0x20
         return 0
 
     def file_open(self, ctx):
@@ -835,10 +845,14 @@ class CalProcessor:
         yield
 
     def file_close(self, ctx):
-        """M:CLOSE (CAL1,1 X'15', overlay CLOSE entry 2): CLSFIL."""
+        """M:CLOSE (CAL1,1 X'15', overlay CLOSE entry 2): CLSFIL. The first parameter,
+        if present (CHKBIT1), is the disposition: 1 REL (delete the file), 2 SAVE."""
         dcb = self.dcb_at(ctx.u, ctx.r6)
+        code = 0
+        if self.fetch(ctx.u, ctx.r7) & 0x80000000:
+            code = self._params(ctx.u, iter([self.fetch(ctx.u, ctx.r7 + 1)]))()
         if dcb.open and dcb.cfu is not None:
-            self.fs.close(dcb.cfu)
+            self.fs.close(dcb.cfu, release=bool(code & 1))   # CI,SR1 K1: RELEASE
         dcb.open, dcb.cfu = False, None
         return ("TRAPEXIT", None)
         yield
@@ -869,6 +883,10 @@ class CalProcessor:
         """ISEQUB  RDF.txt:2443 - a keyed read (KAD) or the next record (after KBUF)."""
         from .files import EBCDIC
         kf, u = dcb.cfu.file, ctx.u
+        if dcb.org == 0:
+            return self.seq_read(ctx, dcb)             # BAZ SEQ0: CONSECUTIVE
+        if dcb.org == 0x10:
+            return self.rwrand(ctx, dcb, write=False)  # BANZ RWRAND: IT'S RANDOM
         if dcb.kad:
             key = self._key(u, dcb)
             data = kf.read(key)
@@ -894,6 +912,10 @@ class CalProcessor:
         kf, u = dcb.cfu.file, ctx.u
         if dcb.fun == "IN":
             return self.msr012(ctx, dcb, 0x15)         # (writing a file opened IN)
+        if dcb.org == 0:
+            return self.seq_write(ctx, dcb)            # BAZ SEQ0: IT'S CONSEC
+        if dcb.org == 0x10:
+            return self.rwrand(ctx, dcb, write=True)   # B RWRAND: IT'S A RANDOM
         if dcb.kad:
             key = self._key(u, dcb)
         elif getattr(dcb, "last", None) == "read" and dcb.kbuf:
@@ -911,12 +933,78 @@ class CalProcessor:
 
     def delrec(self, ctx, dcb):
         from .files import EBCDIC
+        if dcb.org == 0:                               # DELSET: BAZ SEQ0 CONSECUTIVE
+            if dcb.last != "read" or not dcb.cfu.file.delete_record(dcb.cpos):
+                return self.msr012(ctx, dcb, 0x15)     # DELER: K15
+            dcb.last = "delete"
+            self.trace(f"DELREC {dcb.name} record {dcb.cpos.rec + 1}")
+            return self.pullallexit(ctx, 0, 0)
         if not dcb.kad:
             return self.msr012(ctx, dcb, 0x17)         # KEY WASNT SPECIFIED
         key = self._key(ctx.u, dcb)
         if not dcb.cfu.file.delete(key):
             return self.msr012(ctx, dcb, 0x43)
         self.trace(f"DELREC {dcb.name} key {key.decode(EBCDIC)!r}")
+        return self.pullallexit(ctx, 0, 0)
+
+    def seq_read(self, ctx, dcb):
+        """SEQ0  RDF.txt:3136 - the next record of a consecutive file: end of file is
+        TYC 7, a record longer than the buffer TYC 2, lost data (SEQ6)."""
+        data = dcb.cfu.file.read(dcb.cpos)
+        if data is None:
+            dcb.tyc, dcb.egv = 7, True
+            return self.msr012(ctx, dcb, CODE[7])
+        n = min(len(data), dcb.rws)
+        self.write_bytes(ctx.u, dcb.buf, dcb.btd, data[:n])
+        dcb.ars, dcb.last = n, "read"                  # IMAGE3: ARS = what was moved
+        self.trace(f"READ {dcb.name} record {dcb.cpos.rec}: {len(data)} bytes")
+        if n < len(data):
+            dcb.tyc, dcb.egv = 2, True
+            return self.msr012(ctx, dcb, CODE[2])
+        dcb.tyc = 1
+        return self.pullallexit(ctx, 0, 0)
+
+    def seq_write(self, ctx, dcb):
+        """SEQ0  WRTF.txt:273 - a record at the end of a consecutive file, or, before
+        the end, the file cut at the position first."""
+        from .files import FileError
+        data = self.read_text(ctx.u, dcb.buf, dcb.btd, dcb.rws).encode("latin-1")
+        try:
+            dcb.cfu.file.write(dcb.cpos, data)
+        except FileError as e:
+            return self.msr012(ctx, dcb, e.code)
+        dcb.last = "write"
+        self.trace(f"WRITE {dcb.name} record {dcb.cpos.rec}: {len(data)} bytes")
+        return self.pullallexit(ctx, 0, 0)
+
+    def rwrand(self, ctx, dcb, write):
+        """RWRAND  WRTF.txt:1928 - a random file by granule number: the key word (KBUF;
+        from the FPT's key, else where the last request ended). Up to RWS bytes, no
+        further than the end of the file; then the granule number moves past them."""
+        from .files import FileError, GRAN
+        f, u = dcb.cfu.file, ctx.u
+        if dcb.kad:
+            dcb.rgran = self.s.umem[u].get(dcb.kad, 0)
+        if dcb.rws == 0:
+            dcb.rgran += 1                             # ZERO LENGTH, UPDATE KEY
+            dcb.ars = 0
+            return self.pullallexit(ctx, 0, 0)
+        try:
+            if write:
+                data = self.read_text(u, dcb.buf, dcb.btd, dcb.rws).encode("latin-1")
+                n = f.write(dcb.rgran, data)
+            else:
+                data = f.read(dcb.rgran, dcb.rws)
+                n = len(data)
+                self.write_bytes(u, dcb.buf, dcb.btd, data)
+        except FileError as e:
+            dcb.ars = 0
+            return self.msr012(ctx, dcb, e.code)       # ERR01: X'42'
+        self.trace(f"{'WRITE' if write else 'READ'} {dcb.name} granule {dcb.rgran}: {n} bytes")
+        dcb.rgran += (n + GRAN - 1) // GRAN            # RWRDUN: INCREMENT RELGRAN
+        dcb.ars, dcb.last = n, "write" if write else "read"
+        if n != dcb.rws:
+            return self.msr012(ctx, dcb, 0x44)         # E5744 (the code as read: open question)
         return self.pullallexit(ctx, 0, 0)
 
     resident = {}

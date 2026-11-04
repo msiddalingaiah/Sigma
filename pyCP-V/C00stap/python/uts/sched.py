@@ -275,7 +275,11 @@ class Dcb:
     account: str = ""
     fun: str = "IN"             # IN, OUT, INOUT, UPDATE
     keym: int = 11
+    org: int = 0x20             # ORG: X'20' keyed, X'10' random, 0 consecutive
     cfu: object = None          # the open file's CFU
+    cpos: object = None         # files.Position in a consecutive file
+    rstore: int = 0             # RSTORE: a new random file's size in granules
+    rgran: int = 0              # KBUF's word in a random file: the next granule
     kad: int = 0                # key address for this CAL
     kbuf: bytes = None          # KBUF: the key of the last record
     nwk: bool = False           # NEWKEY
@@ -347,13 +351,27 @@ GJ_STARTED, GJ_WOKEN, GJ_RUNNING, GJ_FAILED = 0, CC2, CC1 | CC3, CC1
 
 @dataclass
 class Buffer:
-    """One of ALLOCAT's four buffers, as STUQFAC updates it."""
+    """One of ALLOCAT's four buffers, as STUQFAC updates it (files.Stack is the one
+    the file system uses)."""
     BUFLAGS: int = 0
     BOTTOM: int = 0
     TEMPBOT: int = 0
     WORDCNT: int = 0
     ADJSTCNT: int = 0
     BUFMASK: int = 0x3FF
+
+    def unqueue(self):
+        """STUQFAC's work on one buffer  SCHED.txt:1711-:1735: make ALLOCAT's fill or
+        emptying real. Returns False for a count past the buffer (SCREECH X'88')."""
+        if self.BUFLAGS & 0x4000:                      # just emptied
+            self.TEMPBOT = self.BOTTOM
+        elif self.BUFLAGS & 0x2000:                    # just filled
+            self.BOTTOM = self.TEMPBOT
+        self.BUFLAGS &= 0x9FFE                         # X9FFF is DATA X'9FFE'
+        self.WORDCNT += self.ADJSTCNT
+        ok = self.WORDCNT - 1 <= self.BUFMASK
+        self.ADJSTCNT = 0
+        return ok
 
 
 @dataclass
@@ -937,16 +955,8 @@ class Scheduler:
     def uqfac(self, ctx, r, u):
         """STUQFAC  :1707 - ALLOCAT's buffers, then T:REL1."""
         for i in range(3, -1, -1):
-            b = self.buffers[i]
-            if b.BUFLAGS & 0x4000:                     # just emptied
-                b.TEMPBOT = b.BOTTOM
-            elif b.BUFLAGS & 0x2000:                   # just filled
-                b.BOTTOM = b.TEMPBOT
-            b.BUFLAGS &= 0x9FFE                        # X9FFF is DATA X'9FFE'
-            b.WORDCNT += b.ADJSTCNT
-            if b.WORDCNT - 1 > b.BUFMASK:
+            if not self.buffers[i].unqueue():
                 self.screech(0x88, f"ALLOCAT buffer {i}")
-            b.ADJSTCNT = 0
         return self.t_rel1(ctx, r, u)
 
     # --- Log-on and new users  :1859-1980 ---------------------------------------------

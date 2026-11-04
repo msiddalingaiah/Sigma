@@ -48,6 +48,36 @@ def main(cpv):
 A service error raises `cpv.CpvError` with the CP-V code. For example, X'43' is a missing key and
 X'16' is NEWKEY on an existing key. End of file ends the iteration.
 
+A **consecutive file** ([`files.md`](files.md) §4) has records in order and no keys:
+
+```python
+    log = cpv.open("LOG", fun="OUT", org="consec")   # a new consecutive file
+    log.write("FIRST LINE")                 # M:WRITE without a key: after the current record
+    log.close()
+    for data in cpv.open("LOG"):            # M:READ: the next record, to end of file
+        cpv.type(data.decode())
+```
+
+A **random file** ([`files.md`](files.md) §6) is a fixed number of granules, read and written by
+granule number:
+
+```python
+    t = cpv.open("TABLE", fun="OUT", org="random", size=10)   # ten granules
+    t.write("A" * 2048, gran=3)             # M:WRITE at granule 3; t.granule is then 4
+    data = t.read(gran=3, size=4096)        # M:READ: granules 3 and 4
+```
+
+Without `gran`, a request continues where the last one ended. A granule past the end is
+`CpvError` X'42', and a request cut short by the end of the file is X'44'.
+
+Any file is deleted by closing it with `close(release=True)`, which is `M:CLOSE` with the
+disposition REL, as a CP-V program would do ([`files.md`](files.md) §9). It is ignored while another
+DCB has the file open.
+
+`read(size=2048)` returns the next record, or `None` at the end of the file. A record longer than
+`size` raises `CpvError` X'07' (lost data). `delete()` deletes the record just read (`M:DELREC`).
+A write before the end of the file cuts the file at that point first, as CP-V does.
+
 ## Deviations from CP-V
 
 | Area | CP-V | Here | Why |
@@ -66,8 +96,11 @@ X'16' is NEWKEY on an existing key. End of file ends the iteration.
 | Resources (`GJOB NAME,RESOURCE`) | The resource index goes into the task's `M:UC` | Not supported: the key-in answers `EH?` | The resource tables aren't modeled |
 | Getting source onto the disc | An editor, a card reader, a tape | A host-side import: `python -m uts --file host.py=NAME[.ACCOUNT] ...`. With `--disc`, once is enough | No editor, symbionts or card input |
 | Files between runs | The discs stay on their drives | Only with `--disc PATH`: the swap and public discs are saved to a host file when the run ends and loaded when the next one starts (see "Disc images"). Without it, every run starts with empty discs | Python objects, not drives |
-| Files open when a run ends | Lost with the monitor's memory; at the next start-up, FIX1 repairs the files (HGP reconstruction) | The image is saved as the disc stands, open or not. A file never closed isn't in its directory, so its granules are lost to the free list | FIX1's repair isn't run at start-up |
+| Files open when a run ends | Lost with the monitor's memory; at the next start-up, FIX1 repairs the files (HGP reconstruction) | The image is saved as the disc stands, open or not. A file never closed isn't in its directory, so its granules are lost: neither free nor in a file | FIX1's repair isn't run at start-up |
 | A tape boot onto a disc with files | Decided by GHOST1's `PASS0`/`RECOVER2` path (not read) | The files are kept: the tape boot rewrites the swap disc's monitor only. Delete the image file to start with an empty disc | Not read yet |
+| Organization of a file | The DCB's `ORG` field, set by the program's DCB or OPEN parameters | `cpv.open(..., org="consec")` makes a new file consecutive; the default is keyed. An existing file keeps its own organization, and the DCB follows it | How OPEN treats a DCB whose `ORG` differs from the file's wasn't traced |
+| Deleting another account's file | Only with privilege X'C0' or more (`CLS.txt:1528`–`:1533`) | Any program may delete any file | Users' privileges and file ownership aren't modeled |
+| Waiting for a granule | A program whose granule stack is empty waits (`E:QFAC`) until ALLOCAT has run and been swapped out | It gets its granule at once: ALLOCAT's fill and the commit run inside the program's CAL | The file code can't be suspended in mid-CAL |
 | Accounts | Created by SUPER | `:SYS` exists at boot; `--file` creates other accounts as needed | SUPER not read |
 | A failed load | The step code's own messages (not read) | `nn: LOAD NAME: <error>` typed on the console, then `M:XXX` | Invented |
 | The ID on a ghost's lines | `MSRTYPE` types `J:JIT`'s ID ([`rdwr.md`](rdwr.md) §3) | The user number | `J:JIT`'s ID wasn't traced |
@@ -114,10 +147,13 @@ plain JSON image loads too. It holds:
 
 - **the swap disc**: its sectors, and the root variables attached to the root's first sector
   (`python/README.md`, "Root variables on disc");
-- **the public disc**: the granules in use, byte for byte, the free list, and the account
-  directory's address. In CP-V that address is `ACNCFU`'s `FDA`, set at start-up in a way not
-  read yet. The free list stands in for the allocation tables (HGP) that the real disc carries
-  ([`files.md`](files.md) §8).
+- **the public disc**: the granules in use, byte for byte, the allocation table (the HGP bit
+  map and where its last get stopped), the stack of free addresses, and the account directory's
+  address ([`files.md`](files.md) §8). In CP-V that address is `ACNCFU`'s `FDA`, set at start-up
+  in a way not read yet. The stack is in the monitor's memory on a real system. ALLOCAT has a
+  request that empties every stack into the maps (`QUIESCE`, `ALLYCAT.txt:310`); who sends it
+  wasn't traced. The image keeps the stack as it is. An image from before
+  the bit map (version 1, with a free list) loads with its free granules as the map's set bits.
 
 The files also stay with the machine within a run. A crash recovery, `--reboot` or the shutdown's
 reboot mounts the same file system again (`FileSystem.mount`) instead of making a new one.

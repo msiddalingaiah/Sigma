@@ -1,4 +1,5 @@
-"""Keyed files, directories, OPEN and CLOSE on a disc of granules. See docs/files.md.
+"""Granule allocation, keyed, consecutive and random files, directories, OPEN and
+CLOSE on a disc of granules. See docs/files.md.
 
 Translated from c00co/WRTF.txt (INST, COMPLEN, INSTN, MULCHK, ENTKEYUB/IMAGEREC,
 INITMI), RDF.txt (SETUPUB, LOCCODEUB, MLCHK, the key compare 1A3), MUL.txt (the
@@ -13,16 +14,20 @@ a block overflows, which block an upper-level entry names); the code around them
 
 Simplifications (also in python/README.md):
 - A rewrite of an existing key deletes its entries and inserts the record again
-  (REWRITEUB reuses space in place). Deleting clears the entries' key counts, the
-  deleted-entry mark FIX1 and RDF skip (DLT.txt wasn't read).
+  (REWRITEUB reuses space in place). Deleting follows DLT.txt DEL: entries slid out,
+  except control keys (displacement 0) and first entries, which stay null.
 - The search doesn't start from the block left in the buffer by the last CAL.
 - Upper-level blocks use the same room check as level 0 (MUL's COMP wasn't read),
   and the old pyramid's granules are released rather than reused.
 - The FIT holds the X'09', X'0C' and X'0D' VLPs FIX1 requires, written at create and
   close (CLS's FIT update wasn't read).
+- Consecutive files (ConsecutiveFile, from WRTF/RDF SEQ0, DLT and FIX1 CHKCON) read
+  forward only: no backward reads, positioning CALs, read-ahead or volume switching.
 """
 
 from dataclasses import dataclass, field
+
+from .sched import Buffer
 
 GRAN = 2048                     # BUFSIZ: bytes in a granule
 MIDIS = 12                      # UTS.txt:489 displacement to the first key
@@ -51,35 +56,217 @@ class FileError(Exception):
         self.code = code
 
 
-# --- the disc -------------------------------------------------------------------------
+# --- the disc: granule allocation (docs/files.md section 8) ---------------------------
+
+class Hgp:
+    """One device's allocation table (GRANSUB.txt): its PFA bit map, a set bit a free
+    granule, and where the last single get stopped (word 3). A public device allocated by
+    granule; PER, cylinders and other devices aren't modeled."""
+
+    def __init__(self, first, granules):
+        self.first, self.n = first, granules
+        self.map = bytearray(b"\xff" * (granules // 8))
+        if granules % 8:
+            self.map.append((0xFF << (8 - granules % 8)) & 0xFF)
+        self.last = 0                                  # word 3: the last bit gotten
+        self.dual = []                                 # LOGDUAL error records
+
+    def _bit(self, i):
+        return self.map[i >> 3] & (0x80 >> (i & 7))
+
+    def _set(self, i, on):
+        if on:
+            self.map[i >> 3] |= 0x80 >> (i & 7)
+        else:
+            self.map[i >> 3] &= ~(0x80 >> (i & 7)) & 0xFF
+
+    def get(self):
+        """CMNGG / GETBIT  :87, :258 - the next set bit from where the last get stopped,
+        then from the start (GBIT0's full search). 0 if the map is empty (SETEMPTY)."""
+        for i in list(range(self.last, self.n)) + list(range(0, self.last)):
+            if self._bit(i):
+                self._set(i, False)                    # GBIT5: ZAP BIT
+                self.last = i
+                return self.first + i
+        return 0
+
+    def get_n(self, count):
+        """CMNGNG  :105 - a run of ``count`` free granules, searched for from the end of
+        the map backward. Returns its first address, or 0."""
+        run = 0
+        for i in range(self.n - 1, -1, -1):
+            run = run + 1 if self._bit(i) else 0
+            if run == count:
+                for j in range(i, i + count):
+                    self._set(j, False)
+                return self.first + i
+        return 0
+
+    def release(self, da, count=1):
+        """CMNRG / CMNRNG  :362 - set the bits. One already set is a dual allocation:
+        logged (LOGDUAL), and the release goes on. False for an address not in the map."""
+        i = da - self.first
+        if i < 0 or i + count > self.n:
+            return False                               # GGERRET: BAD DISC ADDRESS
+        for j in range(i, i + count):
+            if self._bit(j):
+                self.dual.append(self.first + j)
+            self._set(j, True)
+        return True
+
+    def free(self):
+        return [self.first + i for i in range(self.n) if self._bit(i)]
+
+
+# HGPSTK.txt:17-28: the pack stack's size and levels
+STACK_SLOTS, LOLEVEL, HILEVEL, LOTHRSH, HITHRSH = 128, 40, 80, 16, 100
+F_HGPEMPTY, F_EMPTIED, F_FILLED, F_BUSY = 0x8000, 0x4000, 0x2000, 0x0001
+
+
+class Stack(Buffer):
+    """One of HGPSTK's circular stacks of free disc addresses (the pack one). The
+    scheduler's STUQFAC commits ALLOCAT's changes to it (sched.Buffer.unqueue)."""
+
+    def __init__(self, slots=STACK_SLOTS):
+        super().__init__(BUFMASK=slots - 1)
+        self.slots = [0] * slots                       # CATBUF
+        self.TOP = 0
+
+    def addresses(self):
+        """What the stack holds, ALLOCAT's pending fill included."""
+        return [a for a in self.slots if a]
+
 
 class Disc:
-    """Granules by disc address. GETIGRAN/GETDGRAN take from a free list (the GRAN
-    stacks, refilled by ALLOCAT, aren't modeled). ``ad_fda`` is where the account
-    directory starts (ACNCFU's FDA; how the real start-up finds it hasn't been read)."""
+    """Granules by disc address, handed out as GRAN does: GBG pops the stack and RBG
+    pushes it (GRAN.txt), ALLOCAT fills and empties it from the bit map (ALLYCAT.txt
+    ADJBUFS), and STUQFAC makes that real. ``cat`` starts the ALLOCAT ghost (THRESH);
+    without one, nothing starts it. ``ad_fda`` is where the account directory starts
+    (ACNCFU's FDA; how the real start-up finds it hasn't been read)."""
 
     def __init__(self, granules=256, first=0x100):
-        self.free = list(range(first, first + granules))
+        self.hgp = Hgp(first, granules)
+        self.stack = Stack()
         self.g = {}
         self.reads = 0
         self.ad_fda = 0
+        self.cat = None
+        self.log = []
+
+    # -- GRAN: the user's side ---------------------------------------------------------
 
     def get(self):
-        if not self.free:
-            return 0                                   # no granule: SATDISK
-        da = self.free.pop(0)
+        """GBG / GETGRAN  GRAN.txt:193 - pop the stack. Empty, a user waits on E:QFAC
+        while ALLOCAT fills it; here ALLOCAT's turn, and the commit, come at once. 0 if
+        the bit map is empty too (SATDISK)."""
+        s = self.stack
+        for _ in range(2):
+            if s.TOP != s.BOTTOM or s.BUFLAGS & F_HGPEMPTY:
+                break
+            self.allocat()                             # REG4CAT: the CAT runs ...
+            self.commit()                              # ... and is swapped out (E:UQFAC)
+        if s.TOP == s.BOTTOM:
+            return 0                                   # RELX
+        s.TOP = (s.TOP - 1) & s.BUFMASK                # GETONE
+        s.WORDCNT -= 1
+        da, s.slots[s.TOP] = s.slots[s.TOP], 0         # XW,R8 0,R4
+        self._chkthrsh()
         self.g[da] = bytearray(GRAN)
         return da
 
     def release(self, da):
+        """RBG  GRAN.txt:95, :144 - push the address. With no room, it goes to ALLOCAT
+        in a message (NORELROM), which releases it into the map; here at once."""
         self.g.pop(da, None)
-        self.free.append(da)
+        s = self.stack
+        if s.TOP == s.TEMPBOT and s.WORDCNT:
+            self._to_map(da)                           # ALLOCAT RELN
+            return
+        s.slots[s.TOP] = da                            # ROOM
+        s.TOP = (s.TOP + 1) & s.BUFMASK
+        s.WORDCNT += 1
+        self._chkthrsh()
+
+    def _chkthrsh(self):
+        """CHKTHRSH  GRAN.txt:230 - start ALLOCAT at a threshold."""
+        s = self.stack
+        if s.WORDCNT >= HITHRSH or (s.WORDCNT <= LOTHRSH and not s.BUFLAGS & F_HGPEMPTY):
+            if self.cat:
+                self.cat()                             # THRESH: T:GJOBSTRT 'ALLOCAT'
+
+    def get_n(self, count):
+        """GNBG  GRAN.txt:253 - ``count`` contiguous granules for a random file, from
+        ALLOCAT (GETN: CMNGNG). The user waits for the answer; here it comes at once."""
+        da = self.hgp.get_n(count)
+        if da:
+            for a in range(da, da + count):
+                self.g[a] = bytearray(GRAN)
+        return da
+
+    def release_n(self, da, count):
+        """RNBG  GRAN.txt:281 - give a run back (ALLOCAT RELN: CMNRNG)."""
+        for a in range(da, da + count):
+            self.g.pop(a, None)
+        self._to_map(da, count)
 
     def read(self, da):
         self.reads += 1
         if da not in self.g:
             raise FileError(0x75, f"read of an unallocated granule X'{da:X}'")
         return self.g[da]
+
+    # -- ALLOCAT's side ------------------------------------------------------------------
+
+    def _to_map(self, da, count=1):
+        if not self.hgp.release(da, count):
+            self.log.append(f"ALLOCAT: bad disc address X'{da:X}'")   # LOGERR
+        self.stack.BUFLAGS &= 0x7FFF                   # M15: REMOVE EMPTY HGP BIT
+
+    def allocat(self):
+        """ADJBUFS  ALLYCAT.txt:330 - one stack: fill it to HILEVEL from at or below
+        LOLEVEL (FILL), or empty it to LOLEVEL from above HILEVEL (EMPTY1). The changes
+        stay pending (TEMPBOT, ADJSTCNT) until STUQFAC."""
+        s = self.stack
+        if s.BUFLAGS & (F_EMPTIED | F_FILLED | F_BUSY):
+            return                                     # NOT FOR THIS ONE YET
+        s.BUFLAGS |= F_BUSY
+        s.ADJSTCNT, n = 0, s.WORDCNT
+        if n <= LOLEVEL:                               # FILL
+            if s.BUFLAGS & F_HGPEMPTY:
+                return
+            want = HILEVEL - n
+            s.TEMPBOT = (s.BOTTOM - want) & s.BUFMASK
+            at = s.BOTTOM
+            for _ in range(want):
+                da = self.hgp.get()
+                if not da:
+                    s.TEMPBOT = at                     # WHERE WE STOPPED
+                    s.BUFLAGS |= F_HGPEMPTY | F_FILLED  # X'A000'
+                    return
+                at = (at - 1) & s.BUFMASK
+                s.slots[at] = da
+                s.ADJSTCNT += 1
+            s.BUFLAGS |= F_FILLED
+        elif n > HILEVEL:                              # empty
+            k = n - LOLEVEL
+            s.BOTTOM = (s.BOTTOM + k) & s.BUFMASK
+            at = s.TEMPBOT
+            for _ in range(k):
+                s.ADJSTCNT -= 1                        # FIRST, FOR A CRASH
+                da, s.slots[at] = s.slots[at], 0
+                at = (at + 1) & s.BUFMASK
+                self._to_map(da)
+            s.BUFLAGS |= F_EMPTIED
+
+    def commit(self):
+        """STUQFAC for this stack, as when the swapper takes ALLOCAT out (E:UQFAC)."""
+        if not self.stack.unqueue():
+            raise FileError(0x88, "allocation stack count past its size (SCREECH X'88')")
+
+    @property
+    def free(self):
+        """Every granule not in a file: the map's free bits and the stack's addresses."""
+        return self.hgp.free() + self.stack.addresses()
 
 
 def word(b, i):
@@ -123,6 +310,59 @@ def as_key(k):
 
 def text(b):
     return bytes(b).decode(EBCDIC)
+
+
+# --- the FIT ---------------------------------------------------------------------------
+
+def put_fit(b, at, end, name, vlps):
+    """A FIT from word ``at`` (up to ``end``): the name as TEXTC in 9 words, then the
+    VLPs, each behind a control word (code, X'FF' on the last, words used, reserved)."""
+    b[at * 4:end * 4] = bytes((end - at) * 4)
+    name = as_key(name)[:31]
+    b[at * 4] = len(name)
+    b[at * 4 + 1:at * 4 + 1 + len(name)] = name
+    w = at + 9                                         # FIT10: AI,R1 9
+    for i, (code, data) in enumerate(vlps):
+        last = 0xFF if i == len(vlps) - 1 else 0
+        setword(b, w, (code << 24) | (last << 16) | (len(data) << 8) | len(data))
+        for j, v in enumerate(data):
+            setword(b, w + 1 + j, v)
+        w += 1 + len(data)
+
+
+def read_fit(b, at, end):
+    """The FIT's name and its VLPs, {code: [words]}."""
+    n = b[at * 4]
+    name = text(b[at * 4 + 1:at * 4 + 1 + n])
+    vlps, w = {}, at + 9
+    while w < end:
+        cw = word(b, w)
+        vlps[cw >> 24] = [word(b, w + 1 + i) for i in range(cw & 0xFF)]
+        if (cw >> 16) & 0xFF == 0xFF:
+            break
+        w += 1 + (cw & 0xFF)
+    return name, vlps
+
+
+def check_fit(disc, fda, at, end, org):
+    """FITCHK  FIX1.txt:1758 - the VLPs FIX1 requires, and the organization in X'09'."""
+    b = disc.read(fda)
+    found, w = {}, at + 9
+    while w < end:
+        cw = word(b, w)
+        found[cw >> 24] = (w + 1, cw & 0xFF)
+        if (cw >> 16) & 0xFF == 0xFF:
+            break
+        w += 1 + (cw & 0xFF)
+    errors = []
+    for code, minimum, err in ((0x0D, 1, 33), (0x09, 3, 34), (0x0C, 7, 35)):
+        if code not in found:
+            errors.append((fda, 0, 33))
+        elif found[code][1] < minimum:
+            errors.append((fda, 0, err))
+    if 0x09 in found and (word(b, found[0x09][0]) >> 24) != org:
+        errors.append((fda, 0, 34))
+    return errors
 
 
 # --- a keyed file ------------------------------------------------------------------------
@@ -256,6 +496,8 @@ class KeyedFile:
                     pick, lo = mid, mid + 1
                 else:
                     hi = mid - 1
+            if level(b) == 1 and pick > 0 and b[offs[pick]] & CONT                     and self._ukey(b, offs[pick]) == key:
+                pick -= 1                              # MLSET00: a continuation key: BACK UP
             off = offs[pick]
             promised = self._ukey(b, off)
             da = int.from_bytes(b[off + self.SCR:off + self.SCR + 4], "big")
@@ -330,16 +572,7 @@ class KeyedFile:
         SREC, LDA). The next free byte of SREC isn't in the FIT: a new data granule is
         taken for the next record."""
         self = cls.__new__(cls)
-        b = disc.read(fda)
-        n = b[NWFITST * 4]
-        name = text(b[NWFITST * 4 + 1:NWFITST * 4 + 1 + n])
-        vlps, w = {}, NWFITST + 9
-        while w < WXBUFSIZ:
-            cw = word(b, w)
-            vlps[cw >> 24] = [word(b, w + 1 + i) for i in range(cw & 0xFF)]
-            if (cw >> 16) & 0xFF == 0xFF:
-                break
-            w += 1 + (cw & 0xFF)
+        name, vlps = read_fit(disc.read(fda), NWFITST, WXBUFSIZ)
         if 0x09 not in vlps or 0x0C not in vlps:
             raise FileError(0x75, "FIT inconsistency")  # 75-03
         keym = (vlps[0x09][0] >> 16) & 0xFF
@@ -503,12 +736,31 @@ class KeyedFile:
         self._put(to, MIDIS, last)
 
     def delete(self, key):
-        """Clear the key count of the record's entries (the deleted-entry mark)."""
+        """DEL  DLT.txt:195 - each of the record's entries loses its key (count 0, the
+        key bytes zeroed). Then, by its displacement and size word (CI,D1 X'F0000' is
+        sign-extended: the displacement):
+        - displacement 0, size X'800': a full granule, released now (DEL13), its
+          displacement made 3 so it can't be released twice, and the entry slid out;
+        - displacement 0 with a data granule: kept as a null 'control key', so that
+          REL finds the granule later (DEL11);
+        - otherwise slid out (DEL1), unless it is first in its block (DEL16)."""
         da, off, found = self.locate(key)
         if not found:
             return False
-        for seg_da, seg_off in self._segment_positions(da, off):
-            self.disc.read(seg_da)[seg_off] = 0
+        for seg_da, seg_off in reversed(list(self._segment_positions(da, off))):
+            b = self.disc.read(seg_da)
+            e = self.decode(b, seg_off)
+            b[seg_off:seg_off + self.SCR] = bytes(self.SCR)   # NULL KEY, ZAP UNUSED POSITIONS
+            if e.disp == 0 and e.orig == GRAN:
+                self.disc.release(e.da)                # DEL13: FULL GRANULE
+                b[seg_off + self.SCR + 1] += 3         # MTB,3: PREVENT DOUBLE RELEASE
+            elif e.disp == 0 and e.da:
+                continue                               # DEL11: keep the control key
+            if seg_off != MIDIS:                       # DEL16: a first entry stays
+                n = nav(b)
+                b[seg_off:n - self.IMT] = b[seg_off + self.IMT:n]   # DEL31: SLIDE UP
+                b[n - self.IMT:n] = bytes(self.IMT)
+                setnav(b, n - self.IMT)
         self.written = True
         return True
 
@@ -593,8 +845,12 @@ class KeyedFile:
         return blocks
 
     def _slide_deleted_firsts(self, b):
-        """MOVEAKEY's level-0 case: deleted first keys are slid out of the block."""
+        """MOVEAKEY  MUL.txt:231 - level 0: a deleted (null) first key is slid out of
+        the block, unless its displacement's low byte is 0 (ZERO BLDISP: it may be a
+        control key REL needs) or it is the block's only entry (DON'T EMPTY SECTOR)."""
         while nav(b) > MIDIS and not b[MIDIS] & 0x7F:
+            if b[MIDIS + self.SCR + 1] == 0 or MIDIS + self.IMT >= nav(b):
+                break
             n = nav(b)
             b[MIDIS:n - self.IMT] = b[MIDIS + self.IMT:n]
             b[n - self.IMT:n] = bytes(self.IMT)
@@ -619,25 +875,28 @@ class KeyedFile:
             self.disc.release(da)
         self.TDA = 0
 
+    def release(self):
+        """REL  DLT.txt:665 - the upper levels (MUL entry 1), then each level-0 block:
+        the data granule of every entry at displacement 0 (REL9), null entries too,
+        and the block itself (REL29)."""
+        self._drop_pyramid()
+        for da in self._level0_blocks():
+            b = self.disc.read(da)
+            for off in self.offsets(b):
+                e = self.decode(b, off)
+                if e.disp == 0 and e.da:               # DISPL = 0, RELEASE GRANULE
+                    self.disc.release(e.da)
+            self.disc.release(da)
+        self.FDA = self.LDA = self.SREC = self.TDA = 0
+
     # -- the FIT ---------------------------------------------------------------------
 
     def _write_fit(self):
         """The FIT at word X'1B0' of the first block: the name, then the VLPs."""
-        b = self.disc.g[self.FDA]
-        b[NWFITST * 4:] = bytes(GRAN - NWFITST * 4)
-        name = as_key(self.name)[:31]
-        b[NWFITST * 4] = len(name)
-        b[NWFITST * 4 + 1:NWFITST * 4 + 1 + len(name)] = name
-        w = NWFITST + 9                                # FIT10: AI,R1 9
-        vlps = [(0x09, [(2 << 24) | (self.KEYM << 16), 0, 0]),
-                (0x0C, [self.FDA, 0, 0, 0, self.TDA, self.SREC, self.LDA]),
-                (0x0D, [0])]
-        for i, (code, data) in enumerate(vlps):
-            last = 0xFF if i == len(vlps) - 1 else 0
-            setword(b, w, (code << 24) | (last << 16) | (len(data) << 8) | len(data))
-            for j, v in enumerate(data):
-                setword(b, w + 1 + j, v)
-            w += 1 + len(data)
+        put_fit(self.disc.g[self.FDA], NWFITST, WXBUFSIZ, self.name,
+                [(0x09, [(2 << 24) | (self.KEYM << 16), 0, 0]),
+                 (0x0C, [self.FDA, 0, 0, 0, self.TDA, self.SREC, self.LDA]),
+                 (0x0D, [0])])
 
     # -- FIX1's checks -----------------------------------------------------------------
 
@@ -689,25 +948,9 @@ class KeyedFile:
         return errors
 
     def _check_fit(self):
-        b = self.disc.read(self.FDA)
-        if not control(b) & F_FIT:
+        if not control(self.disc.g[self.FDA]) & F_FIT:
             return [(self.FDA, 0, 3)]
-        found, w = {}, NWFITST + 9
-        while w < WXBUFSIZ:
-            cw = word(b, w)
-            found[cw >> 24] = (w + 1, cw & 0xFF)
-            if (cw >> 16) & 0xFF == 0xFF:
-                break
-            w += 1 + (cw & 0xFF)
-        errors = []
-        for code, minimum, err in ((0x0D, 1, 33), (0x09, 3, 34), (0x0C, 7, 35)):
-            if code not in found:
-                errors.append((self.FDA, 0, 33))
-            elif found[code][1] < minimum:
-                errors.append((self.FDA, 0, err))
-        if 0x09 in found and (word(b, found[0x09][0]) >> 24) != 2:
-            errors.append((self.FDA, 0, 34))
-        return errors
+        return check_fit(self.disc, self.FDA, NWFITST, WXBUFSIZ, 2)
 
 
 # --- directories ----------------------------------------------------------------------------
@@ -777,14 +1020,489 @@ class Directory(KeyedFile):
         self.insert(da, off, self.encode(Entry(key, 0, 0, address, 0, FAK)))
 
     def remove(self, key):
+        """DELF / DEL1  DLT.txt:314, :343 - slide the entries after it up over it, and
+        NAV down by one entry. An emptied block stays, its first word cleared."""
         da, off, found = self.locate(key)
         if found:
-            self.disc.read(da)[off] = 0                # deleted entry
+            b = self.disc.read(da)
+            n = nav(b)
+            b[off:n - self.IMT] = b[off + self.IMT:n]  # DEL31: SLIDE UP NULL ENTRY
+            b[n - self.IMT:n] = bytes(self.IMT)
+            setnav(b, n - self.IMT)                    # RESET NAV
+            if n - self.IMT <= MIDIS:
+                setword(b, 3, MIDIS)                   # BLITZ 1ST ENTRY
         return found
 
 
 def account_key(account):
     return as_key(str(account)[:8].ljust(8))           # 8 characters, EBCDIC blanks
+
+
+# --- a consecutive file ------------------------------------------------------------------
+
+# Segment control-word flags, bits 0-3 (docs/files.md section 4)
+X_UNBLK, X_FAK, X_CONT, X_BKSP = 0x8, 0x4, 0x2, 0x1
+# The granule control word (word 2): flags in the left half, NAV in the right
+G_UNBLK, G_FULL, G_NOTCONSEC = 0x80000000, 0x40000000, 0x3FFF0000
+WBUFS = WXBUFSIZ                # BUFSIZ**-2: words in a granule
+FITSEG = 0x01400000             # =FX'80B13'  WRTF.txt:298: 320 bytes, no flags
+CFIT = 4                        # the FIT's first word (OPNF.txt:1746)
+
+
+def gnav(b):
+    return word(b, 2) & 0xFFFF                         # LH,3 BUFF1,1 (R1 = 5): halfword 5
+
+
+def setgnav(b, v):
+    sethalf(b, 10, v)
+
+
+def flags_of(cw):
+    return cw >> 28                                    # INT: the condition code
+
+
+def seg_words(cw):
+    """Words from a control word to the next: 1 for an unblocked one, else 1 plus the
+    data (SEQFRD2  RDF.txt:2940)."""
+    return 1 if cw & 0x80000000 else 1 + (((cw >> 16) & 0xFFF) + 3) // 4
+
+
+@dataclass
+class Position:
+    """A DCB's place in a consecutive file: DCBCDAM, the word in HACMD, and W14.
+    ``start`` is the last record read (M:DELREC deletes it)."""
+    da: int = 0                  # 0: the beginning of the file
+    w: int = 0
+    rec: int = 0
+    start: tuple = None
+
+
+class ConsecutiveFile:
+    """One consecutive file (organization 1): a chain of granules of segments, the
+    FIT in the first one. Translated from WRTF.txt SEQ0 (:273), RDF.txt SEQ0, SEQPOS,
+    SEQFRD (:2841-:3268), DLT.txt SEQ0 and SEQ2-SEQ9, and FIX1.txt CHKCON."""
+
+    ORG = 1
+
+    def __init__(self, disc, name, log=None):
+        """ENTERO2  WRTF.txt:521 - the first granule at create ('PHONY FIT')."""
+        self.disc, self.name = disc, name
+        self.log = log if log is not None else []
+        self.FDA = self.LDA = self.TDA = 0             # TDA: the number of records
+        self.written = False
+        self._granule(0)
+        self._write_fit()
+
+    def _granule(self, prev):
+        """SEQ1C  WRTF.txt:292 - a new granule after ``prev`` (0: the first, with room
+        for the FIT); the old one's FLINK points at it (SEQ1F2)."""
+        da = self.disc.get()
+        if not da:
+            raise FileError(0x0A, "no granule for a consecutive file")   # SATDISK
+        b = self.disc.g[da]
+        setword(b, 0, prev)                            # BLINK
+        setword(b, 1, 0)                               # FLINK = 0 FOR EOF
+        if prev:
+            setword(self.disc.g[prev], 1, da)
+            setword(b, 3, 0)
+            setword(b, 2, 3)                           # NAV = 3
+        else:
+            self.FDA = da
+            setword(b, 3, FITSEG)                      # LOOKS LIKE DEL'D REC
+            setword(b, FITSIZE + 4, 3)                 # its back pointer
+            setword(b, 2, FITSIZE + 4)                 # NAV = 84
+        self.LDA = da
+        return da
+
+    # -- position --------------------------------------------------------------------
+
+    def _forward(self, da, w):
+        """SEQFRD  RDF.txt:2896 - past the segment at ``w``. At the end of the file,
+        the last granule and WBUFS."""
+        b = self.disc.read(da)
+        n = gnav(b)
+        if w < n:
+            w += seg_words(word(b, w))
+            if w < WBUFS and w <= n:
+                return da, w
+        if not word(b, 1):
+            return da, WBUFS                           # SEQFRD4: END OF FILE
+        return word(b, 1), 3                           # SEQFRD1: the next granule
+
+    def _seek(self, pos):
+        """SEQPOS  RDF.txt:3017, forward: from the position to the next segment with
+        the X'4' flag (a record's first), or the end. Returns (granule, word)."""
+        da, w = (pos.da, pos.w) if pos.da else (self.FDA, 3)
+        if not da:
+            return 0, WBUFS                            # no granules: an empty file
+        while True:
+            if w < WBUFS and flags_of(word(self.disc.read(da), w)) & X_FAK:
+                return da, w
+            nda, nw = self._forward(da, w)
+            if (nda, nw) == (da, w):
+                return da, w
+            da, w = nda, nw
+
+    # -- read ------------------------------------------------------------------------
+
+    def read(self, pos):
+        """SEQ0  RDF.txt:3136, forward: the next record, or None at the end of the file
+        (W14 >= TDA). The position moves past it."""
+        if pos.rec >= self.TDA:
+            return None                                # SEQ02: HIT EOF
+        da, w = self._seek(pos)
+        if w >= WBUFS:
+            return None                                # UNEXPECTED EOF
+        start, data, after = (da, w), b"", w
+        while True:
+            b = self.disc.read(da)
+            cw = word(b, w)
+            if cw & 0x80000000:                        # unblocked: its own granule
+                n = ((cw >> 24) & 0xF) + UNBLOCKED
+                data += bytes(self.disc.read(cw & 0xFFFFFF)[:n])
+            else:
+                n = (cw >> 16) & 0xFFF
+                if n == 0:                             # SEQ3: nothing here, go on
+                    nda, nw = self._forward(da, w)
+                    if nw >= WBUFS or (nda, nw) == (da, w):
+                        break
+                    da, w = nda, nw
+                    continue
+                data += bytes(b[(w + 1) * 4:(w + 1) * 4 + n])
+            after = w + seg_words(cw)                  # SEQE: NXT CTL WD OR END OF BFR
+            if not flags_of(cw) & X_CONT:
+                break
+            da, w = self._forward(da, w)
+            if w >= WBUFS:
+                break
+        pos.da, pos.w, pos.rec, pos.start = da, after, pos.rec + 1, start
+        return data
+
+    # -- write -----------------------------------------------------------------------
+
+    def write(self, pos, data):
+        """SEQ0  WRTF.txt:273 - a record at the current granule's NAV. Not at the end
+        (W14 != TDA), the file is first cut at the position (delete forward)."""
+        da, w = self._seek(pos)
+        if pos.rec != self.TDA:                        # SEQ01: DLT FRWD INFO
+            self.delete_forward(da, w, pos.rec)
+        pos.start = None
+        self.written = True
+        if not data:
+            return                                     # SEQ1B1: no record
+        if not self.FDA:
+            da = self._granule(0)                      # after the whole file was deleted
+        rest, first, pending = bytes(data), True, None
+        b = self.disc.g[da]
+        while True:
+            n, full = gnav(b), word(b, 2) & G_FULL
+            if full or n > WBUFS - 1 or (n == WBUFS - 1 and len(rest) < UNBLOCKED):
+                da = self._granule(da)                 # SEQ1G, SEQ1F: a new granule
+                b = self.disc.g[da]
+                continue
+            if pending is not None:                    # SEQ2B: GET ABORTED CTL WD
+                flags, pending = pending, None
+            else:
+                flags = 0
+                if first:                              # SEQ2A: FAK = 1, UP REC COUNT
+                    flags, first = X_FAK, False
+                    self.TDA += 1
+                    pos.rec += 1
+            if len(rest) >= UNBLOCKED:
+                if n > 3 and word(b, n) + 1 < n:       # SEQ2H: the segment before is blocked
+                    if n + 1 >= WBUFS:
+                        pending = flags                # the control word goes on
+                        da = self._granule(da)
+                        b = self.disc.g[da]
+                        continue
+                    flags |= X_BKSP                    # SEQ2G: SPECIAL BACKSPACE
+                    n += 1
+                    setgnav(b, n)
+                addr = self.disc.get()                 # SEQ2F
+                if not addr:
+                    raise FileError(0x0A, "no granule for an unblocked record")
+                seg = rest[:GRAN]
+                if len(rest) > GRAN:
+                    flags, code = flags | X_CONT, 15   # Y28: C & SIZE
+                else:
+                    code = len(rest) - UNBLOCKED
+                self.disc.g[addr][:len(seg)] = seg
+                setword(b, n, ((X_UNBLK | flags) << 28) | (code << 24) | addr)
+                setword(b, 2, word(b, 2) | G_UNBLK)
+                nxt = n + 1
+            else:                                      # SEQ3A: blocked
+                at = (n + 1) * 4
+                seg = rest[:GRAN - at]
+                if len(seg) < len(rest):
+                    flags |= X_CONT                    # SET C BIT
+                b[at:at + len(seg)] = seg
+                setword(b, n, word(b, n) + ((flags << 28) | (len(seg) << 16)))   # AWM,4 *14
+                nxt = (at + len(seg) + 3) // 4
+            rest = rest[len(seg):]
+            if nxt >= WBUFS:                           # SEQ3E: FULL FLAG
+                setword(b, 2, word(b, 2) | G_FULL)
+            else:                                      # SEQ3C
+                old = gnav(b)
+                setgnav(b, nxt)
+                setword(b, nxt, old)                   # FOR BACKUP
+            if not rest:
+                break
+        pos.da = da                                    # SEQ2E: SAVE POSITION
+        pos.w = WBUFS if word(b, 2) & G_FULL else gnav(b)
+
+    # -- delete ----------------------------------------------------------------------
+
+    def delete_record(self, pos):
+        """DLT.txt SEQ0 (:171) - M:DELREC: the record just read loses its X'4' flag
+        (WIPE OUT FAK) and the file one record. Returns False if none was just read."""
+        if pos.start is None:
+            return False                               # DELER: K15
+        da, w = pos.start
+        b = self.disc.g[da]
+        setword(b, w, word(b, w) & 0xBFFFFFFF)         # NB31TO0+31
+        self.TDA -= 1
+        pos.da, pos.w, pos.rec, pos.start = da, w, pos.rec - 1, None
+        self.written = True
+        return True
+
+    def _release_unblocked(self, b, w):
+        """SEQ5-SEQ7  DLT.txt:544 - the data granules of unblocked segments from ``w``."""
+        if not word(b, 2) & G_UNBLK:
+            return
+        n = gnav(b)
+        while w < WBUFS and w <= n:
+            cw = word(b, w)
+            if cw & 0x80000000:
+                self.disc.release(cw & 0xFFFFFF)
+            w += seg_words(cw)
+
+    def delete_forward(self, da, w, rec):
+        """DLT.txt SEQ2 (:479) - cut the file at (da, w): release what follows, end
+        the granule there (SEQ8A-SEQ83), TDA = the records before, LDA = this granule."""
+        b = self.disc.g[da]
+        self._release_unblocked(b, w)
+        nxt = word(b, 1)
+        while nxt:
+            nb = self.disc.read(nxt)
+            self._release_unblocked(nb, 3)
+            after = word(nb, 1)
+            self.disc.release(nxt)                     # RELRBGD
+            nxt = after
+        if w < WBUFS:
+            cw = word(b, w)
+            if cw & 0x80000000:
+                setword(b, w, w - 1)                   # SET BACKSPACE CONTROL WD
+            else:
+                setword(b, w, cw & 0xFFFF)             # ZAP OUT CTL AND SIZE
+            setword(b, 2, (word(b, 2) & 0x8FFF0000) | w)   # Y8FFF
+        setword(b, 1, 0)                               # RESET FLINK
+        self.TDA, self.LDA = rec, da                   # SEQ92
+        self.written = True
+
+    def release(self):
+        """DLT.txt SEQ3 (:488), from REL ('NEW CONSECUTIVE') - the whole file: every
+        granule, the first too, and the unblocked segments' data granules."""
+        da = self.FDA
+        while da:
+            b = self.disc.read(da)
+            self._release_unblocked(b, 3)
+            nxt = word(b, 1)
+            self.disc.release(da)
+            da = nxt
+        self.FDA = self.LDA = self.TDA = 0             # SEQ92: NOTHING LEFT
+
+    # -- the FIT ---------------------------------------------------------------------
+
+    @classmethod
+    def load(cls, disc, fda, log=None):
+        """OPEN of an existing consecutive file: the FIT at word 4 (OPNF.txt:1746)."""
+        self = cls.__new__(cls)
+        b = disc.read(fda)
+        name, vlps = read_fit(b, CFIT, FITSIZE + CFIT)
+        if 0x0C not in vlps:
+            raise FileError(0x75, "FIT inconsistency")
+        c = vlps[0x0C]
+        self.disc, self.name, self.log = disc, name, log if log is not None else []
+        self.FDA, self.TDA, self.LDA = c[0], c[4], c[6]
+        self.written = False
+        return self
+
+    def _write_fit(self):
+        """CLS.txt:2273 ('ASSUME CONSEC'): the name at word 4, organization 1 in the
+        X'09' VLP ('MAKE IT EXPLICIT CONSEC', :2392), and the CFU's addresses."""
+        put_fit(self.disc.g[self.FDA], CFIT, FITSIZE + CFIT, self.name,
+                [(0x09, [1 << 24, 0, 0]),
+                 (0x0C, [self.FDA, 0, 0, 0, self.TDA, 0, self.LDA]),
+                 (0x0D, [0])])
+
+    def close(self):
+        self._write_fit()
+        self.written = False
+
+    def records(self):
+        """Every record from the beginning (for tests and tools)."""
+        pos, out = Position(), []
+        while (data := self.read(pos)) is not None:
+            out.append(data)
+        return out
+
+    # -- FIX1's check ----------------------------------------------------------------
+
+    def check(self):
+        """FITCHK and CHKCON  FIX1.txt:1758, :1944 - (granule, word, error number)."""
+        errors = check_fit(self.disc, self.FDA, CFIT, FITSIZE + CFIT, self.ORG)
+        da, seen = self.FDA, set()
+        while da and da not in seen:
+            seen.add(da)
+            errors += self._chkcon(da, self.disc.read(da))
+            da = word(self.disc.g[da], 1)
+        return errors
+
+    def _chkcon(self, da, b):
+        """CHKCON  FIX1.txt:1944, as read: the previous segment starts as backspace
+        control, so an unblocked segment at word 3 needs the X'1' flag (see the open
+        question in docs/files.md)."""
+        BLOCKED, UNBLK, BKSPC = -1, 0, 1
+        prev, kind, w = 0, BKSPC, 3
+        n, full = gnav(b), word(b, 2) & G_FULL
+        while True:
+            cw = word(b, w)
+            fl, count, back = flags_of(cw), (cw >> 16) & 0xFFF, cw & 0xFFFF
+            if fl & X_UNBLK:                           # CONUBLK
+                if kind == BLOCKED or bool(fl & X_BKSP) != (kind == BKSPC):
+                    return [(da, w, 42)]
+                if (cw & 0xFFFFFF) not in self.disc.g:
+                    return [(da, w, 43)]
+                kind, prev, step = UNBLK, w, 1
+            elif fl == 0 and count == 0:               # CONBKSPC
+                if kind != BLOCKED or back != prev:
+                    return [(da, w, 44)]
+                kind, step = BKSPC, 1
+            else:                                      # CHKC15: blocked (or deleted)
+                if back != prev:
+                    return [(da, w, 41)]
+                kind, prev, step = BLOCKED, w, 1 + (count + 3) // 4
+            w += step                                  # CHKC20
+            if w < n:
+                continue
+            if w == n:
+                if not full:
+                    return []
+                if w >= WBUFS:
+                    return [(da, w, 40)]
+                continue
+            if not full or prev != n:                  # CHKC30
+                return [(da, w, 40)]
+            return []
+
+
+# --- a random file -------------------------------------------------------------------------
+
+class RandomFile:
+    """One random file (organization 3, docs/files.md section 6): a run of contiguous
+    granules read and written by granule number, and the FIT in a granule of its own
+    (SREC). Translated from GRAND.txt, WRTF.txt RWRAND and CLS.txt RELRAND."""
+
+    ORG = 3
+
+    def __init__(self, disc, name, size, log=None):
+        """GRANDPUB  GRAND.txt:102 - the FIT's granule (GBG), then the run (GNBG)."""
+        self.disc, self.name = disc, name
+        self.log = log if log is not None else []
+        self.SREC = disc.get()                         # FIT DISK ADDRESS
+        if not self.SREC:
+            raise FileError(0x57, "no granule for the FIT")
+        self.FDA = disc.get_n(size) if size else 0
+        if size and not self.FDA:
+            disc.release(self.SREC)
+            raise FileError(0x57, f"no run of {size} granules")
+        self.TDA = size                                # CDAM SET TDA: the size
+        b = disc.g[self.SREC]
+        setword(b, 2, (MIDIS << 16) | F_FIT | F_FULL)  # the FIT flag OPEN looks for
+        self.written = False
+        self._write_fit()
+
+    @property
+    def fit_da(self):
+        return self.SREC                               # what the directory entry names
+
+    def _check(self, gran):
+        if not 0 <= gran < self.TDA:
+            raise FileError(0x42, f"granule {gran} not in a file of {self.TDA}")   # ERR01
+
+    def read(self, gran, size):
+        """RWRAND  WRTF.txt:1928 - up to ``size`` bytes from granule ``gran`` on, no
+        further than the end of the file."""
+        self._check(gran)
+        n = min(size, (self.TDA - gran) * GRAN)
+        data = b"".join(bytes(self.disc.read(self.FDA + gran + i))
+                        for i in range((n + GRAN - 1) // GRAN))
+        return data[:n]
+
+    def write(self, gran, data):
+        """RWRAND, write: ``data`` from granule ``gran`` on, cut at the end of the file.
+        Returns the bytes written."""
+        self._check(gran)
+        n = min(len(data), (self.TDA - gran) * GRAN)
+        for i in range(0, n, GRAN):
+            chunk = data[i:min(i + GRAN, n)]
+            self.disc.g[self.FDA + gran + i // GRAN][:len(chunk)] = chunk
+        self.written = True
+        return n
+
+    def release(self):
+        """RELRAND  CLS.txt:1729 - the run back with RNBG; then the FIT's granule (not
+        found in RELRAND: assumed released with the file)."""
+        if self.TDA:
+            self.disc.release_n(self.FDA, self.TDA)
+        self.disc.release(self.SREC)
+        self.FDA = self.TDA = self.SREC = 0
+
+    @classmethod
+    def load(cls, disc, fit, log=None):
+        """OPEN of an existing random file: X'0C' word 0 is the run's first address,
+        word 1 its size (docs/files.md section 3)."""
+        self = cls.__new__(cls)
+        name, vlps = read_fit(disc.read(fit), NWFITST, WXBUFSIZ)
+        if 0x0C not in vlps:
+            raise FileError(0x75, "FIT inconsistency")
+        self.disc, self.name, self.log = disc, name, log if log is not None else []
+        self.SREC, (self.FDA, self.TDA) = fit, vlps[0x0C][:2]
+        self.written = False
+        return self
+
+    def _write_fit(self):
+        put_fit(self.disc.g[self.SREC], NWFITST, WXBUFSIZ, self.name,
+                [(0x09, [3 << 24, 0, 0]),
+                 (0x0C, [self.FDA, self.TDA, 0, 0, 0, self.SREC, 0]),
+                 (0x0D, [0])])
+
+    def close(self):
+        self._write_fit()
+        self.written = False
+
+    def check(self):
+        """FITCHK  FIX1.txt:1758 for the FIT's granule."""
+        if not control(self.disc.g[self.SREC]) & F_FIT:
+            return [(self.SREC, 0, 3)]
+        return check_fit(self.disc, self.SREC, NWFITST, WXBUFSIZ, self.ORG)
+
+
+def open_file(disc, fda, log=None):
+    """OPNF.txt:1746-:1781 - which organization the first granule is: the FIT flag
+    (X'8000') makes it keyed or random, by the X'09' VLP; no flag and X'3FFF0000'
+    clear, consecutive."""
+    b = disc.g.get(fda)
+    if b is None:
+        raise FileError(0x75, f"read of an unallocated granule X'{fda:X}'")
+    if control(b) & F_FIT:
+        _, vlps = read_fit(b, NWFITST, WXBUFSIZ)
+        if vlps.get(0x09, [0])[0] >> 24 == RandomFile.ORG:
+            return RandomFile.load(disc, fda, log)
+        return KeyedFile.load(disc, fda, log)
+    if not word(b, 2) & G_NOTCONSEC:
+        return ConsecutiveFile.load(disc, fda, log)
+    raise FileError(0x75, "FIT inconsistency")
 
 
 # --- the file system: OPEN and CLOSE --------------------------------------------------------
@@ -830,9 +1548,12 @@ class FileSystem:
     def files(self, account):
         return self.file_directory(account).keys()
 
-    def open(self, name, account, mode="IN", keym=11, lslides=254, lrdl0=2, spare=102):
+    def open(self, name, account, mode="IN", keym=11, lslides=254, lrdl0=2, spare=102,
+             org=2, size=0):
         """OPNF  OPNF.txt - the CFU scan, then the directory search, then the FIT.
-        ``mode`` is IN, OUT, INOUT or UPDATE; a missing file is created for any but IN."""
+        ``mode`` is IN, OUT, INOUT or UPDATE; a missing file is created for any but IN,
+        keyed (``org`` 2), consecutive (1) or random (3, of ``size`` granules: RSTORE).
+        An existing file keeps its own."""
         ident = (account_key(account), as_key(name))
         cfu = self.cfus.get(ident)
         if cfu is not None:                            # CFU SCAN: already open
@@ -841,11 +1562,18 @@ class FileSystem:
         fd = self.file_directory(account)
         fit = fd.find(name)
         if fit:
-            kf = KeyedFile.load(self.disc, fit, self.log)
-            kf.LSLIDES, kf.LRDL0, kf.SPARE = lslides, lrdl0, spare
+            kf = open_file(self.disc, fit, self.log)
+            if isinstance(kf, KeyedFile):
+                kf.LSLIDES, kf.LRDL0, kf.SPARE = lslides, lrdl0, spare
             new = False
         elif mode == "IN":
             raise FileError(0x03, f"no such file {name}")
+        elif org == ConsecutiveFile.ORG:
+            kf = ConsecutiveFile(self.disc, name, self.log)                          # ENTERO2
+            new = True
+        elif org == RandomFile.ORG:
+            kf = RandomFile(self.disc, name, size, self.log)                         # GRAND
+            new = True
         else:
             kf = KeyedFile(self.disc, name, keym, lslides, lrdl0, spare, self.log)   # ENTER1
             new = True
@@ -855,11 +1583,19 @@ class FileSystem:
         return cfu
 
     def close(self, cfu, release=False):
-        """CLSFIL  CLS.txt:1438 - the pyramid and the FIT; a new file goes into its
-        directory (CLSFIL4); the CFU goes when its last user closes."""
+        """CLSFIL  CLS.txt:1443 - the pyramid and the FIT; a new file goes into its
+        directory (CLSFIL4). With ``release`` (REL) and no other user, the file is
+        deleted: its directory entry unless it was never entered (DELF), then its
+        granules (REL). The CFU goes when its last user closes."""
         cfu.file.close()
-        if cfu.new and not release:
-            cfu.fd.add(cfu.name, cfu.file.FDA)
+        if release and cfu.nou <= 1:                   # MORE THAN 1 USER: no release
+            if not cfu.new:
+                cfu.fd.remove(cfu.name)                # CL6A: DELF
+            cfu.file.release()                         # CLSFIL2: REL
+            cfu.new = False
+            self.log.append(f"RELEASE {cfu.name}.{cfu.account}")
+        elif cfu.new:
+            cfu.fd.add(cfu.name, getattr(cfu.file, "fit_da", cfu.file.FDA))
             cfu.new = False
         cfu.nou -= 1
         if cfu.nou <= 0:

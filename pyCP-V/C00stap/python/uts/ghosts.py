@@ -5,26 +5,41 @@ to T:SE (INITIAL.txt:124-127). Here that builds a sched.Scheduler for the monito
 and starts both. They run when the system is operated (keyin.OperatorConsole):
 GHOST1's stand-in follows the end of the real start-up sequence (GHOST1D.txt:320-376).
 
-None of the ghosts is translated. A stand-in only does what the scheduler can
-see: it computes, sleeps, starts other ghosts and logs off. What the real ghosts
-do (ALLOCAT's granule service, GHOST1's RECOVER2/PASS0/SYSMAK, RBBAT's symbionts)
-is in their own modules and not read yet.
+Most ghosts aren't translated. A stand-in only does what the scheduler can see: it
+computes, sleeps, starts other ghosts and logs off. What the real ghosts do (GHOST1's
+RECOVER2/PASS0/SYSMAK, RBBAT's symbionts) is in their own modules and not read yet.
+ALLOCAT's granule service is translated (files.Disc.allocat, docs/files.md section 8).
 """
 
 from .machine import BOOTFLG, BOOTTYPE
 from .cal import CalProcessor
 from .files import Disc, FileSystem
 from . import pyprog
-from .sched import Cal1, Call, Compute, Scheduler, Sleep
+from .sched import E_UQFAC, Cal1, Call, Compute, Scheduler, Sleep
 
 
 def allocat(sched, u):
-    """ALLOCAT stand-in: waits for granule requests (asleep; nothing wakes it yet)."""
+    """ALLOCAT  ALLYCAT.txt: ALLOINIT ends asleep (WAIT). Each time a threshold starts
+    it (T:GJOBSTRT: E:WU), ADJBUFS on the public disc's stack, then WAIT again. The
+    swapper isn't translated, so the E:UQFAC it reports when ALLOCAT goes out (and
+    STUQFAC's commit of the stack) comes here, as ALLOCAT goes to sleep."""
+    yield Sleep()                                      # ALLOINIT ... WAIT
+
+    def adjust(sched, u):
+        fs = sched.cal.fs if sched.cal else None
+        if fs is not None:
+            fs.disc.allocat()                          # ADJBUFS
+        sched.rce0(u, E_UQFAC)                         # SWAPPER.txt:619 (stand-in)
+
+    while True:
+        yield Call(adjust, "ALLOCAT: ADJBUFS; E:UQFAC")
+        yield Sleep()                                  # WAIT
+
+
+def rbbat(sched, u):
+    """RBBAT stand-in: waits for symbiont work."""
     while True:
         yield Sleep()
-
-
-rbbat = allocat                                   # RBBAT stand-in: waits for symbiont work
 
 
 def ends(sched, u):
@@ -82,6 +97,8 @@ def boot_scheduler(m, mon, sysgen):
     if m.public_disc is None:
         m.public_disc = Disc(2048)
     disc = m.public_disc
+    disc.cat = lambda: s.t_gjobstrt("ALLOCAT")         # THRESH: GRAN.txt:337
+    s.buffers[1] = disc.stack                          # HGPSTK's pack stack, for STUQFAC
     s.cal.fs = FileSystem(disc, s.log, ad_fda=disc.ad_fda or None)
     disc.ad_fda = s.cal.fs.ad.FDA
     s.cal.fs.add_account(":SYS")

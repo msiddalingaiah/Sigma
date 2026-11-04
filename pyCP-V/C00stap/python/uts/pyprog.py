@@ -19,7 +19,7 @@ import queue
 import threading
 
 from .cal import (F_NWK, F_ONWK, P_ABN, P_BUF, P_ERR, P_KEY, P_SIZE, Fpt)
-from .files import EBCDIC, FileError
+from .files import EBCDIC, GRAN, FileError
 from .sched import Cal1, Compute
 
 EXIT, ERROR, ABORT = 1, 2, 3            # CAL1,9 exit types: M:EXIT, M:ERR, M:XXX
@@ -208,15 +208,20 @@ class Cpv:
         self._bridge.call(Compute(int(n)))
 
     # files
-    def open(self, name, account=":SYS", fun="IN", keym=11):
-        """M:OPEN on a new file DCB. Returns a File."""
+    def open(self, name, account=":SYS", fun="IN", keym=11, org="keyed", size=0):
+        """M:OPEN on a new file DCB. ``org`` ("keyed", "consec" or "random", with
+        ``size`` granules) is for a new file; an existing one keeps its own. Returns a
+        File, a ConsecFile or a RandomFile."""
         self._dcbs += 1
         address = 0x9000 + 16 * self._dcbs
         dcb = self.cal.add_dcb(self.u, f"F:{self._dcbs}", address, asn=1, fname=name,
-                               account=account, fun=fun, keym=keym)
+                               account=account, fun=fun, keym=keym, rstore=size,
+                               org={"keyed": 0x20, "consec": 0, "random": 0x10}[org])
         self._call(Cal1(1, Fpt(0x14, word0=address, presence=P_ERR | P_ABN,
                                params=[self.ERRR, self.ABNR])))
-        return File(self, dcb)
+        if dcb.org == 0:
+            return ConsecFile(self, dcb)
+        return RandomFile(self, dcb) if dcb.org == 0x10 else File(self, dcb)
 
 
 class File:
@@ -277,6 +282,79 @@ class File:
         self.cpv._call(Cal1(1, Fpt(0x0D, word0=self.dcb.address, presence=P_ERR | P_ABN | P_KEY,
                                    params=[Cpv.ERRR, Cpv.ABNR, Cpv.KEY])))
 
-    def close(self):
-        """M:CLOSE."""
-        self.cpv._call(Cal1(1, Fpt(0x15, word0=self.dcb.address)))
+    def close(self, release=False):
+        """M:CLOSE; with ``release``, the disposition REL: the file is deleted."""
+        if release:
+            fpt = Fpt(0x15, word0=self.dcb.address, presence=0x80000000, params=[1])
+        else:
+            fpt = Fpt(0x15, word0=self.dcb.address)
+        self.cpv._call(Cal1(1, fpt))
+
+
+class ConsecFile(File):
+    """An open consecutive file DCB: records one after another, no keys."""
+
+    def read(self, size=2048):
+        """M:READ: the next record, or None at the end of the file. A record longer
+        than ``size`` raises CpvError X'07' (lost data)."""
+        return super().read(None, size)
+
+    def next(self):
+        return self.read()
+
+    def __iter__(self):
+        while (data := self.read()) is not None:
+            yield data
+
+    def write(self, data):
+        """M:WRITE: a record after the current one. Before the end of the file, the
+        file is cut there first."""
+        c = self.cpv
+        if isinstance(data, str):
+            data = data.encode("latin-1")
+        c.cal.put_text(c.u, Cpv.BUF, data.decode("latin-1"))
+        c._call(Cal1(1, Fpt(0x11, word0=self.dcb.address,
+                            presence=P_ERR | P_ABN | P_BUF | P_SIZE,
+                            params=[Cpv.ERRR, Cpv.ABNR, Cpv.BUF, len(data)])))
+
+    def delete(self):
+        """M:DELREC: the record just read."""
+        self.cpv._call(Cal1(1, Fpt(0x0D, word0=self.dcb.address, presence=P_ERR | P_ABN,
+                                   params=[Cpv.ERRR, Cpv.ABNR])))
+
+
+class RandomFile(File):
+    """An open random file DCB: whole granules by number (docs/files.md section 6)."""
+
+    def _gran(self, gran, presence, params):
+        if gran is not None:
+            self.cpv.cal.s.umem[self.cpv.u][Cpv.KEY] = int(gran)   # the key word
+            presence |= P_KEY
+            params.append(Cpv.KEY)
+        return presence, params
+
+    def read(self, gran=None, size=GRAN):
+        """M:READ of ``size`` bytes from granule ``gran`` (default: where the last
+        request ended). Past the end of the file: CpvError X'42'. A request cut short
+        by the end of the file: CpvError X'44'."""
+        c = self.cpv
+        presence, params = self._gran(gran, P_ERR | P_ABN | P_BUF | P_SIZE,
+                                      [Cpv.ERRR, Cpv.ABNR, Cpv.BUF, size])
+        c._call(Cal1(1, Fpt(0x10, word0=self.dcb.address, presence=presence, params=params)))
+        return c.cal.read_text(c.u, Cpv.BUF, 0, self.dcb.ars).encode("latin-1")
+
+    def write(self, data, gran=None):
+        """M:WRITE of ``data`` from granule ``gran`` (default: where the last request
+        ended)."""
+        c = self.cpv
+        if isinstance(data, str):
+            data = data.encode("latin-1")
+        c.cal.put_text(c.u, Cpv.BUF, data.decode("latin-1"))
+        presence, params = self._gran(gran, P_ERR | P_ABN | P_BUF | P_SIZE,
+                                      [Cpv.ERRR, Cpv.ABNR, Cpv.BUF, len(data)])
+        c._call(Cal1(1, Fpt(0x11, word0=self.dcb.address, presence=presence, params=params)))
+
+    @property
+    def granule(self):
+        """The next granule (the key word in KBUF)."""
+        return self.dcb.rgran

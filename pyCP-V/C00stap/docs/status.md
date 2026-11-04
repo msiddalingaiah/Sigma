@@ -12,7 +12,7 @@ of the source contains. Last updated 2026-11-03.
 | [`recovery.md`](recovery.md) | Crash recovery: `SCREECH`, single-user abort and dump, RECOVER (`RCVCTL`), the dump area, the reboot, and X'2A' through a recovery |
 | [`keyin.md`](keyin.md) | Operator key-ins: the console interrupt, the control task, device key-ins, the KEYIN ghost and its command table, and the `ZAP` shutdown |
 | [`io.md`](io.md) | Monitor I/O: IOQ queueing and scheduling, the handlers (typewriter, line printer), cleanup, completion, timeouts and device messages |
-| [`files.md`](files.md) | The file system's structure: directories, the FIT and its VLPs, consecutive, keyed and random files, the keyed master index and its entries, key lookup and insertion, the pyramid rebuilt at close, the CFU, granules in outline |
+| [`files.md`](files.md) | The file system's structure: directories, the FIT and its VLPs, consecutive, keyed and random files, the keyed master index and its entries, key lookup and insertion, the pyramid rebuilt at close; consecutive files in depth (segments and control words, writing, reading, deleting, FIX1's check); random files (create, read and write by granule, release); deleting a file (CLOSE with REL, the directory entry, releasing granules); the CFU; granule allocation (the HGP bit maps, the stacks, ALLOCAT, `STUQFAC`) |
 | [`python-programs.md`](python-programs.md) | Python programs as ghost jobs, started with `GJOB`: the design, and a table of every departure from CP-V |
 | [`rdwr.md`](rdwr.md) | User read and write: the parameter decode, device writes (the typewriter), `IOQUEUE`, COOP, IOQ's `QUEUE`/`FRONTEND`/`REQCOM` for a DCB, the wait and the completion codes |
 | [`cal.md`](cal.md) | CAL dispatch: the trap entry, decoding the FPT, the CAL1,1–CAL1,9 tables, the DCB check, monitor overlays (`T:OVERLAY` and `E:AP`), and the returns |
@@ -24,7 +24,7 @@ settled is listed under each document's **Open questions**.
 ## Translated (`python/uts`)
 
 A hand translation on a small machine model with stubbed devices, not an instruction emulator.
-213 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
+249 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
 simplification; the top-level `README.md` has the commands.
 
 | Area | Module | Status |
@@ -37,6 +37,10 @@ simplification; the top-level `README.md` has the commands.
 | I/O | `io.py` | IOQ for monitor requests, the console and printer handlers, injectable printer faults |
 | Scheduler | `sched.py` | States, events and transition tables, priorities, resources, the exit path, log-on, `T:SE` and idle, and `T:SS` on page counts. Users are generator stand-ins; swaps complete at once. `INITIAL` builds it and starts ALLOCAT and GHOST1, and the key-ins run through it (`ghosts.py`) |
 | Keyed files | `files.py`, `cal.py` | Index blocks and entries byte-exact, insertion with block splits, records in data granules, the pyramid (search, build at close), FIX1's checks; account and file directories, OPEN/CLOSE with CFUs; M:OPEN/M:CLOSE/M:DELREC and keyed M:READ/M:WRITE from stand-in programs, through the OPEN and CLOSE overlays |
+| Granule allocation | `files.py`, `ghosts.py`, `sched.py` | The HGP bit map, the pack stack, GRAN's get/release and thresholds, ALLOCAT as a ghost that fills and empties the stack, committed by `STUQFAC` |
+| Random files | `files.py`, `cal.py` | Create (FIT granule and a run), read/write by granule number, release |
+| Deleting files | `files.py`, `cal.py` | `M:CLOSE` with REL: the directory entry, then the granules. Keyed record deletes as `DEL` does them, the pyramid's null first keys, and the continuation-key backup in the search (a bug found by random testing) |
+| Consecutive files | `files.py`, `cal.py` | Byte-exact granules and segments, forward reads, writes, the cut at a mid-file write, `M:DELREC`, FIX1's `CHKCON`; `cpv.open(..., org="consec")`. No backward reads or positioning CALs |
 | Disc images | `image.py` | `--disc PATH` keeps the swap and public discs in a host file, so files and the installed monitor survive between runs. Not a translation: see `python-programs.md` |
 | Python ghost jobs | `keyin.py` (`GJOB`), `pyprog.py` | `GJOB NAME` runs a Python program from the file system as a ghost; its `cpv` calls are real CALs, including `M:KEYIN` to ask the operator. Not a translation: see `python-programs.md` |
 | Read/write | `cal.py`, `io.py` | M:TYPE/M:MESSAGE/M:PRINT, M:WRITE and M:CHECK to `M:OC` through the console IOQ, with `FRONTEND`, `REQCOM`'s DCB branch, `E:IC`, the wait and the error codes |
@@ -115,9 +119,9 @@ ways on:
    stand-in finishes the start-up, KEYIN runs as a ghost, and `ZAP` aborts users and shuts down
    through `Scheduler.idle`. CAL dispatch (`docs/cal.md`, `python/uts/cal.py`) is done too.
    **Next options:**
-   - **more of the file system**: consecutive and random files, OPEN's checks (passwords,
-     access, synonyms), deletion of files (`DLT`, `PURGE`), and granule allocation (`GRAN`,
-     ALLOCAT, the HGP) instead of a free list;
+   - **more of the file system**: OPEN's checks (passwords, access, synonyms, expiration),
+     `PURGE`, and FIX1's HGP reconstruction. Consecutive and random files, deleting files and
+     granule allocation are done (2026-11-03);
    - more of read/write: device reads (`MSRRED`/`MSROTHR`), the printer (`MSRLP`);
    - `docs/swapper.md` (put off by choice);
    - `docs/ghost1.md` for the whole start-up.

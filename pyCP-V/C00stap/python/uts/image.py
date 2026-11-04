@@ -9,8 +9,10 @@ The image is gzipped JSON (``gunzip`` gives the readable file; a plain JSON imag
 loads too):
 - ``rad``: the swap disc's sectors (8 hex digits a word) and, per root sector, the
   root variables the Python keeps on Monitor (devices.Disc.attached);
-- ``public``: the public disc's granules (hex bytes), its free list, and the
-  account directory's FDA (ACNCFU's, which the real start-up finds; not read).
+- ``public``: the public disc's granules (hex bytes), its allocation table (the HGP
+  bit map and where the last get stopped) and stack (HGPSTK), and the account
+  directory's FDA (ACNCFU's, which the real start-up finds; not read). A version 1
+  image had a free list instead; it loads as a bit map with an empty stack.
 
 Open files (CFUs) aren't saved: like the monitor's memory, they go when a run ends.
 """
@@ -23,7 +25,8 @@ from .config import DctEntry
 from .devices import Disc as SwapDisc
 from .files import Disc as PublicDisc
 
-VERSION = 1
+VERSION = 2
+STACK_FIELDS = ("TOP", "BOTTOM", "TEMPBOT", "WORDCNT", "ADJSTCNT", "BUFLAGS")
 
 
 def _words(ws):
@@ -70,7 +73,10 @@ def save(path, swap, public):
         },
         "public": {
             "ad_fda": public.ad_fda,
-            "free": public.free,
+            "hgp": {"first": public.hgp.first, "granules": public.hgp.n,
+                    "map": bytes(public.hgp.map).hex(), "last": public.hgp.last},
+            "stack": dict({f: getattr(public.stack, f) for f in STACK_FIELDS},
+                          slots=public.stack.slots),
             "granules": {str(da): bytes(b).hex() for da, b in sorted(public.g.items())},
         },
     }
@@ -84,7 +90,7 @@ def load(path):
         gzipped = f.read(2) == b"\x1f\x8b"             # the gzip magic number
     with (gzip.open if gzipped else open)(path, "rt", encoding="ascii") as f:
         image = json.load(f)
-    if image.get("version") != VERSION:
+    if image.get("version") not in (1, VERSION):
         raise ValueError(f"{path}: disc image version {image.get('version')}, expected {VERSION}")
     rad = image["rad"]
     swap = SwapDisc(model=rad["model"])
@@ -92,8 +98,22 @@ def load(path):
     swap.attached = {int(s): {k: _decode(x) for k, x in snap.items()}
                      for s, snap in rad["root"].items()}
     pub = image["public"]
-    public = PublicDisc(0)
-    public.free = list(pub["free"])
-    public.g = {int(da): bytearray.fromhex(h) for da, h in pub["granules"].items()}
+    granules = {int(da): bytearray.fromhex(h) for da, h in pub["granules"].items()}
+    if image["version"] == 1:                          # a free list: its granules free,
+        every = sorted(set(pub["free"]) | set(granules))   # the rest in use
+        public = PublicDisc(every[-1] - every[0] + 1 if every else 0, every[0] if every else 0x100)
+        public.hgp.map = bytearray(len(public.hgp.map))
+        for da in pub["free"]:
+            public.hgp._set(da - public.hgp.first, True)
+    else:
+        h = pub["hgp"]
+        public = PublicDisc(h["granules"], h["first"])
+        public.hgp.map = bytearray.fromhex(h["map"])
+        public.hgp.last = h["last"]
+        st = pub["stack"]
+        for f in STACK_FIELDS:
+            setattr(public.stack, f, st[f])
+        public.stack.slots = list(st["slots"])
+    public.g = granules
     public.ad_fda = pub["ad_fda"]
     return swap, public

@@ -483,7 +483,7 @@ each associated processor. R0 is the same without processors locked in core (`PB
 | States, queues, links | `STATE`, `SB:HQ`/`SB:TQ`, `UB:FL`/`UB:BL` | Plain lists per state; keep the numbers, they are used arithmetically |
 | Transition tables | `ESTS`/`ESTS1`, `RESOURCE` | Build `S:SET`/`SB:SET` from the same declarations, so `SCREECH 02` happens where it would |
 | Event reporting | `RCE0`, `RCE4`, `T:CHSE`, `CHS1` | With the priority insertion and `S:HIR` |
-| Special transitions | `S:TRNSVEC` … `STKO`, `T:RES`/`T:REL`/`T:UQR` | `STUQFAC` as a stub |
+| Special transitions | `S:TRNSVEC` … `STKO`, `T:RES`/`T:REL`/`T:UQR` | `STUQFAC` on the four buffers; buffer 1 is the file system's pack stack ([`files.md`](files.md) §8) |
 | Exit path | `SSE0`–`SSE6`, `T:DOLIST` | DO-list types 1 and 7 at first; ABRT/ERR to stubs for `T:TELDELCCI`/`SETRNST` |
 | Execution scheduler | `T:SE`, `SE1`, idle | Ghosts as Python stand-ins for "running a user"; the idle check already exists for `ZAP` |
 | Log-on and new users | `T:RCE`, `LOGON`, `ADD1`, `GETJIT` | Granules from a stub swap device |

@@ -45,8 +45,12 @@ python -m pytest
 | File CALs: `M:OPEN`, `M:CLOSE`, `M:DELREC`, `M:READ`/`M:WRITE` on a file DCB (`ISEQUB`, `IOSFILE`, the default OPEN `MSRRDWTA`) | `cal.CalProcessor` (`file_open` …) | Through the overlays OPEN and CLOSE (swapped in by the scheduler), keyed and next-record reads into the user's buffer, KBUF, NEWKEY/ONEWKEY, and the error codes through the error/abnormal routines. A booted system has a file system with the `:SYS` account. |
 | `M:KEYIN` (`MSRKEYIN`, UCAL.txt:1157) | `cal.CalProcessor.msrkey` | The message through `MSROCTY`/`MSRTYPR`, a copy of `M:OC` per caller, the console read through `FRONTEND`/`QUEUE` and `IOSPIN`, and the reply as a TEXTC (length in byte 0). With the console script at its end, the reply is empty, as after a timeout. Not on terminals (`M:UC`) or with an ECB |
 | `GJOB` key-in (`KIGJOB`, KEYN.txt:715) | `keyin.kigjob` | `GJOB NAME[.ACCOUNT]`, the 7-character limit, "DONT START OURSELF", and the three replies. A resource name answers `EH?` |
+| Consecutive files (WRTF.txt `SEQ0`, RDF.txt `SEQ0`/`SEQPOS`/`SEQFRD`, DLT.txt `SEQ0`/`SEQ2`–`SEQ9`, FIX1.txt `CHKCON`) | `files.ConsecutiveFile`, `files.Position` | Byte-exact granules: the FIT segment at word 3, blocked/unblocked/continued segments, backspace control words, NAV with its back pointer, the full flag. Forward reads (end of file X'06', lost data X'07'), writes at the end, the cut ("delete forward") when a write comes before the end, `M:DELREC`, and FIX1's `CHKCON` as read. `FileSystem.open` tells keyed from consecutive by the first granule. Through `cal.py` (`seq_read`, `seq_write`) and `cpv.open(..., org="consec")` |
+| Deleting files and records (CLS.txt `CLSFIL` with REL, DLT.txt `DELF`/`DEL1`/`DEL`/`REL`/`SEQ3`, MUL.txt `MOVEAKEY`) | `FileSystem.close(release=True)`, `KeyedFile.release`/`delete`, `ConsecutiveFile.release`, `Directory.remove` | `M:CLOSE` with REL deletes a file: its directory entry slid out (unless the file was never entered), then every granule. No release while another user has the file open. A keyed record delete keeps control keys (displacement 0) null, releases full granules at once (with `MTB,3`'s double-release guard) and slides other entries out. The pyramid build keeps null first keys as `MOVEAKEY` does, and the search backs up from a continuation key (`MLSET00`). `cpv`: `close(release=True)` |
+| Granule allocation (GRAN.txt `GBG`/`RBG`/`CHKTHRSH`/`GNBG`/`RNBG`, GRANSUB.txt `GETBIT`/`CMNGNG`/`CMNRG`, ALLYCAT.txt `ADJBUFS`, HGPSTK.txt, SCHED.txt `STUQFAC`) | `files.Hgp`, `files.Stack`, `files.Disc`, `ghosts.allocat` | One device's bit map (the last get remembered, runs from the end, dual allocations logged) and the pack stack (128 slots, levels 40/80, thresholds 16/100). Gets pop it and releases push it; a threshold wakes the ALLOCAT ghost, whose fill or emptying stays pending until `E:UQFAC` and `STUQFAC`. The scheduler's buffer 1 is the stack |
+| Random files (GRAND.txt, WRTF.txt `RWRAND`, CLS.txt `RELRAND`) | `files.RandomFile`, `cal.rwrand` | The FIT's own granule, a contiguous run from the end of the map, reads and writes by granule number (the key word moves on; X'42' past the end, X'44' cut short), release of the run. `cpv`: `open(..., org="random", size=n)`, `read(gran, size)`, `write(data, gran)` |
 | Python programs as ghost jobs (**not a translation**) | `pyprog` | Programs stored as EDIT-style keyed files, a loader stand-in for the ghost's first step, a thread per program bridged so that each service call is a yield, and the `cpv` library (`type`, `message`, `keyin`, `time`, `wait`, `compute`, keyed files). `--file` imports them. Every departure from CP-V is listed in `docs/python-programs.md` |
-| Disc images (**not a translation**) | `image` | `--disc PATH` saves the swap disc (sectors and the attached root variables) and the public disc (granules, free list, account directory address) as gzipped JSON when a run ends, and loads them when the next starts. See `docs/python-programs.md`, "Disc images" |
+| Disc images (**not a translation**) | `image` | `--disc PATH` saves the swap disc (sectors and the attached root variables) and the public disc (granules, the HGP bit map and the stack, account directory address) as gzipped JSON when a run ends, and loads them when the next starts. See `docs/python-programs.md`, "Disc images" |
 | Pack swappers, `SWAPPER` | — | Not translated: swaps are stand-ins that complete at once. |
 
 `crash()` and `operator_recovery()` in `__main__` act on a system that is up: they run the
@@ -106,6 +110,19 @@ the files outlive a recovery or reboot, and `--disc` keeps it between runs.
 - I/O: user DCB requests, ECBs, dual access, the control-task deferral, and the disc, tape and
   card handlers aren't translated. Only the console and line printer are attached to IOQ. Device
   faults are injected through the units (`--lp-fault`).
+- Granules: one public device, granule-allocated, PFA only; no PER, cylinders, private packs or
+  other devices. A user who would wait on `E:QFAC` for an empty stack gets ALLOCAT's fill at once,
+  and `COMBUF` messages (`GNBG`, `RNBG`, a full stack's release) are answered at once. ALLOCAT
+  reports its own `E:UQFAC` as it sleeps, in place of the swapper. Disc addresses are granule
+  numbers, not sectors with a DCT index.
+- Random files: no disc limit (`TMDCRM`), scratch files, private packs or cylinders; transfers
+  aren't split by track.
+- Deleting: no privilege or ownership check (users and accounts aren't modeled), no synonyms
+  or free-sector pool. An emptied file directory is never removed, as in the source
+  (`DELFD` is assembled out).
+- Consecutive files: no backward reads, positioning CALs (`M:PFIL`, `M:PRECORD`), read-ahead
+  or private-pack volume switching. A DCB's position is a `files.Position` (`DCBCDAM`, `HACMD`'s
+  word, `W14`) rather than DCB words, and an existing file's organization sets the DCB's `ORG`.
 - Time: `IOCLOCK` counts 5-second units. Nothing advances it by itself; the key-in session moves it
   on by 2 units (10 seconds) before each key-in, which is when timeouts and reminders fire.
 - Scheduler (`sched.py`): users are Python generators that yield `Compute`, `Sleep`, `Io`,
@@ -136,10 +153,9 @@ the files outlive a recovery or reboot, and `--disc` keeps it between runs.
   reserved). On reopen, the next free byte of the records granule isn't known, so the next record
   starts a new data granule.
 - Keyed files (`files.py`): a rewrite deletes the old entries and inserts again (no in-place
-  `REWRITEUB`); a delete clears the entries' key counts (`DLT` not read). The search doesn't start
-  from the buffered block. Upper levels use level 0's room check (MUL's `COMP` not read), and the
-  old pyramid's granules are released, not reused. Granules come from a free list (no GRAN stacks,
-  ALLOCAT or HGP), with no dual copies. The FIT holds only the X'09', X'0C' and X'0D' VLPs.
+  `REWRITEUB`). The search doesn't start from the buffered block. Upper levels use level 0's room
+  check (MUL's `COMP` not read), and the old pyramid's granules are released, not reused. There
+  are no dual copies. The FIT holds only the X'09', X'0C' and X'0D' VLPs.
 - Recovery assumes `RCVRDSZ` (set by SYSMAK) is `HIGH`+3 granules. The recovery buffer holds
   only the words `RCVDMP` saves, and the dump to tape (`TAPDMP`) isn't translated.
 - After a recovery, the date and time in the rebooted monitor are empty. The source asks
