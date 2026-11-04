@@ -1,0 +1,9 @@
+[project]
+name = "uts"
+version = "0.1.0"
+description = "Python translation of the Xerox UTS / CP-V boot path"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

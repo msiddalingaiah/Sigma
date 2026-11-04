@@ -1,0 +1,128 @@
+# Project status
+
+Where the documentation and the Python translation stand, what is still open, and what the rest
+of the source contains. Last updated 2026-11-03.
+
+## Documented
+
+| Document | Covers |
+|---|---|
+| [`boot.md`](boot.md) | The boot process: `INITIAL`, `MONINIT`, the tape install `TBOOT:`, the disc boot `DBOOT`, the page pool, RECONFIG's boot-time entries, and the boot types in X'2A' |
+| [`tape.md`](tape.md) | The SYSGEN system tape (WRITEMON): record layout, head records, patch segment names, and how XDELTA reads the patch cards |
+| [`recovery.md`](recovery.md) | Crash recovery: `SCREECH`, single-user abort and dump, RECOVER (`RCVCTL`), the dump area, the reboot, and X'2A' through a recovery |
+| [`keyin.md`](keyin.md) | Operator key-ins: the console interrupt, the control task, device key-ins, the KEYIN ghost and its command table, and the `ZAP` shutdown |
+| [`io.md`](io.md) | Monitor I/O: IOQ queueing and scheduling, the handlers (typewriter, line printer), cleanup, completion, timeouts and device messages |
+| [`files.md`](files.md) | The file system's structure: directories, the FIT and its VLPs, consecutive, keyed and random files, the keyed master index and its entries, key lookup and insertion, the pyramid rebuilt at close, the CFU, granules in outline |
+| [`python-programs.md`](python-programs.md) | Python programs as ghost jobs, started with `GJOB`: the design, and a table of every departure from CP-V |
+| [`rdwr.md`](rdwr.md) | User read and write: the parameter decode, device writes (the typewriter), `IOQUEUE`, COOP, IOQ's `QUEUE`/`FRONTEND`/`REQCOM` for a DCB, the wait and the completion codes |
+| [`cal.md`](cal.md) | CAL dispatch: the trap entry, decoding the FPT, the CAL1,1–CAL1,9 tables, the DCB check, monitor overlays (`T:OVERLAY` and `E:AP`), and the returns |
+| [`scheduler.md`](scheduler.md) | `SCHED`: user states and queues, events and the transition tables, priorities, resources, the exit path (quanta, preemption, DO lists), log-on, `T:SE` and the idle loop, and the `T:SS` swap scheduler |
+
+Every claim and line reference in them was checked against the `.txt` sources. Anything not
+settled is listed under each document's **Open questions**.
+
+## Translated (`python/uts`)
+
+A hand translation on a small machine model with stubbed devices, not an instruction emulator.
+208 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
+simplification; the top-level `README.md` has the commands.
+
+| Area | Module | Status |
+|---|---|---|
+| System tape | `writemon.py` | Writes a tape from an invented `M:MON` (modules and sizes in `config.py`, contents zero) |
+| Tape install | `tboot.py`, `xdelta.py`, `reconfig.py` | Runs end to end. Patch cards are placed and read, but storing a patch (XDELTA's evaluator) and RECONFIG `:` commands stop with `NotTranslated` |
+| Disc boot | `bootsubr.py`, `initial.py` | Reads back what the install wrote and comes up to `T:SE` |
+| Recovery | `recovery.py` | Crash and operator recovery, the dump, the silent shutdown path, the reboot. SUA and DUMP stop |
+| Key-ins | `keyin.py` | `DATE`, `TIME`, `ON`, `ONB`, `OFF`, `ZAP` (with its abort loop), `PREF`, `OBON`, `OBOF`, `SYST`, `SEND`, errors and device key-ins. KEYIN runs as a ghost through `T:GJOBSTRT`. Other commands are logged as not translated |
+| I/O | `io.py` | IOQ for monitor requests, the console and printer handlers, injectable printer faults |
+| Scheduler | `sched.py` | States, events and transition tables, priorities, resources, the exit path, log-on, `T:SE` and idle, and `T:SS` on page counts. Users are generator stand-ins; swaps complete at once. `INITIAL` builds it and starts ALLOCAT and GHOST1, and the key-ins run through it (`ghosts.py`) |
+| Keyed files | `files.py`, `cal.py` | Index blocks and entries byte-exact, insertion with block splits, records in data granules, the pyramid (search, build at close), FIX1's checks; account and file directories, OPEN/CLOSE with CFUs; M:OPEN/M:CLOSE/M:DELREC and keyed M:READ/M:WRITE from stand-in programs, through the OPEN and CLOSE overlays |
+| Python ghost jobs | `keyin.py` (`GJOB`), `pyprog.py` | `GJOB NAME` runs a Python program from the file system as a ghost; its `cpv` calls are real CALs, including `M:KEYIN` to ask the operator. Not a translation: see `python-programs.md` |
+| Read/write | `cal.py`, `io.py` | M:TYPE/M:MESSAGE/M:PRINT, M:WRITE and M:CHECK to `M:OC` through the console IOQ, with `FRONTEND`, `REQCOM`'s DCB branch, `E:IC`, the wait and the error codes |
+| CAL dispatch | `cal.py` | The trap, FPT decode, the CAL1,1–CAL1,9 tables, overlays through the scheduler (`E:AP`), and the returns. Translated: M:WAIT, M:TIME, M:PC, `T:CLRERR`, and the exits. GHOST1 leaves with M:EXIT to FILL |
+
+What runs today:
+
+```
+python -m uts --tape --reboot ...            install from tape, then boot from the disc it wrote
+python -m uts -i --console --replies 06/15/76 13:45 N
+                                             boot, then type key-ins at the ! prompt
+python -m uts ... --crash 2E-03 | --oprec    crash or operator recovery of the running system
+python -m uts ... --print TEXT --lp-fault notop --keyins "LPA02,R"
+                                             a failing printer answered by the operator
+python -m uts --sched                        the scheduler demo: ghosts, swapping, I/O, shutdown
+```
+
+## The biggest open points
+
+- **The `INT` instruction.** How `MONINIT` and RECOVER read X'2A' rests on the Sigma definition of
+  `INT` (`recovery.md` §6), taken from the architecture rather than this source. It makes every boot
+  type consistent with GHOST1's `BOOTYPE` table, but predicts that a shutdown (`ZAP`) ends by
+  branching to the tape install. A Sigma 7/9 reference manual would settle it.
+- **No linked `M:MON`.** Without the real load module, the module list, sizes, table addresses and
+  SYSGEN values in `python/uts/config.py` are invented, though consistent with what the code assumes.
+- **Assumed values:** the ghost table and `MING` (slots 1-3 KEYIN, ALLOCAT, RBBAT; `MING` = 4
+  GHOST1), and that FILL, ANLZ, ERR:FIL and MOOSE log off, so `S:CUIS` comes out as 2 after the
+  start-up, which decides when `ZAP` shuts down. Also the dump-area size `RCVRDSZ`, which GHOST1's
+  `SYSMAK` really sets.
+- **Scheduler puzzles** (`scheduler.md`, Open questions): as read, the `GIVEUP8` return after a
+  failed swap loops, `XFDFF` clears `RMAHOLD` rather than `CALINT`, and the back links of resource
+  sub-queues are never set.
+- **Not yet read:** the `F` test in `MONINIT`, XDELTA's patch-expression evaluator, RECONFIG's `:`
+  commands, dual-access I/O, and the smaller items listed in each document.
+
+## The rest of the source
+
+The large subsystems not yet documented, by size (`c00co`, approximate line counts):
+
+| Subsystem | Main modules | Lines | What it is |
+|---|---|---|---|
+| Swapper, memory, CAL services | `SWAPPER`, `MM`, `IORT`, `UCAL`, `STPNR` | ~10k | The rest of the engine behind `T:SE`: swapping, pages, and the CAL services themselves (`SCHED`/`SSDAT` are in `scheduler.md`; the CAL dispatch through `ENTRY`, `CALPROC`, `ALTCP` and `T$OV` is in `cal.md`) |
+| File system | `OPNF`, `CLS`, `RDF`, `WRTF`, `RDWRT`, `GRAN`/`GRANSUB`, `ALLYCAT`/`ALLYHD`, `FIX1`, `PURGE`, `FRES` | ~25k | Directories, granule allocation (the ALLOCAT ghost), open/close/read/write, start-up repair |
+| Terminals and commands | `COC`, `TEL`, `LOGON`, `CCI0`/`CCIR`, `ASSGR`, `STEP`/`STPNR` | ~20k | On-line users and their command language; batch control cards and job steps |
+| Symbionts and batch | `RBBATM`, `INSYM`/`OUTSYM`, `BATCH1`/`2`, `SDEVICE`, `HASPIO`, `2780IO` | ~15k | Spooling, remote batch |
+| Loading and linking | `LINK`, `LOADR`/`LDR`, `SEGLD`, `EVL`, `FIN` | ~12k | Building and loading programs |
+| SYSGEN | `PS1`, `P2CCI`, `UBCHAN`, `PASS3`, `DEF`, `SYSMAK0/1` | ~15k | Generating a system (WRITEMON is done) |
+| Debugging and crash analysis | `DELTA`, `XDLT`, `ANALZ` + `ANALZO1`–`3`, `DEVDMP` | ~25k | User and monitor debuggers; ANALZ reads the recovery dump |
+| Transaction processing | `TPQ1`/`2`, `TPG`, `TPC`/`TPCSIM`, `TP$…` | ~15k | The TP subsystem |
+| System management | `SUPER1`–`3`, `CONMAIN`/`CONSUB`, `STATS`, `PART`/`SYSCN`, `ACCTSUM`, `ELLA…` | ~25k | Authorization, system control, performance, partitioning, accounting |
+| Processors | `EDIT`, `FSAVE`/`BACKUP`, `PCL`, `TIC` | ~30k | User-level programs. `TIC` (10.8k lines) hasn't been identified yet |
+
+`c00si` holds 22 smaller files: utilities, other copies of `COC` and `FILL`, and a word-guessing
+game.
+
+**The GHOST1 start-up** was surveyed but not written up. It is the starter ghost `INITIAL` starts:
+it opens its output, sets up memory for read-ahead, then by boot type runs `RECOVER2` (restore
+after recovery or a disc boot) or `PASS0` (process the patch file after a tape boot), calls `SYSMAK`
+(which also sets `RCVRDSZ`), starts terminals and batch, writes the start-up error-log entry,
+sets `BOOTFLG` to 0, starts the system ghosts (RBBAT, ANLZ after a recovery, RVGHOST, ERR:FIL,
+FREPORT, MOOSE), and turns itself into FILL (`GHOST1D.txt:97`–`:376`). The end of it, from
+`BOOTFLG` on, is in `keyin.md` §4 and runs as a stand-in (`python/uts/ghosts.py`).
+
+## Where to go next
+
+Everything translated so far is the monitor's own control flow. Past `T:SE` the system mostly runs
+*programs* (ghosts, TEL, processors). Hand-translating each program has no end, so there are two
+ways on:
+
+1. **More monitor mechanisms, with ghosts as small Python stand-ins.** This would cover the scheduler's
+   states and queues, starting and ending users (`T:GJOBSTRT`, `T:DELUS`), CAL dispatch, and
+   swapping through the I/O system. It would let KEYIN run as a real ghost and GHOST1's start-up run
+   in order. Done (2026-11-03): `docs/scheduler.md`, its translation `python/uts/sched.py`, and
+   its connection to the boot. `INITIAL` starts ALLOCAT and GHOST1 through `T:GJOBSTRT`, GHOST1's
+   stand-in finishes the start-up, KEYIN runs as a ghost, and `ZAP` aborts users and shuts down
+   through `Scheduler.idle`. CAL dispatch (`docs/cal.md`, `python/uts/cal.py`) is done too.
+   **Next options:**
+   - **more of the file system**: consecutive and random files, OPEN's checks (passwords,
+     access, synonyms), deletion of files (`DLT`, `PURGE`), and granule allocation (`GRAN`,
+     ALLOCAT, the HGP) instead of a free list;
+   - more of read/write: device reads (`MSRRED`/`MSROTHR`), the printer (`MSRLP`);
+   - `docs/swapper.md` (put off by choice);
+   - `docs/ghost1.md` for the whole start-up.
+2. **A Sigma instruction emulator**, which would also need the source assembled (a Meta-Symbol
+   assembler), because there is no `M:MON` binary. **Decided against (2026-11-02): too much work.**
+   The project stays with what can be done without one: documentation, plus hand translation of
+   monitor mechanisms.
+
+For documentation alone, GHOST1 (`docs/ghost1.md`), the file system, and ANALZ are the other
+self-contained pieces worth writing up.

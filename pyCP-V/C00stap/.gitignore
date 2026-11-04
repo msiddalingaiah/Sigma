@@ -1,0 +1,13 @@
+# The Xerox CP-V/UTS source listings: kept out of the repository for now,
+# until their distribution status is settled.
+/c00co/
+/c00si/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Editor settings
+.vscode/
