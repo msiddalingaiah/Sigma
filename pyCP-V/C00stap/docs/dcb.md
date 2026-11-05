@@ -90,9 +90,10 @@ console, or the null device. Other assignments raise `NotTranslated`.
 
 **The DCB table.** A CAL's DCB must also be in the user's DCB table, `J:DCBLINK`: `CAL11M`
 aborts the user with X'AF', "ILLEGAL-DCB", otherwise (`CALPROC.txt:156`; `cal.py` `cal11`). CP-V's
-loader builds that table from the load module's DCBs. Here an assembled image carries a DCB
-table, its labels that begin `F:` or `M:` (`python/uts/asm.py`). The loader stand-in
-(`interp.program`) enters them in `J:DCBLINK` (`cal.dcbs`).
+loader builds that table from the load module's DCBs. Here the assembler's labels that begin
+`F:` or `M:` name the DCBs (`python/uts/asm.py`). The program is written as a load module with
+the table in its DCB section, and FETCH links it into `J:DCBLINK` through the TCB, as for any load
+module ([`loadmodule.md`](loadmodule.md)).
 
 **Text.** Memory holds text as EBCDIC, as the file system does, so a DCB's names and protection
 VLPs are compared as they are.

@@ -7,7 +7,7 @@ import pytest
 from tests.test_online import logged_on
 from uts import devopen
 from uts.asm import assemble
-from uts.interp import store_image
+from uts.fetch import write_load_module
 from uts.monitor import NotTranslated
 
 
@@ -94,7 +94,7 @@ def test_text_in_memory_is_ebcdic():
     t = logged_on()
     dcbs = {}
     words, start = assemble(ECHO, dcbs)
-    store_image(t.s.cal.fs, "ECHO", ":SYS", words, start, dcbs)
+    write_load_module(t.s.cal.fs, "ECHO", ":SYS", words, start, dcbs)
     t.type("ECHO\r")
     t.type("Hello, 42!\r")                               # typed in ASCII
     assert t.text() == "ECHO\r\nHello, 42!\r\nGOT Hello, 42!          \r\n!"
@@ -107,7 +107,7 @@ def test_a_program_writes_on_device_dcbs():
     t = logged_on()
     dcbs = {}
     words, start = assemble(DEVICE, dcbs)
-    store_image(t.s.cal.fs, "DEVS", ":SYS", words, start, dcbs)
+    write_load_module(t.s.cal.fs, "DEVS", ":SYS", words, start, dcbs)
     t.type("DEVS\r")
     assert t.text() == "DEVS\r\nLISTING OUTPUT\r\nDIAGOUT\r\n!"
     opens = [line for line in t.s.log if ": device ME" in line]

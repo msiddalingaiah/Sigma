@@ -2,72 +2,16 @@
 program's words run on cpu.Cpu, a slice at a time under the scheduler, and every trap
 goes to the Python monitor: CAL1 through cal.py, anything else ends the program.
 
-An absolute image is kept in the file system as a keyed file, so that GJOB NAME finds
-it as it finds a Python program (pyprog.py), and a disc image keeps it: a header
-record (key X'FFFFFF': the start address, 'SIGMA ABS', then the DCB table, 8 name
-bytes and a word address a DCB) and records of words (key X'FE' + a block number:
-the first word's address, then the words). The loader stand-in puts the DCB table in
-the user's J:DCBLINK, as CP-V's loader does from a load module (CAL11M checks a CAL's
-DCB against it). Real load modules come later.
+A program comes from a load module: FETCH (fetch.py) reads it into the words this
+runs, and the assembler's output is written as one (fetch.write_load_module).
 """
 
 from .cpu import Cpu, VAMASK
-from .files import FileError
 from .sched import CalAt, Compute
 
-HEADER, MAGIC, BLOCK = b"\xff\xff\xff", b"SIGMA ABS", 500
 SLICE = 2000                    # instructions per clock unit (2 ms; a guess, see the doc)
 MODEL = "sigma9"                # the machine's instruction set (cpu.Cpu ``model``)
 ABORT = 3                       # CAL1,9 exit type: M:XXX
-
-
-def store_image(fs, name, account, words, start, dcbs=None):
-    """An absolute image as a keyed file (a host-side stand-in for a loader's output),
-    replacing any old contents (as pyprog.store_source does)."""
-    fs.add_account(account)
-    cfu = fs.open(name, account, "OUT", keym=3)
-    kf = cfu.file
-    for k in kf.keys():
-        kf.delete(k)
-    table = b"".join(n.encode("latin-1")[:8].ljust(8) + a.to_bytes(4, "big")
-                     for n, a in (dcbs or {}).items())
-    kf.write(HEADER, (start or 0).to_bytes(4, "big") + MAGIC + table)
-    run, block = [], 0
-    for a in sorted(words) + [None]:
-        if run and (a is None or a != run[-1][0] + 1 or len(run) == BLOCK):
-            data = run[0][0].to_bytes(4, "big") + b"".join(w.to_bytes(4, "big") for _, w in run)
-            kf.write(b"\xfe" + block.to_bytes(2, "big"), data)
-            run, block = [], block + 1
-        if a is not None:
-            run.append((a, words[a] & 0xFFFFFFFF))
-    fs.close(cfu)
-
-
-def read_image(fs, name, account):
-    """(words, start, dcbs) if NAME.ACCOUNT is an absolute image, else None."""
-    try:
-        cfu = fs.open(name, account, "IN")
-    except FileError:
-        return None
-    try:
-        kf = cfu.file
-        if not hasattr(kf, "read") or getattr(kf, "KEYM", 0) != 3:
-            return None
-        head = kf.read(HEADER)
-        if head is None or head[4:4 + len(MAGIC)] != MAGIC:
-            return None
-        table, dcbs = head[4 + len(MAGIC):], {}
-        for i in range(0, len(table) - 11, 12):
-            dcbs[table[i:i + 8].decode("latin-1").rstrip()] = int.from_bytes(table[i + 8:i + 12], "big")
-        words, block = {}, 0
-        while (data := kf.read(b"\xfe" + block.to_bytes(2, "big"))) is not None:
-            a = int.from_bytes(data[:4], "big")
-            for i in range(4, len(data), 4):
-                words[a + (i - 4) // 4] = int.from_bytes(data[i:i + 4], "big")
-            block += 1
-        return words, int.from_bytes(head[:4], "big"), dcbs
-    finally:
-        fs.close(cfu)
 
 
 def program(sched, u, words, start, dcbs=None, name="", type_line=None):

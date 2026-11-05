@@ -91,6 +91,22 @@ JCL that built SLIP is on the same tape:
 !LOAD (LMN,SLIP),(EF,(CDTBO),(VFYBO),(CPYBO)),(MAP),(SL,F),(PERM)
 ```
 
+## Writing one
+
+The translation's assembler writes its output as a one-segment load module
+(`fetch.write_load_module`). That is a stand-in for the overlay loader's output, not a translation
+of the loader. It follows the layout of SLIP's module and meets FETCH's checks:
+
+| Record | Holds |
+|---|---|
+| `HEAD` | Word 0 `X'8000FF30'` (built by the overlay loader, 48 bytes); word 1, the start address with bit 0 set; word 2, the TCB's doubleword address and the module's bias; word 3, the data area; word 4, 0 (no procedure); word 6, the DCB area. Each area is whole pages, from a page boundary. The words FETCH doesn't read are 0 |
+| `TREE` | One 12-word entry: the program's name (up to 7 characters), the data section's size and bias in word 6, the DCBs' in word 10 |
+| name + `X'03'` | The data section: every word assembled, code included (as in SLIP), from the page the program starts in, then a 16-word **TCB**, whose word 10 holds the DCB table's address |
+| name + `X'07'` | The DCB section, on the next page: the DCB table (word 0, the address of its last word; then each `F:` or `M:` label's name and address; a zero word). The DCBs themselves stay where they were assembled, in the data section |
+
+There is no symbol-table record (type 0), and the module has no overlays. Its key length is 15,
+as the UTIL modules' 16-byte key areas suggest. Writing a module replaces any old contents.
+
 ## In the translation
 
 `python/uts/fetch.py` translates FETCH's part of the step:
@@ -124,8 +140,8 @@ program that reaches untranslated code reports `NOT TRANSLATED:` and TEL takes t
 - **The tree entry's other words** (4–5, 7, 9) and **`HEAD`'s words 5, 7, 8 and 11** weren't
   traced. In the UTIL modules, word 5 is `X'0131000C'` and word 8 `X'0001C000'`.
 - **The symbol table record** (type 0): its entry format wasn't traced, only seen.
-- **The DCB table's word 0** is `X'A827'` in SLIP, the address just past the table. `CAL11M`
-  starts at word 1. Who reads word 0 wasn't traced.
+- **The DCB table's word 0** is `X'A827'` in SLIP, the address of the zero word that ends the
+  table. `CAL11M` starts at word 1. Who reads word 0 wasn't traced.
 - **The label in a device DCB's word 1**: SLIP's are numbers (`M:SI` 9, `M:LO` 3, `M:OC` 2,
   `M:DO` 5), except `F:1`, which holds `ME` in EBCDIC. That they index the operational labels
   is a guess, for `OPLO.txt` to settle.

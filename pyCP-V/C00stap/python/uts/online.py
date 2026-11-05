@@ -289,8 +289,6 @@ class Online:
         for account in dict.fromkeys(accounts):
             if fetch.is_load_module(fs, name, account):
                 return account
-            if interp.read_image(fs, name, account) is not None:
-                return account
             try:
                 pyprog.read_source(fs, name, account)
                 return account

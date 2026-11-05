@@ -178,8 +178,7 @@ reading as 0. Bytes and halfwords are big-endian within the word, as on the Sigm
    - a loader stand-in, so that `GJOB NAME` starts a real processor.
 
 The diagnostics in `Sigma/SigmaFiles` (`7decimal.abs`, `7intrap.abs` and others) run on the bare
-machine and use privileged instructions. Parts of them may still serve as instruction checks
-once the interpreter can load an absolute image.
+machine and use privileged instructions. Parts of them may still serve as instruction checks.
 
 ## Phase 1: what is built (2026-11-04)
 
@@ -187,7 +186,7 @@ once the interpreter can load an absolute image.
 |---|---|---|
 | The CPU | `python/uts/cpu.py` | The §4 phase 1 groups, ported from `sigma_cpu.c` with its notice. Traps as §5. The machine model (`sigma9` or `sigma7`) decides `TR_INVREG`, the searching shifts and `LAS`. `SF` traps as unimplemented with floating point, although it is a standard instruction, because it needs `sigma_fp.c`'s `ShiftF` |
 | A small assembler | `python/uts/asm.py` | For test programs: labels, `ORG`, `DATA`, `TEXT`, `TEXTC`, `RES`, `BOUND`, `EQU`, `END`, the mnemonics from the opcode table, shifts as `SLS`…`SSD`, `BA()`. The Python port of AP has no instruction mnemonics of its own, because they come from `SIG7FDP`, a Meta-Symbol procedure file built on `S:SIN`. That is left for when real sources are assembled |
-| Interpreted ghosts | `python/uts/interp.py` | An absolute image is kept as a keyed file (a header record and word records), so `GJOB NAME` finds it and a disc image keeps it. `--file host.s=NAME` assembles and stores one. A CAL1 is a `CalAt` request (`sched.py`); `cal.trap` takes the CAL from memory |
+| Interpreted ghosts | `python/uts/interp.py` | A program is a load module, read by FETCH (`fetch.py`, [`loadmodule.md`](loadmodule.md)), so `GJOB NAME` or TEL finds it and a disc image keeps it. `--file host.s=NAME` assembles one and writes it as a load module. A CAL1 is a `CalAt` request (`sched.py`); `cal.trap` takes the CAL from memory |
 | Words-only memory | `cal.py` | `read_bytes` and `write_bytes` move bytes into and out of words, keeping the other bytes of a word written; `put_text` and `read_text` are text, in EBCDIC |
 
 Tests: `python/tests/test_cpu.py` (instructions against simh's rules) and `test_interp.py`
@@ -202,7 +201,7 @@ runs about 10 million instructions in each 10 simulated seconds of a key-in sess
 - **Where programs go.** They belong at X'D000' and up: the `pyprog` stand-ins use X'A000'–X'C1FF'
   for their FPT, CAL and buffers, and an aborting program's message and `CAL1,9` go there too.
 - **File I/O** works with the program's own DCBs, read and written in place in its memory
-  ([`dcb.md`](dcb.md)). An image's DCB table, its `F:`/`M:` labels, goes in the user's `J:DCBLINK`.
+  ([`dcb.md`](dcb.md)). The program's DCB table, its `F:`/`M:` labels, goes in the user's `J:DCBLINK` through FETCH.
   Device DCBs in memory aren't handled yet.
 - **`EXU` past 32 levels** traps as a non-existent instruction. In simh it stops the simulator.
 - **No pre-checks.** The readability checks before a branch or a string move (§7, no protection)

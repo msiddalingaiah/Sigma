@@ -11,7 +11,7 @@ from tests.test_interp import HELLO as HELLO_S
 from tests.test_pyprog import HELLO, system
 from uts.asm import assemble
 from uts.coc import Coc
-from uts.interp import store_image
+from uts.fetch import write_load_module
 from uts.online import Online
 from uts.terminals import BRK, DO, ECHO, IAC, SGA, WILL, TerminalServer
 
@@ -127,7 +127,7 @@ def test_tel_runs_machine_code():
     t = logged_on()
     dcbs = {}
     words, start = assemble(HELLO_S, dcbs)
-    store_image(t.s.cal.fs, "HELLOS", ":SYS", words, start, dcbs)
+    write_load_module(t.s.cal.fs, "HELLOS", ":SYS", words, start, dcbs)
     t.type("HELLOS\r")
     assert t.text().count("HELLO FROM SIGMA CODE") == 3
 
@@ -358,15 +358,16 @@ def test_copy_with_x_dumps_records_in_hex():
     t = logged_on()
     dcbs = {}
     words, start = assemble(HELLO_S, dcbs)
-    store_image(t.s.cal.fs, "HELLOS", "BOB", words, start, dcbs)
+    write_load_module(t.s.cal.fs, "HELLOS", "BOB", words, start, dcbs)
     t.type("COPY HELLOS TO ME(X)\r")                     # HEXDUMP.txt
     lines = t.text().splitlines()
-    assert lines[1:4] == [" ", "KEY= X'FE0000'    -       56 BYTES", " "]
-    assert lines[4] == "00000    0000D000   22500003   0420D004   6450D001"
-    assert "KEY= X'FFFFFF'    -       13 BYTES" in lines   # the header: start, SIGMA ABS
-    assert lines[-2] == "00000    0000D000   5349474D   41204142   53"   # ASCII in memory
+    assert lines[1:4] == [" ", "KEY= HEAD     -       48 BYTES", " "]      # a load module
+    assert lines[4] == "00000    8000FF30   8000D000   68076800   01006800"
+    i = lines.index("KEY= X'C8C5D3D3D6E203'    -      120 BYTES")      # HELLOS + 03: data
+    assert lines[i + 2] == "00000    22500003   0420D004   6450D001   04900001"
+    assert "KEY= TREE     -       48 BYTES" in lines
     t.type("COPY HELLOS TO ME(X,K)\r")                   # X before K (READ20)
-    assert "KEY= X'FE0000'    -       56 BYTES" in t.text()
+    assert "KEY= HEAD     -       48 BYTES" in t.text()
     t.type("COPY HELLOS TO ME(Q)\r")
     assert "COPY: SYNTAX ERROR" in t.text()
 

@@ -10,7 +10,7 @@ from uts import labtape
 from uts.asm import assemble
 from uts.cards import CardPunch, CardReader, UnitRecord, card
 from uts.files import EBCDIC
-from uts.interp import store_image
+from uts.fetch import write_load_module
 
 
 def test_cards_and_allocation():
@@ -56,7 +56,7 @@ def test_a_program_copies_the_reader_to_the_punch():
     t.s.cal.unit_record = UnitRecord(CardReader([card("FIRST CARD"), card("SECOND")]), punch)
     dcbs = {}
     words, start = assemble(CARDS, dcbs)
-    store_image(t.s.cal.fs, "CARDS", ":SYS", words, start, dcbs)
+    write_load_module(t.s.cal.fs, "CARDS", ":SYS", words, start, dcbs)
     t.type("CARDS\r")
     assert t.text() == "CARDS\r\nEND OF DECK\r\n!"
     assert [CardPunch.text(c) for c in punch.cards] == ["FIRST CARD", "SECOND"]
@@ -71,7 +71,7 @@ def test_without_a_medium_the_device_cant_be_had():
     t.s.cal.unit_record = UnitRecord(None, None)
     dcbs = {}
     words, start = assemble(CARDS, dcbs)
-    store_image(t.s.cal.fs, "CARDS", ":SYS", words, start, dcbs)
+    write_load_module(t.s.cal.fs, "CARDS", ":SYS", words, start, dcbs)
     t.type("CARDS\r")
     assert any("device error X'49'-02" in line for line in t.s.log)
 
@@ -101,7 +101,7 @@ def test_open_merges_the_fpts_parameters_and_vlps():
     t = logged_on()
     dcbs = {}
     words, start = assemble(MERGE, dcbs)
-    store_image(t.s.cal.fs, "MERGE", ":SYS", words, start, dcbs)
+    write_load_module(t.s.cal.fs, "MERGE", ":SYS", words, start, dcbs)
     t.type("MERGE\r")
     log = "\n".join(t.s.log)
     assert "ASN 3 -> 1 (the FPT's)" in log

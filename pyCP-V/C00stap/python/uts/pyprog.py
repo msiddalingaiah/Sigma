@@ -85,14 +85,6 @@ def program(sched, u, name, account):
         yield from interp.program(sched, u, lm.words, lm.start, lm.dcbs, name=name,
                                   type_line=lambda text: _type(cal, u, text))
         return
-    image = interp.read_image(cal.fs, name, account)
-    if image is not None:                              # an absolute image: interpreted
-        if u not in sched.LB_UN:
-            cal.account[u] = account                   # a ghost: its GJOB account
-        cal.running[u] = (name, account)
-        yield from interp.program(sched, u, *image, name=name,
-                                  type_line=lambda text: _type(cal, u, text))
-        return
     try:
         source = read_source(cal.fs, name, account)   # the step's load (a stand-in)
         code = compile(source, f"{name}.{account}", "exec")

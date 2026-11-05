@@ -168,7 +168,7 @@ A write before the end of the file cuts the file at that point first, as CP-V do
 
 A ghost can also be **real Sigma machine code**, run by the user-mode interpreter
 ([`interpreter.md`](interpreter.md)). An assembly source given to `--file` (`.s` or `.asm`) is
-assembled by `python/uts/asm.py` and stored as an absolute image. `GJOB NAME` then runs it
+assembled by `python/uts/asm.py` and written as a load module (`fetch.write_load_module`). `GJOB NAME` then runs it
 instruction by instruction, and its `CAL1`s go to the same translated monitor:
 
 ```

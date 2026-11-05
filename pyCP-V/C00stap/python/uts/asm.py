@@ -1,6 +1,7 @@
 """A small assembler for test programs (docs/interpreter.md section 8): absolute code
 at an ORG, in a subset of the Sigma assembly language. Not Meta-Symbol or AP: no
-procedures, no relocation, no literals. Real programs come from load modules later.
+procedures, no relocation, no literals. Its output is written as a one-segment load
+module (fetch.write_load_module, docs/loadmodule.md), which FETCH runs.
 
     label   OP,R    address,X       a memory reference; *address is indirect
     label   OP,R    value           an immediate instruction (LI, AI, CI, MI, LCFI, MBS...)
@@ -15,8 +16,8 @@ procedures, no relocation, no literals. Real programs come from load modules lat
     label   EQU     expr
             END     expr            the start address
 
-A label beginning F: or M: names a DCB: it goes in the image's DCB table, which the
-loader stand-in puts in the user's J:DCBLINK (docs/dcb.md).
+A label beginning F: or M: names a DCB: it goes in the load module's DCB table, which
+FETCH links into the user's J:DCBLINK (docs/dcb.md).
 
 An expression is terms joined by + and -: a decimal number, X'hex', a label, BA(expr)
 (a byte address: expr * 4), or *, the current word address. A comment starts with *

@@ -124,3 +124,56 @@ def dcb_table(words, dcblink):
             out[name] = address
         a += nwords + 1
     return out
+
+# --- writing one: what the overlay loader would leave, for one segment ----------------
+
+PAGE = 512                               # words
+TCB_WORDS = 16                           # the TCB: only word 10 (DCBLINK) is set here
+LM_KEYM = 15                             # the load modules' key length (their 16-byte key area)
+
+
+def write_load_module(fs, name, account, words, start, dcbs=None):
+    """Words assembled at their addresses as a one-segment load module NAME.ACCOUNT
+    that FETCH can read (docs/loadmodule.md, "Writing one"): the data section from the
+    page the words start in, a TCB after them, and the DCB table on the next page.
+    Not a translation of the overlay loader: a stand-in for its output. Any old
+    contents of the file are replaced."""
+    lo = min(words) // PAGE * PAGE
+    tcb = (max(words) + 2) & ~1                          # doubleword aligned, after the words
+    data_end = tcb + TCB_WORDS
+    table_at = (data_end + PAGE - 1) // PAGE * PAGE      # the DCB area: its own page
+    table = []
+    for dcb_name, address in (dcbs or {}).items():
+        text = dcb_name.encode(EBCDIC)[:7]
+        entry = (bytes([len(text)]) + text).ljust((len(text) + 4) // 4 * 4, b"\x40")
+        table += [int.from_bytes(entry[i:i + 4], "big") for i in range(0, len(entry), 4)]
+        table.append(address & 0x1FFFF)
+    table = [table_at + 1 + len(table)] + table + [0]    # word 0: the zero word that ends it
+    image = dict(words)
+    for i in range(TCB_WORDS):
+        image[tcb + i] = table_at if i == 10 and dcbs else 0
+    data_dw = (data_end - lo + 1) // 2
+    dcb_dw = (len(table) + 1) // 2 if dcbs else 0
+    area = lambda dw, bias: ((dw + 255) // 256 * 256) << 16 | bias   # HEAD: whole pages
+    head = [0x8000FF30, 0x80000000 | (start & 0x1FFFF),
+            (tcb // 2) << 16 | lo // 2,                  # TCB; the module's bias
+            area(data_dw, lo // 2), 0, 0,                 # data; no procedure
+            area(dcb_dw, table_at // 2) if dcbs else 0,   # DCBs
+            0, 0, 0, 0, 0]                                # (not read by FETCH)
+    seg = name.encode(EBCDIC)[:7]
+    seg_text = (bytes([len(seg)]) + seg).ljust(12, b"\x40")
+    tree = [12] + [int.from_bytes(seg_text[i:i + 4], "big") for i in range(0, 12, 4)]
+    tree += [0, 0, data_dw << 16 | lo // 2, 0, 0, 0,
+             (dcb_dw << 16 | table_at // 2) if dcbs else 0, 0]
+    as_bytes = lambda ws: b"".join((w & 0xFFFFFFFF).to_bytes(4, "big") for w in ws)
+    records = {HEAD_KEY: as_bytes(head), TREE_KEY: as_bytes(tree),
+               seg + bytes([DATA]): as_bytes(image.get(lo + i, 0) for i in range(data_dw * 2))}
+    if dcbs:
+        records[seg + bytes([DCBS])] = as_bytes(table + [0] * (dcb_dw * 2 - len(table)))
+    fs.add_account(account)
+    cfu = fs.open(name, account, "OUT", keym=LM_KEYM)
+    for k in cfu.file.keys():
+        cfu.file.delete(k)
+    for key in sorted(records):
+        cfu.file.write(key, records[key])
+    fs.close(cfu)

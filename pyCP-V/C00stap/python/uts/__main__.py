@@ -141,10 +141,10 @@ def import_files(mon, specs):
             text = f.read()
         if host.lower().endswith((".s", ".asm")):       # assembly: an absolute image
             from .asm import assemble
-            from .interp import store_image
+            from .fetch import write_load_module
             dcbs = {}
             words, start = assemble(text, dcbs)
-            store_image(mon.sched.cal.fs, name[:7].upper(), (account or ":SYS").upper(), words,
+            write_load_module(mon.sched.cal.fs, name[:7].upper(), (account or ":SYS").upper(), words,
                         start if start is not None else min(words), dcbs)
         else:
             pyprog.store_source(mon.sched.cal.fs, name[:7].upper(), (account or ":SYS").upper(),

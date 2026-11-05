@@ -3,7 +3,7 @@ scheduler, its CALs through the Python monitor."""
 
 from tests.test_pyprog import keyins, system
 from uts.asm import assemble
-from uts.interp import read_image, store_image
+from uts.fetch import read_load_module, write_load_module
 
 HELLO = """
 * Type a line three times, then M:EXIT
@@ -66,7 +66,7 @@ def with_images(**sources):
     for name, src in sources.items():
         dcbs = {}
         words, start = assemble(src, dcbs)
-        store_image(s.cal.fs, name, ":SYS", words, start, dcbs)
+        write_load_module(s.cal.fs, name, ":SYS", words, start, dcbs)
     m.console.transcript.clear()
     return m, con, s
 
@@ -75,10 +75,13 @@ def lines(text):
     return [t.split(": ", 1)[1] for t in text.splitlines() if ": " in t]
 
 
-def test_an_image_round_trips_through_its_file():
+def test_an_assembled_program_is_a_load_module():
     m, con, s = with_images(HELLO=HELLO)
     words, start = assemble(HELLO)
-    assert read_image(s.cal.fs, "HELLO", ":SYS") == (words, start, {})
+    lm = read_load_module(s.cal.fs, "HELLO", ":SYS")      # what FETCH reads
+    assert lm.start == start and all(lm.words[a] == w for a, w in words.items())
+    assert lm.head[0] == 0x8000FF30 and lm.tree[0] == 12  # one segment
+    assert lm.tcb == (max(words) + 2) & ~1 and lm.dcbs == {}
 
 
 def test_an_assembled_program_types_and_exits():
@@ -245,7 +248,8 @@ def test_importing_again_replaces_the_old_image():
     from uts.files import Disc, FileSystem
     fs = FileSystem(Disc(400))
     fs.add_account(":SYS")
-    store_image(fs, "P", ":SYS", {0xD000 + i: i for i in range(1200)}, 0xD000)
-    store_image(fs, "P", ":SYS", {0xD000 + i: 7 for i in range(10)}, 0xD000)
-    words, start, _ = read_image(fs, "P", ":SYS")
-    assert words == {0xD000 + i: 7 for i in range(10)}
+    write_load_module(fs, "P", ":SYS", {0xD000 + i: i for i in range(1200)}, 0xD000)
+    write_load_module(fs, "P", ":SYS", {0xD000 + i: 7 for i in range(10)}, 0xD000)
+    lm = read_load_module(fs, "P", ":SYS")
+    assert all(lm.words[0xD000 + i] == 7 for i in range(10))
+    assert max(lm.words) < 0xD000 + 100                   # the old, longer one is gone
