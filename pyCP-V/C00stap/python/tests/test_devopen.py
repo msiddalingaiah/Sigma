@@ -112,3 +112,42 @@ def test_a_program_writes_on_device_dcbs():
     assert t.text() == "DEVS\r\nLISTING OUTPUT\r\nDIAGOUT\r\n!"
     opens = [line for line in t.s.log if ": device ME" in line]
     assert len(opens) == 2                               # M:LO by M:OPEN, M:DO by its write
+
+
+SERVICES = """
+* M:DEVICE VFC on M:LO, then two records with format controls (X'C2': two new lines;
+* '1', X'F1': top of form); M:CORRES of M:LO and M:DO (both ME) into R8 -> R9; M:INT;
+* T:CHTBL set mode (X'20')
+         ORG      X'D000'
+START    CAL1,1   VFC
+         CAL1,1   W1
+         CAL1,1   W2
+         CAL1,1   CORRES
+         LW,9     8
+         CAL1,8   INT
+         CAL1,8   CHTBL
+         CAL1,9   1
+VFC      DATA     X'05000000'+M:LO,X'00000010'
+W1       DATA     X'11000000'+M:LO,X'30000000',T1,4
+W2       DATA     X'11000000'+M:LO,X'30000000',T2,4
+CORRES   DATA     X'2B000000'+M:LO,M:DO
+INT      DATA     X'0E000000'+START
+CHTBL    DATA     X'06200000',0
+T1       DATA     X'C2C1C2C3'
+T2       TEXT     '1XYZ'
+M:LO     DATA     X'33000003',X'00040003',0,0,0,0,0,0,0,0,0,0,0,0,0,0
+M:DO     DATA     X'33000003',X'00040005',0,0,0,0,0,0,0,0,0,0,0,0,0,0
+         END      START
+"""
+
+
+def test_vfc_corres_int_and_chtbl():
+    t = logged_on()
+    dcbs = {}
+    words, start = assemble(SERVICES, dcbs)
+    write_load_module(t.s.cal.fs, "SERVS", ":SYS", words, start, dcbs)
+    t.type("SERVS\r")
+    assert t.text() == "SERVS\r\n\r\nABC\r\nXYZ\r\n!"     # X'C2': a blank line; '1': a new one
+    u = t.s.LB_UN[0]
+    assert t.s.uregs[u][9] == 1                           # M:LO and M:DO: the same, ME
+    assert t.s.cal.intent[u] == 0x08000000 | start        # J:INTENT

@@ -63,10 +63,10 @@ def assignment(kind, index):
     return table[index] if 0 < index < len(table) else None
 
 
-def resolve(sched, u, word1, option=None):
-    """The device a DCB opens on: 'ME', 'TY' or 'NO'. ``word1`` is the DCB's word 1
-    (DSI); ``option`` the FPT's device option, which comes first (MSROPN5 sets the
-    DSI before OPENDEV reads it)."""
+def assigned(sched, u, word1, option=None):
+    """What the DCB's label, name or device option is assigned to, for this kind of
+    user (the tables above); None: no entry. Nothing is allocated (GETDEV's answer
+    for a DCB never opened, IORT.txt:1318)."""
     kind = kind_of_user(sched, u)
     if option is not None:
         if not option & 0x8000:                        # MSROPN5: not text, a device address
@@ -87,6 +87,14 @@ def resolve(sched, u, word1, option=None):
         target = assignment(kind, LABELS.index(name))
     else:
         raise NotTranslated(f"OPEN of a DCB with type and DCT index (word 1 X'{word1:08X}')")
+    return target
+
+
+def resolve(sched, u, word1, option=None):
+    """The device a DCB opens on: 'ME', 'TY', 'NO', 'CR' or 'CP' (allocated). ``word1``
+    is the DCB's word 1 (DSI); ``option`` the FPT's device option, which comes first
+    (MSROPN5 sets the DSI before OPENDEV reads it)."""
+    kind, target = kind_of_user(sched, u), assigned(sched, u, word1, option)
     if target in (None, "NO"):
         return "NO"                                    # the null device (NONTAPE)
     if target == "ME" and kind == 2:

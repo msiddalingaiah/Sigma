@@ -326,6 +326,8 @@ class CalProcessor:
         self.fs = None                                 # files.FileSystem
         self.dcb_objs = {}                             # user -> {address: Dcb}
         self.uc = {}                                   # user -> M:UC (in the user's JIT)
+        self.intent = {}                               # J:INTENT per user: M:INT's address
+        self.tcb = {}                                  # J:TCB per user, if M:INT set it
         self.unit_record = None                        # cards.UnitRecord: the card devices
         self.monitor_dcbs = {M_OC: Dcb("M:OC", fcn=0, address=M_OC, dtype="TY"),
                              M_UC: Dcb("M:UC", fcn=0, address=M_UC, coc=True),
@@ -451,9 +453,85 @@ class CalProcessor:
                 return (yield from self.invoke(ctx, target))
         if code == 0x06:                               # M:SETDCB: IOSDEV always does it
             return self.setdcb(ctx, self.dcb_at(u, dcb))
+        if code in (0x04, 0x05, 0x2B):                 # M:DEVICE PAGE, VFC; M:CORRES
+            return (yield from self.iosdev(ctx, dcb, code))
         if code in DEVCDS:
             return (yield from self.invoke(ctx, Res("IOSDEV")))
         raise CalAbort(0xAE)
+
+    def iosdev(self, ctx, address, code):
+        """IOSDEV  IOD.txt:99 - the device options PAGE, VFC and CORRES. On M:OC nothing
+        is done (:104-:105); these options go to their routines with no device check
+        (TSTDEV1, :547-:549). The others aren't translated."""
+        u = ctx.u
+        if address == M_OC:
+            return ("CC", 0)                           # IOSDEVX: CLEAR
+        dcb = self.dcb_at(u, address)
+        if code == 0x04:                               # IOPAGE  :310
+            if isinstance(dcb, MemDcb) and not dcb.open:   # TESTOPN: OPEN it first
+                yield from self.t_overlay(u, OPNSEG)
+                if dcb.asn == 3:
+                    self._open_device(u, dcb)
+                elif self.fs is not None:
+                    self._open(u, dcb)
+            line = self.s.coc.line_of(u) if self.s.coc is not None else None
+            if getattr(dcb, "device", None) == "ME" and line is not None:
+                self.s.coc.finish(line)                # a new page: here, a new line
+            return ("CC", 0)
+        if code == 0x05:                               # IOVFC  :446: the FRM bit X'100'
+            if not (dcb.open and dcb.asn != 3):        # 1A1: not an open non-device DCB
+                on = self.fetch(u, ctx.r7) & 0x10      # the FPT's flag, SLS,R2 4: X'100'
+                if isinstance(dcb, MemDcb):
+                    w0 = self.fetch(u, dcb.address)
+                    self.s.umem[u][dcb.address] = (w0 | 0x100) if on else (w0 & ~0x100)
+                dcb.vfc = bool(on)
+            return ("CC", 0)
+        other = self.fetch(u, ctx.r7) & 0x1FFFF        # IOCORRES  :507: DCB2, perhaps indirect
+        if self.fetch(u, ctx.r7) & INDIRECT:
+            other = self.fetch(u, other) & 0x1FFFF
+        same = self._assignment(u, dcb) == self._assignment(u, self.dcb_at(u, other))
+        self.s.uregs[u][8] = 1 if same else 0          # SR1 into the user's R8 (NL1)
+        return ("CC", 0)
+        yield
+
+    def _assignment(self, u, dcb):
+        """GETDEV's answer, for comparing two DCBs: what the DCB is assigned to."""
+        if dcb is None:
+            return None
+        if dcb.asn == 1:
+            return ("file", dcb.fname, dcb.account or self.account.get(u, ":SYS"))
+        if getattr(dcb, "device", None):
+            return ("device", dcb.device)
+        from . import devopen
+        word1 = self.fetch(u, dcb.address + 1)
+        try:                                           # GETDEV1: never opened
+            return ("device", devopen.assigned(self.s, u, word1) or "NO")
+        except (devopen.OpenError, NotTranslated):
+            return ("device", word1 & 0x1FFFF)
+
+    def mint(self, ctx):
+        """MINT  TRAPC.txt:143 - M:INT: the BREAK address into J:INTENT (with X'08'),
+        and J:TCB set from register 0 if the user has none. A command processor's own
+        break control (INT30) isn't modeled; nor is delivering a BREAK to the address."""
+        u = ctx.u
+        address = ctx.r6 & 0x1FFFF
+        self.intent[u] = (address | 0x08000000) if address else 0
+        self.tcb.setdefault(u, self.s.uregs[u][0])     # INT10: USE USER R0 AS TCB
+        return ("TRAPEXIT", None)
+        yield
+
+    def t_chtbl(self, ctx):
+        """T:CHTBL  UCAL.txt:436 - on-line users only (CC1 otherwise). Arming BREAK
+        (X'80'), setting a mode (X'20'), resetting the break count (X'10') and changing
+        the translation table are accepted without effect here; the terminal status
+        (X'40', T:TS) isn't translated."""
+        if ctx.u not in self.s.LB_UN:
+            return ("CC", 8)                           # CC1SET
+        flags = (ctx.r6 >> 16) & 0xFF                  # LH,7 6
+        if not flags & 0x80 and flags & 0x40:
+            raise NotTranslated("T:CHTBL terminal status (T:TS)")
+        return ("CC", 0)                               # CC1RST
+        yield
 
     def setdcb(self, ctx, dcb):
         """SETDCB  IOD.txt:526 - M:SETDCB: the FPT's error and abnormal addresses into the
@@ -852,9 +930,16 @@ class CalProcessor:
             raise NotTranslated("terminal I/O with no line (a batch or ghost user's M:UC)")
         s.jit[u].CTIME += s.L.SL_IOTA                  # DING
         if write:
-            text = self.read_text(u, dcb.buf, dcb.btd, dcb.rws)
-            s.coc.write(line, text)
-            dcb.ars = len(text)
+            data = self.read_bytes(u, dcb.buf, dcb.btd, dcb.rws)
+            dcb.ars = len(data)
+            w0 = self.fetch(u, dcb.address) if isinstance(dcb, MemDcb) else 0
+            lines = 1
+            if w0 & 0x10100 and data:                  # COCWR30: VFC (X'100') or TOF
+                if w0 & 0x10000:
+                    self.s.umem[u][dcb.address] = w0 & ~0x10000   # TURN OFF TOF BIT
+                lines = data[0] - 0xC0 if 0xC1 <= data[0] <= 0xCF else 1   # X'C1'-X'CF'
+                data = data[1:]                        # COCWR70: the control isn't sent
+            s.coc.write(line, data.decode(EBCDIC), lines)
         else:
             prompt = chr(self.prompt[u]) if self.prompt.get(u) else ""
             while (text := s.coc.read(line, prompt)) is None:
@@ -1350,6 +1435,7 @@ class CalProcessor:
 
 
 CalProcessor.overlaid.update({"T:WAIT": CalProcessor.t_wait, "MTIME": CalProcessor.mtime,
+                              "MINT": CalProcessor.mint, "T:CHTBL": CalProcessor.t_chtbl,
                               "OPEN entry 0": CalProcessor.file_open,
                               "CLOSE entry 2": CalProcessor.file_close,
                               "CLOSE entry 4": CalProcessor.cal_delrec,

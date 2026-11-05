@@ -149,7 +149,10 @@ the 16-byte buffer chains) and translates:
   the type-ahead echoed, `E:CRD` until `E:CIC`, then the line into the buffer and the ARS. An
   on-line user's `M:KEYIN` types its message on `M:UC` and reads the reply from it.
 - **§5:** writes. A record starts on a new line unless the carriage is at the left margin
-  (`CPOS`, kept per line). The carriage stays at the record's end, so a read that follows takes
+  (`CPOS`, kept per line). An EBCDIC NL (X'15') in a record is a new line. With vertical format
+  control (the DCB's X'100'), the first character is format control and isn't sent: X'C1'–X'CF'
+  that many new lines, X'F1' a top of form, here a new line (`COCWR30`–`COCWR70`,
+  `:2935`–`:3103`; [`devopen.md`](devopen.md) §5). The carriage stays at the record's end, so a read that follows takes
   its input on the same line (`LOGON PLEASE: `).
 - **§6:** a connection as a ready line, a disconnection as `E:OFF`. The user is removed at
   their next `T:PULLE` (`HANGUP`).

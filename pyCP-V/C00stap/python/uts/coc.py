@@ -162,12 +162,16 @@ class Coc:
         line.reading = False
         return line.done.pop(0)
 
-    def write(self, n, text):
+    def write(self, n, text, lines=1):
         """COCWR  :2851 - a record, on a new line: CR/LF first unless the carriage is
         at the left margin. The carriage stays at the record's end, so a read that
-        follows takes its input on the same line (LOGON PLEASE:)."""
+        follows takes its input on the same line (LOGON PLEASE:). An EBCDIC NL (X'15',
+        which code page 037 makes U+0085) in the record is a new line, as TTYOUT's *NL.
+        ``lines`` above 1 (a format control under VFC) adds blank lines before it."""
         line = self.lines[n]
-        self._out(line, (CRLF if line.col else b"") + text.encode("latin-1", errors="replace"))
+        text = text.replace("\x85", "\r\n")
+        extra = CRLF * (lines - 1)
+        self._out(line, (CRLF if line.col else b"") + extra + text.encode("latin-1", errors="replace"))
 
     def finish(self, n):
         """Before the line is closed: the carriage back to the margin."""

@@ -124,6 +124,35 @@ The FPT can change the DCB before anything is opened, for a file as for a device
 `:526`–`:531`). An exit through the DCB (`MSR01EXIT`, `IORT.txt:598`–`:603`) uses them. An exit
 after a read or write uses the JIT's (`IOCHEK`, `:890`–`:895`), which come from that CAL's FPT.
 
+## 5. Device options and two small services
+
+**Device options** (`M:DEVICE`, CAL1,1 with a device code, `IOSDEV`, `IOD.txt:99`). The code is
+looked up in `IOTBL` (`:112`): X'24' COUNT, X'23' DATA, X'21' FORM, X'26' HEADER, X'20' LINES,
+X'22' MODE, X'28' TAB, X'27' SEQ, X'25' SPACE, X'04' PAGE, X'05' VFC, X'0B' DIR, X'2A' NLINES,
+X'2B' CORRES. SETDCB (6, §4) is always done (`:102`–`:103`). On `M:OC` the others are skipped
+(`:104`–`:105`). COUNT to SPACE apply to a device DCB only (`TSTDEV`, `:551`–`:557`); PAGE to
+CORRES go straight to their routines (`TSTDEV1`, `:547`–`:549`).
+- **PAGE** (`IOPAGE`, `:310`): the DCB is opened if it isn't (`TESTOPN`). Nothing happens on the
+  null device. Otherwise a top of form goes out (`TOFCHAR` X'F1'): through a symbiont stream, to
+  a listing device, or to COC for a terminal (device type X'90', "ME", `IOPGE19`).
+- **VFC** (`IOVFC`, `:446`): the FPT's flag (X'10' in its second word, shifted to X'100') goes
+  into the DCB's word 0, the `FRM` bit X'100`. An open DCB that isn't a device is left alone
+  (`1A1`). With the bit set, COC takes a record's first character as format control (`COCWR30`,
+  `COC.txt:2935`): X'F1' a top of form, X'C1'–X'CF' that many new lines. The character itself
+  isn't sent, whatever it is (`COCWR70`, `:3103`).
+- **CORRES** (`IOCORRES`, `:507`): are two DCBs assigned alike? `GETDEV` (`IORT.txt:1288`) gives
+  each one's assignment, for a DCB never opened too (`GETDEV1`). The answer, 1 or 0, goes into the
+  user's register 8 (`NL1`).
+
+**`M:INT`** (CAL1,8 X'0E', `MINT`, `TRAPC.txt:143`): the user's BREAK address into `J:INTENT`,
+with X'08000000'. If the user has no TCB, register 0 becomes `J:TCB` (`INT10`). A command
+processor's own break control (`INT30`) is separate.
+
+**`T:CHTBL`** (CAL1,8 X'06', `UCAL.txt:436`): for on-line users only; anyone else gets CC1. By
+its flags (the FPT's first halfword): X'80' arms BREAK, X'40' gives the terminal status
+(`T:TS`), X'20' sets a mode, X'10' resets the break count, and with none of these, the
+translation table changes.
+
 ## In the translation
 
 `python/uts/devopen.py` translates the label and name resolution, with P2OPL's default tables.
@@ -131,7 +160,12 @@ after a read or write uses the JIT's (`IOCHEK`, `:890`–`:895`), which come fro
 - the FPT's assignment (`CHKASN`, `MSROPN09`), then `device_open` or the file open;
 - MSROPN's parameters and the FPT's VLPs, merged into a DCB in memory (`_merge_open`,
   `MemDcb.set_vlp`);
-- `M:SETDCB`;
+- `M:SETDCB`, and the device options PAGE, VFC and CORRES (`iosdev`). PAGE on a terminal starts
+  a new line, VFC sets the bit COC then honours, and CORRES compares two DCBs' assignments.
+  The other options stop with `NotTranslated`;
+- `M:INT`, which records the BREAK address. A BREAK still ends the program and returns to TEL:
+  delivering it to the address isn't translated;
+- `T:CHTBL`, accepted with no effect, except the terminal status (X'40'), which isn't translated;
 - a **default OPEN**: a read or write on a closed device DCB in memory opens it first
   (`MSRRDWTA`; `msrrdwt1`).
 
