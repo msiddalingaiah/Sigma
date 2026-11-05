@@ -116,7 +116,7 @@ Not translated:
 
 **SLIP's first instruction** is `CAL1,1` with an `M:OPEN` of `M:SI`, followed by two more
 `CAL1,1`s. `M:SI` is a device DCB: word 1 holds operational label 9 rather than a file name.
-OPEN for device DCBs isn't translated yet, so SLIP stops there. On a terminal, an on-line user's
+Opening a device DCB is [`devopen.md`](devopen.md): for an on-line user, `CR` can't be had, and SLIP goes to its error routine. On a terminal, an on-line user's
 program that reaches untranslated code reports `NOT TRANSLATED:` and TEL takes the terminal back.
 
 ## Open questions

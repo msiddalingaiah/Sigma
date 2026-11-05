@@ -409,14 +409,17 @@ def test_list_another_account_with_attributes():
 
 
 @pytest.mark.skipif(not os.path.exists(UTIL_TAPE), reason="the UTIL tape image isn't here")
-def test_tel_runs_a_real_load_module_up_to_untranslated_code():
+def test_tel_runs_slip_to_its_error_routine():
     from uts import labtape
     t = logged_on()
     with open(UTIL_TAPE, "rb") as f:
         labtape.restore(t.s.cal.fs, labtape.read_tape(f.read()))
-    t.type("SLIP.:UTIL\r")                               # FETCH, then its first CAL: M:OPEN M:SI
-    assert t.text() == ("SLIP.:UTIL\r\nNOT TRANSLATED: DCB X'A922' in user memory with ASN 3"
-                        " (only files)\r\n!")
-    assert any("FETCH SLIP.:UTIL: start X'A064', TCB X'A000'" in line for line in t.s.log)
-    t.type("L\r")                                        # TEL has the terminal again
-    assert "NO FILES IN DIRECTORY" in t.text()
+    t.type("SLIP.:UTIL\r")                               # FETCH; M:OPEN M:SI on CR fails
+    assert t.text() == "SLIP.:UTIL\r\n"
+    log = "\n".join(t.s.log)
+    assert "OPEN DCB X'A922' user 7: device error X'49'-02" in log
+    assert "routine X'A0F0'" in log                       # SLIP's I/O error routine
+    assert "OPEN DCB X'A9E4' user 7: device ME" in log    # F:3: the terminal
+    t.type("ANY LINE\r")                                 # read, printed on M:LL, M:EXIT
+    assert t.text().endswith("\r\n!")
+    assert "OPEN DCB X'A8BA' user 7: device ME" in "\n".join(t.s.log)   # M:LL, a default open

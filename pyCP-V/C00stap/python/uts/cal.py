@@ -674,8 +674,8 @@ class CalProcessor:
             if not w0:
                 return None                            # nothing there
             asn = w0 & 0xF
-            if asn != 1:
-                raise NotTranslated(f"DCB X'{a:X}' in user memory with ASN {asn} (only files)")
+            if asn not in (1, 3):
+                raise NotTranslated(f"DCB X'{a:X}' in user memory with ASN {asn} (files and devices only)")
             mem_dcbs[a] = MemDcb(self, u, a)
         return mem_dcbs[a]
 
@@ -712,8 +712,11 @@ class CalProcessor:
         presence = self.fetch(ctx.u, ctx.r7)           # FPT word 1
         words = (self.s.umem[ctx.u].get(ctx.r7 + 1 + i, 0) for i in range(16))
         if not dcb.open:                               # MSRRDWTA: A DEFAULT OPN
+            if dcb.asn == 3:                           # a device: msrrdwt1 opens it
+                return (yield from self.msrrdwt1(ctx, dcb, presence, words,
+                                                 "write" if write else "read"))
             if dcb.asn != 1:
-                raise NotTranslated("default OPEN of a closed device DCB")
+                raise NotTranslated(f"default OPEN of a DCB with ASN {dcb.asn}")
             if self.fs is None:
                 raise NotTranslated("default OPEN: no file system attached")
             yield from self.t_overlay(ctx.u, OPNSEG)   # OVERTO OPNSEG,0
@@ -730,6 +733,11 @@ class CalProcessor:
         op = write if isinstance(write, str) else ("write" if write else "read")
         write = op == "write"
         u, j, take = ctx.u, self.s.jit[ctx.u], self._params(ctx.u, words)
+        if isinstance(dcb, MemDcb) and dcb.asn == 3 and not dcb.open:
+            yield from self.t_overlay(u, OPNSEG)       # MSRRDWTA: A DEFAULT OPN
+            code = self._open_device(u, dcb)
+            if code:
+                return self.msr012(ctx, dcb, *code)
         if presence & P_ERR:
             j.ERO = take() & 0x1FFFF                   # ERROR ADDRESS
         if presence & P_ABN:
@@ -1006,6 +1014,8 @@ class CalProcessor:
     def file_open(self, ctx):
         """M:OPEN (CAL1,1 X'14', overlay OPEN entry 0)."""
         u, dcb = ctx.u, self.dcb_at(ctx.u, ctx.r6)
+        if dcb is not None and dcb.asn == 3:
+            return (yield from self.device_open(ctx, dcb))
         if self.fs is None:
             raise NotTranslated("M:OPEN: no file system attached")
         take = self._params(u, (self.s.umem[u].get(ctx.r7 + 1 + i, 0) for i in range(2)))
@@ -1020,6 +1030,52 @@ class CalProcessor:
                 return self.msr012(ctx, dcb, code)     # X'03': no such file (abnormal)
         return self.pullallexit(ctx, 0, 0)
         yield
+
+    # MSROPN's FPT parameters, by presence bit from bit 0 (OPN.txt:109-:146)
+    OPEN_PARAMS = ("ERR", "ABN", "BUF", "RSZ", "NRA", "ORG", "ACS", "FUN", "GEN", "FOPT",
+                   "USELB", "TLB", "KEYM", "DEVOPT", "BTD")
+
+    def device_open(self, ctx, dcb):
+        """M:OPEN of a device DCB: MSROPN's parameters into the DCB (the error and
+        abnormal addresses, buffer, record size, device option, byte displacement),
+        then OPENDEV (devopen.py). A DCB that is open already: X'2E' (OPN.txt:91-:94)."""
+        u, j = ctx.u, self.s.jit[ctx.u]
+        presence = self.fetch(u, ctx.r7)
+        take = self._params(u, (self.s.umem[u].get(ctx.r7 + 1 + i, 0) for i in range(16)))
+        params = {}
+        for i, name in enumerate(self.OPEN_PARAMS):
+            if presence & (0x80000000 >> i):
+                params[name] = take()
+        if "ERR" in params:
+            j.ERO = params["ERR"] & 0x1FFFF
+        if "ABN" in params:
+            j.ABO = params["ABN"] & 0x1FFFF
+        if dcb.open:
+            return self.msr012(ctx, dcb, 0x2E)             # OPEN AN OPEN DCB
+        if "BUF" in params:
+            dcb.buf = params["BUF"] & 0x1FFFF
+        if "RSZ" in params:
+            dcb.rsz = params["RSZ"] & 0xFFFF
+        if "BTD" in params:
+            dcb.btd = params["BTD"] & 3
+        code = self._open_device(u, dcb, params.get("DEVOPT"))
+        if code:
+            return self.msr012(ctx, dcb, *code)
+        return self.pullallexit(ctx, 0, 0)
+        yield
+
+    def _open_device(self, u, dcb, option=None):
+        """OPENDEV: the device, then the DCB open (SETOPN). Returns 0 or (code, sub)."""
+        from . import devopen
+        try:
+            device = devopen.resolve(self.s, u, self.fetch(u, dcb.address + 1), option)
+        except devopen.OpenError as e:
+            self.trace(f"OPEN {dcb.name} user {u}: device error {e}")
+            return (e.code, e.sub)
+        dcb.device, dcb.coc, dcb.dtype = device, device == "ME", "TY" if device == "TY" else ""
+        dcb.open, dcb.tyc = True, 0
+        self.trace(f"OPEN {dcb.name} user {u}: device {device}")
+        return 0
 
     def file_close(self, ctx):
         """M:CLOSE (CAL1,1 X'15', overlay CLOSE entry 2): CLSFIL. The first parameter,
