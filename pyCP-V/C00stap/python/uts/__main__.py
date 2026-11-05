@@ -162,13 +162,29 @@ def restore_tapes(mon, paths):
         print(f"(tape {path}: reel {tape.reel}, {len(names)} files restored to {tape.account})")
 
 
-def operator(m, mon, sysgen=None, keyins=(), lp_faults=None, prints=(), files=(), tapes=()):
+def load_cards(mon, reader=None, punch=None):
+    """--reader DECK, --punch FILE: the card devices' media (cards.py, a stand-in)."""
+    from .cards import CardPunch, CardReader, UnitRecord
+    if reader is None and punch is None:
+        return
+    if punch is not None:
+        open(punch, "w", encoding="utf-8").close()     # a fresh punch file each run
+    deck = CardReader.load(reader) if reader else None
+    mon.sched.cal.unit_record = UnitRecord(deck, CardPunch(punch) if punch else None)
+    if deck is not None:
+        print(f"(card reader: {len(deck.cards)} cards from {reader})")
+
+
+def operator(m, mon, sysgen=None, keyins=(), lp_faults=None, prints=(), files=(), tapes=(),
+             reader=None, punch=None):
     """Key-ins on a system that is up. ``lp_faults`` makes the line printer fail
     (see io.Unit); ``prints`` are lines queued to it first; ``files`` are --file
-    imports, ``tapes`` --restore tapes. Returns the OperatorConsole."""
+    imports, ``tapes`` --restore tapes, ``reader`` and ``punch`` the card devices'
+    media. Returns the OperatorConsole."""
     sysgen = sysgen or Sysgen()
     restore_tapes(mon, tapes)
     import_files(mon, files)
+    load_cards(mon, reader, punch)
     con = keyin.OperatorConsole(m, mon, sysgen, lp_faults=lp_faults,
                                 screech=lambda code, sub: _recover(m, mon, sysgen, code, sub))
     for line in prints:
@@ -270,6 +286,10 @@ def main(argv=None):
     p.add_argument("--restore", nargs="*", default=[], metavar="TAPE.tap", dest="tapes",
                    help="labeled tapes (simh .tap) whose files are restored into the file system,"
                         " in the tape's account")
+    p.add_argument("--reader", metavar="DECK.txt",
+                   help="a text file loaded into the card reader: a card a line (EBCDIC, 80 columns)")
+    p.add_argument("--punch", metavar="FILE.txt",
+                   help="a text file the card punch writes, a card a line")
     p.add_argument("--terminals", type=int, default=0, metavar="N",
                    help="after the boot comes up, N terminal lines on a TCP port (telnet), in"
                         " real time; Ctrl-C ends")
@@ -347,7 +367,8 @@ def run(args, sysgen, model, swap, public, machines):
         if crashed.TRCVRAD:
             print(f"crash          RCVCODE=X'{crashed.RCVCODE:08X}'  recovery buffer@{crashed.TRCVRAD}"
                   f"  dump@{crashed.TRCVRAD + 4}..{crashed.RCVRAD - 1}  X'4000'@{crashed.SEEK4000}")
-    if (args.keyins is not None or args.console or args.terminals or args.tapes) and outcome == "up":
+    if (args.keyins is not None or args.console or args.terminals or args.tapes
+            or args.reader or args.punch) and outcome == "up":
         m.console.transcript.clear()
         print("\n=== operator console ===")
         if args.console and args.interactive and not args.terminals:
@@ -356,7 +377,7 @@ def run(args, sysgen, model, swap, public, machines):
         if args.terminals:
             m.console.interactive = False              # the scripted key-ins first
         con = operator(m, mon, sysgen, keyins, parse_faults(args.lp_fault), args.prints,
-                       args.files, args.tapes)
+                       args.files, args.tapes, args.reader, args.punch)
         if not args.interactive or args.terminals:
             print(m.console.text())
         if args.terminals and con.shutdown is None and con.sched is not None:

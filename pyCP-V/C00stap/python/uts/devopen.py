@@ -10,8 +10,12 @@ What an assignment can name, and what the translation does with it:
 - TY, the operator's console: M:OC's IOQ path;
 - NO, or no assignment: the null device;
 - C1, L1, P1 and other logical devices (symbiont streams through COOP): not translated;
-- a device type (CR, CP, LP, PR, PP): allocating a device isn't modeled, so the
-  allocation fails as for a user who may not have one (KRD10, X'02000049').
+- a card reader or punch (CR, CP) with a medium loaded (cards.py): allocated to one
+  user at a time (SPINS: does anyone have it, GERM.txt:51). A DEPARTURE: the job's
+  limit for the type, JB:MAX (OPND.txt:346-:352), isn't modeled, so any user may have
+  one, an on-line user too;
+- another device type (LP, PR, PP), or a card device with no medium or already held:
+  the allocation fails as for a user who may not have one (KRD10, X'02000049').
 """
 
 from .files import EBCDIC
@@ -90,5 +94,8 @@ def resolve(sched, u, word1, option=None):
     if target == "TY":
         return "TY"
     if target in DEVICE_TYPES:
+        units = getattr(getattr(sched, "cal", None), "unit_record", None)
+        if target in ("CR", "CP") and units is not None and units.allocate(target, u):
+            return target                              # NXTYC ... SETDSI (a departure, above)
         raise OpenError(*NODEVICE)                     # no allocatable device of the type
     raise NotTranslated(f"OPEN on logical device {target} (a symbiont stream, COOP)")

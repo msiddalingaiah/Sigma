@@ -415,11 +415,10 @@ def test_tel_runs_slip_to_its_error_routine():
     with open(UTIL_TAPE, "rb") as f:
         labtape.restore(t.s.cal.fs, labtape.read_tape(f.read()))
     t.type("SLIP.:UTIL\r")                               # FETCH; M:OPEN M:SI on CR fails
-    assert t.text() == "SLIP.:UTIL\r\n"
+    assert t.text() == "SLIP.:UTIL\r\n!"
     log = "\n".join(t.s.log)
-    assert "OPEN DCB X'A922' user 7: device error X'49'-02" in log
+    assert "OPEN DCB X'A922' user 7: device error X'49'-02" in log   # no deck in the reader
     assert "routine X'A0F0'" in log                       # SLIP's I/O error routine
-    assert "OPEN DCB X'A9E4' user 7: device ME" in log    # F:3: the terminal
-    t.type("ANY LINE\r")                                 # read, printed on M:LL, M:EXIT
-    assert t.text().endswith("\r\n!")
-    assert "OPEN DCB X'A8BA' user 7: device ME" in "\n".join(t.s.log)   # M:LL, a default open
+    assert "OPEN DCB X'A9E4' user 7: ASN 3 -> 1" in log   # F:3: ERRMSG.:SYS, the FPT's file
+    assert "abnormal X'03' on DCB X'A9E4'" in log         # ... which isn't here
+    assert "OPEN DCB X'A8BA' user 7: device ME" in log    # M:LL, a default open: M:PRINT

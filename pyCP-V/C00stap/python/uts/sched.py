@@ -1054,6 +1054,8 @@ class Scheduler:
         self.UH_FLG[u] = self.UH_FLG2[u] = self.UH_DL[u] = self.UB_MF[u] = 0
         self.do_list[u] = []
         self.S_CUIS -= 1
+        if self.cal is not None and self.cal.unit_record is not None:
+            self.cal.unit_record.release(u)            # devices go back at the end of the job
         self.breaks.discard(u)
         self.hangups.discard(u)
         if u in self.LB_UN:

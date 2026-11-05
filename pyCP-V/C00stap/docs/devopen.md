@@ -101,33 +101,92 @@ The tables are built at SYSGEN by `P2OPL` from the `:OPLB` command. Its defaults
 entry left 0, which P2OPL skips, as it does `NO` (`P2OPL.txt:199`–`:201`). So for an on-line user, nearly all output, and
 the source input, is the terminal, even `OC`.
 
+## 4. What OPEN takes from the FPT
+
+The FPT can change the DCB before anything is opened, for a file as for a device:
+- **The assignment**: the low 3 bits of the FPT's flags (its presence word) are an assignment.
+  `CHKASN` returns it if it is non-zero, and the DCB's otherwise (`OPN.txt:548`–`:556`). When it
+  differs from the DCB's, it is stored in the DCB (`MSROPN09`, `:276`–`:289`). A program can name
+  a file in a DCB built for the terminal, or a device in one built for a file. TEL's assignments
+  are made through OPEN too (the step's `ASM3`–`ASM8`, `STPNR.txt:2648`–`:2747`), so a program
+  that names its own assignment overrides them.
+- **The parameters**: the organization (the value times 16: 0 consecutive, 1 random, 2 keyed,
+  `MSROPN51`, `:671`), the function (`SETFUNC`), the key length (`BAKEYM`), the buffer, the
+  record size, and the error and abnormal addresses, which also go into the DCB's `ERA` and `ABA`
+  (`:111`–`:113`).
+- **The VLPs**: when the flags' low 10 bits are set, VLPs follow the parameters, in the DCB's own
+  format. Each code the DCB has a slot for is copied in, as many words as the slot reserves, with
+  the count of words used (`MSROPN10`–`MSROPN98B`, `:300`–`:351`). A code with no slot is skipped
+  (`MSROPN99A`). A VLP with a count of 0 isn't given: an account not given is the user's own
+  (`CHKFLACN`, "USER SPEC'D AN ACCT", `OBSE.txt:283`–`:288`).
+
+`M:SETDCB` (CAL1,1 code 6, a device CAL) sets `ERA` and `ABA` alone (`IOD.txt:102`–`:103`,
+`:526`–`:531`). An exit through the DCB (`MSR01EXIT`, `IORT.txt:598`–`:603`) uses them. An exit
+after a read or write uses the JIT's (`IOCHEK`, `:890`–`:895`), which come from that CAL's FPT.
+
 ## In the translation
 
-`python/uts/devopen.py` translates the label and name resolution, with P2OPL's default tables,
-and `cal.py` the OPEN:
-- `CalProcessor.device_open`: `MSROPN`'s parameters (the error and abnormal addresses, buffer,
-  record size, device option, byte displacement), then the resolution;
+`python/uts/devopen.py` translates the label and name resolution, with P2OPL's default tables.
+`cal.py` translates the OPEN:
+- the FPT's assignment (`CHKASN`, `MSROPN09`), then `device_open` or the file open;
+- MSROPN's parameters and the FPT's VLPs, merged into a DCB in memory (`_merge_open`,
+  `MemDcb.set_vlp`);
+- `M:SETDCB`;
 - a **default OPEN**: a read or write on a closed device DCB in memory opens it first
   (`MSRRDWTA`; `msrrdwt1`).
 
 An assignment ends up as one of:
 - `ME`: COC, the user's terminal (`cocio`);
 - `TY`: the console, through IOQ;
-- `NO`: the null device, where a write does nothing.
+- `NO`: the null device, where a write does nothing;
+- `CR` or `CP`: the card reader or punch, below.
+
+### Card devices
+
+There are no card readers today. The card reader and punch are **devices whose media are host
+files** (`python/uts/cards.py`), as simh attaches a deck:
+- `--reader DECK.txt` loads a deck. Each line is a card, 80 columns in EBCDIC, blank-filled. A
+  read takes the next card. With the hopper empty, the read ends abnormally with X'06', end of
+  file.
+- `--punch FILE.txt` is where punched cards go, a line each.
+
+A device type in an assignment or a device option (`CR`, `CP`) is allocated if a medium is loaded
+and no one else holds it (`SPINS`, "DOES ANYONE HAVE IT", `GERM.txt:51`). The job keeps it until
+it ends (`T:DELUS`), as `OPENDEV` charges it to the job (`JB:CUR`, `J:ASPIN`,
+`OPND.txt:358`–`:366`).
+
+**The departure**: the job's limit for the type, `JB:MAX` (`OPND.txt:346`–`:352`), isn't modeled,
+so any user may have a card device, an on-line user too. Where an on-line user's `JB:MAX` comes
+from (log-on, `:USERS`) wasn't traced. Also not translated: the reader and punch handlers
+(`HANDLERS.txt`). A card read or punch completes at once, below IOQ.
 
 Not translated:
 - logical devices (`C1`, `L1`, `P1`: symbiont streams, COOP): they stop with `NotTranslated`;
-- device allocation (RAT, DCTs): opening on a device type (`CR`, `LP`, …) fails as for a user who
-  may not have one, X'49' subcode 2;
+- other device types (`LP`, `PR`, `PP`): their allocation fails as for a user who may not have
+  one, X'49' subcode 2;
 - a site's `:OPLB` cards, the `L` bit, the line number in `M:UC`, and DCBs that already hold a
   type and DCT index.
 
-**SLIP** opens `M:SI` with the device option `CR` (its FPT at `X'A1DE'`). For an on-line user,
-that fails with X'49'. SLIP's error routine at `X'A0F0'` then opens `F:3` (`ME`), reads a record
-keyed by the error code, and prints it with `M:PRINT`, which a default OPEN sends to `M:LL`, the
-terminal. Then it ends. On a real system `F:3` is presumably assigned to an error-message file.
-SLIP is a card utility: its control card says `CARD TO DISK`, `VERIFY` or `COPY TO TAPE`. To run it
-on-line, TEL assigns `M:SI` to a file (`!SLIP fid`, `TEL.txt:648`–`:660`), which is the next step.
+### SLIP
+
+SLIP is a card utility. Its control card on `M:SI` says `CARD TO DISK`, `VERIFY` or `COPY TO
+TAPE`, and its OPEN of `M:SI` names the device `CR` itself (its FPT at `X'A1DE'`, flags
+`X'C0040003'`: assignment 3 and the device option `CR`). With a deck in the reader:
+1. it reads the control card and, for `CARD TO DISK`, prints
+   ` THE FOLLOWING FILES WERE COPIED TO DISK:`;
+2. it opens `M:EI` on the reader for the deck, sets its addresses with `M:SETDCB`, and opens its
+   work file `F:1`, `MTRNMFILE` in the user's account. That FPT names a keyed file, UPDATE. The
+   file isn't there (X'03'), so SLIP's abnormal routine opens it OUT, which creates it;
+3. it reads the next card, 120 bytes (a binary card), and checks it. A card that isn't what it
+   expects gets ` !BIN OR FIRST CATALOG CARD MISSING`, and SLIP aborts.
+
+The deck SLIP wants, a `!BIN` card or "catalog cards" with binary cards after them, is SLIP's own
+format, not described in the monitor's source.
+
+With no deck, the `M:SI` OPEN fails with X'49', and SLIP's error routine at `X'A0F0'` opens `F:3`,
+whose FPT names `ERRMSG.:SYS`, the system's error-message file. It reads the message keyed by the
+error code and prints it with `M:PRINT` (on `M:LL`). There is no `ERRMSG` here, so nothing is
+printed.
 
 ## Open questions
 
@@ -137,3 +196,7 @@ on-line, TEL assigns `M:SI` to a file (`!SLIP fid`, `TEL.txt:648`–`:660`), whi
   device names, `KRD6`). Only the labels and the device pseudo-entries are modeled.
 - **The FUN a device sets**: `OPENDEV` sets the DCB's function from the device's DCT3 bits
   (`NONTAPE`, `:373`–`:383`). The DCB's own function is kept here.
+- **A job's files at an abort**: SLIP aborts with `MTRNMFILE` open, so it is never entered in the
+  directory here. What CP-V does with a job's open files at an abort wasn't traced.
+- **The rest of MSROPN's parameters** (tries, access, generation, file option, labels, reel,
+  and so on) are skipped, and so are the FPT's extended forms (`X'22000'`).

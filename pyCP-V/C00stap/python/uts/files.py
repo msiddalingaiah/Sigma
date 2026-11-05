@@ -1667,7 +1667,7 @@ class FileSystem:
     def open(self, name, account, mode="IN", keym=11, lslides=254, lrdl0=2, spare=102,
              org=2, size=0, who=None, password=None, prot=None):
         """OPNF  OPNF.txt - the CFU scan, then the directory search, then the FIT.
-        ``mode`` is IN, OUT, INOUT or UPDATE; a missing file is created for any but IN,
+        ``mode`` is IN, OUT, INOUT or UPDATE; a missing file is created for OUT or INOUT, not IN or UPDATE (OPNF.txt:165),
         keyed (``org`` 2), consecutive (1) or random (3, of ``size`` granules: RSTORE).
         An existing file keeps its own.
 
@@ -1692,7 +1692,7 @@ class FileSystem:
             if isinstance(kf, KeyedFile):
                 kf.LSLIDES, kf.LRDL0, kf.SPARE = lslides, lrdl0, spare
             new = False
-        elif mode == "IN":
+        elif mode in ("IN", "UPDATE"):
             raise FileError(0x03, f"no such file {name}")   # OP1: OPENER
         elif not own and who.priv < 0xC0:
             raise FileError(0x14, f"{name}.{account}: not the user's account")   # OP71

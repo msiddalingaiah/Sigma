@@ -186,12 +186,32 @@ DCB_FIELDS = {
     "tyc": (2, 17, 0x7F),                      # Y00FE
     "buf": (2, 0, 0x1FFFF),
     "rsz": (3, 17, 0x7FFF),
+    "era": (3, 0, 0x1FFFF),                    # the error address (UTS.txt:554)
     "ars": (4, 17, 0x7FFF),
+    "aba": (4, 0, 0x1FFFF),                    # the abnormal address (UTS.txt:556)
+    "flp": (6, 0, 0x1FFFF),                    # the VLP list (FLP)
     "org": (5, 0, 0x30),
     "keym": (12, 24, 0xFF),
     "rstore": (20, 0, 0xFFFFFFFF),
 }
 PROT_CODES = (0x03, 0x05, 0x06, 0x14, 0x15)
+
+
+def vlps_at(mem, a):
+    """A VLP list at word ``a`` (a DCB's FLP, or after an FPT's parameters): {code:
+    [data words]}: the words used (0: the parameter is not given). Each starts with a control
+    word: code, last flag, words used, words reserved."""
+    out = {}
+    for _ in range(32):
+        if not a:
+            break
+        cw = mem.get(a, 0) & 0xFFFFFFFF
+        code, last, used, reserved = cw >> 24, (cw >> 16) & 0xFF, (cw >> 8) & 0xFF, cw & 0xFF
+        out[code] = [mem.get(a + 1 + i, 0) & 0xFFFFFFFF for i in range(used)]
+        if last:
+            break
+        a += 1 + reserved
+    return out
 
 
 class MemDcb:
@@ -249,20 +269,27 @@ class MemDcb:
             self._side[name] = value
 
     def _vlps(self):
-        """The VLP list at FLP: {code: [data words]} (the words used, else reserved)."""
-        mem, out = self._cal.s.umem[self._u], {}
-        a = self._w(6) & 0x1FFFF
+        """The VLP list at FLP: {code: [data words]}, the words used."""
+        return vlps_at(self._cal.s.umem[self._u], self._w(6) & 0x1FFFF)
+
+    def set_vlp(self, code, words):
+        """MSROPN98B: ``words`` into the DCB's VLP slot for ``code``, at most as many as
+        the slot reserves, and the count used. No slot: nothing (MSROPN99A)."""
+        mem, a = self._cal.s.umem[self._u], self._w(6) & 0x1FFFF
         for _ in range(32):
             if not a:
-                break
+                return
             cw = mem.get(a, 0) & 0xFFFFFFFF
-            code, last, used, reserved = cw >> 24, (cw >> 16) & 0xFF, (cw >> 8) & 0xFF, cw & 0xFF
-            n = used or reserved
-            out[code] = [mem.get(a + 1 + i, 0) & 0xFFFFFFFF for i in range(n)]
+            last, reserved = (cw >> 16) & 0xFF, cw & 0xFF
+            if cw >> 24 == code:
+                n = min(len(words), reserved)
+                for i in range(reserved):
+                    mem[a + 1 + i] = words[i] if i < n else 0
+                mem[a] = (cw & 0xFFFF00FF) | (n << 8)
+                return
             if last:
-                break
+                return
             a += 1 + reserved
-        return out
 
     @staticmethod
     def _ebcdic(code, words):
@@ -299,6 +326,7 @@ class CalProcessor:
         self.fs = None                                 # files.FileSystem
         self.dcb_objs = {}                             # user -> {address: Dcb}
         self.uc = {}                                   # user -> M:UC (in the user's JIT)
+        self.unit_record = None                        # cards.UnitRecord: the card devices
         self.monitor_dcbs = {M_OC: Dcb("M:OC", fcn=0, address=M_OC, dtype="TY"),
                              M_UC: Dcb("M:UC", fcn=0, address=M_UC, coc=True),
                              M_XX: Dcb("M:XX", fcn=0, address=M_XX)}
@@ -421,9 +449,22 @@ class CalProcessor:
                 if dcb == M_UC:
                     raise CalAbort(0xAE)               # only read/write/device on M:UC
                 return (yield from self.invoke(ctx, target))
+        if code == 0x06:                               # M:SETDCB: IOSDEV always does it
+            return self.setdcb(ctx, self.dcb_at(u, dcb))
         if code in DEVCDS:
             return (yield from self.invoke(ctx, Res("IOSDEV")))
         raise CalAbort(0xAE)
+
+    def setdcb(self, ctx, dcb):
+        """SETDCB  IOD.txt:526 - M:SETDCB: the FPT's error and abnormal addresses into the
+        DCB (ERA, ABA), for exits through the DCB (MSR01EXIT, IORT.txt:598-:603)."""
+        presence = self.fetch(ctx.u, ctx.r7)
+        take = self._params(ctx.u, (self.s.umem[ctx.u].get(ctx.r7 + 1 + i, 0) for i in range(2)))
+        if presence & P_ERR:
+            dcb.era = take() & 0x1FFFF                 # JHKBIT3 / STS,2 ERA,R6
+        if presence & P_ABN:
+            dcb.aba = take() & 0x1FFFF                 # JHKBIT / STS,2 ABA,R6
+        return ("TRAPEXIT", None)
 
     def _bad_dcb(self, ctx):
         if ctx.sr1 == 0x2C:                            # M:PC needs no DCB: T:STPMT
@@ -768,11 +809,37 @@ class CalProcessor:
             raise NotTranslated("read/write with an ECB (ECBINIT)")
         dcb.wat = bool(presence & F_WAIT)              # WAT (bit position assumed)
         # The buffer check (JOSZE2, X'4A') needs the user's access codes: not modeled.
+        if getattr(dcb, "device", None) in ("CR", "CP"):
+            return (yield from self.card_io(ctx, dcb, write))   # (the handlers: cards.py)
         if dcb.coc and self.s.coc is not None:
             return (yield from self.cocio(ctx, dcb, write))   # QUEUE: COCIO
         if not write:
             raise NotTranslated("device read (MSRRED / MSROTHR)")
         return (yield from self.msrwrt(ctx, dcb))
+
+    def card_io(self, ctx, dcb, write):
+        """A read from the card reader or a write to the punch, at once (a stand-in for
+        the queued I/O and the handlers). An empty hopper is end of file, X'06'."""
+        u, device = ctx.u, dcb.device
+        self.s.jit[u].CTIME += self.s.L.SL_IOTA        # DING
+        if write != (device == "CP"):
+            raise NotTranslated(f"{'write to the card reader' if write else 'read from the punch'}")
+        medium = self.unit_record.media[device]
+        if write:
+            data = self.read_bytes(u, dcb.buf, dcb.btd, min(dcb.rws, 80))
+            medium.punch(data)
+            dcb.ars = len(data)
+        else:
+            card = medium.next()
+            if card is None:
+                self.trace(f"card reader user {u}: hopper empty")
+                return self.msr012(ctx, dcb, 0x06)     # end of file: abnormal
+            data = card[:dcb.rws]
+            self.write_bytes(u, dcb.buf, dcb.btd, data)
+            dcb.ars = len(data)
+        dcb.tyc, dcb.last = 1, "write" if write else "read"
+        return self.pullallexit(ctx, 0, 0)
+        yield
 
     def cocio(self, ctx, dcb, write):
         """COCIO  COC.txt:3832 - a terminal read or write, for the user's line: COCRD
@@ -1014,16 +1081,17 @@ class CalProcessor:
     def file_open(self, ctx):
         """M:OPEN (CAL1,1 X'14', overlay OPEN entry 0)."""
         u, dcb = ctx.u, self.dcb_at(ctx.u, ctx.r6)
+        fpt_asn = self.fetch(u, ctx.r7) & 7            # CHKASN: FPT:ASN, else DCB:ASN
+        if dcb is not None and fpt_asn and fpt_asn != dcb.asn:
+            self.trace(f"OPEN {dcb.name} user {u}: ASN {dcb.asn} -> {fpt_asn} (the FPT's)")
+            dcb.asn = fpt_asn                          # MSROPN09  OPN.txt:283-:289
         if dcb is not None and dcb.asn == 3:
             return (yield from self.device_open(ctx, dcb))
         if self.fs is None:
             raise NotTranslated("M:OPEN: no file system attached")
-        take = self._params(u, (self.s.umem[u].get(ctx.r7 + 1 + i, 0) for i in range(2)))
-        presence, j = self.fetch(u, ctx.r7), self.s.jit[u]
-        if presence & P_ERR:
-            j.ERO = take() & 0x1FFFF
-        if presence & P_ABN:
-            j.ABO = take() & 0x1FFFF
+        params, j = self._open_params(ctx, dcb), self.s.jit[u]
+        if isinstance(dcb, MemDcb) and not dcb.open:
+            self._merge_open(ctx, dcb, params)
         if not dcb.open:
             code = self._open(u, dcb)
             if code:
@@ -1035,21 +1103,55 @@ class CalProcessor:
     OPEN_PARAMS = ("ERR", "ABN", "BUF", "RSZ", "NRA", "ORG", "ACS", "FUN", "GEN", "FOPT",
                    "USELB", "TLB", "KEYM", "DEVOPT", "BTD")
 
-    def device_open(self, ctx, dcb):
-        """M:OPEN of a device DCB: MSROPN's parameters into the DCB (the error and
-        abnormal addresses, buffer, record size, device option, byte displacement),
-        then OPENDEV (devopen.py). A DCB that is open already: X'2E' (OPN.txt:91-:94)."""
+    def _open_params(self, ctx, dcb):
+        """MSROPN's FPT parameters, by presence bit (OPN.txt:109-:146): {name: value}.
+        The error and abnormal addresses go into the JIT and the DCB (ERA, ABA)."""
         u, j = ctx.u, self.s.jit[ctx.u]
         presence = self.fetch(u, ctx.r7)
-        take = self._params(u, (self.s.umem[u].get(ctx.r7 + 1 + i, 0) for i in range(16)))
+        take = self._params(u, (self.s.umem[u].get(ctx.r7 + 1 + i, 0) for i in range(22)))
         params = {}
         for i, name in enumerate(self.OPEN_PARAMS):
             if presence & (0x80000000 >> i):
                 params[name] = take()
         if "ERR" in params:
             j.ERO = params["ERR"] & 0x1FFFF
+            if dcb is not None:
+                dcb.era = j.ERO                        # STS,D1 ERA,R6  (OPN.txt:111)
         if "ABN" in params:
             j.ABO = params["ABN"] & 0x1FFFF
+            if dcb is not None:
+                dcb.aba = j.ABO                        # STS,D1 ABA,R6  (:113)
+        return params
+
+    def _merge_open(self, ctx, dcb, params):
+        """MSROPN for a file DCB in memory: the organization (MSROPN51, :671), function
+        (SETFUNC), key length (BAKEYM) and buffer; then the FPT's VLPs, which follow
+        its parameters when its flags' low 10 bits are set (:261-:268), merged into the
+        DCB's own: each code the DCB has a slot for, as many words as the slot holds
+        (MSROPN10-MSROPN98B, :300-:351); a code with no slot is skipped (MSROPN99A)."""
+        u = ctx.u
+        if "ORG" in params:
+            dcb.org = (params["ORG"] << 4) & 0x30      # 0 consecutive, 1 random, 2 keyed
+        if "FUN" in params and params["FUN"] & 0xF in FUNCTIONS:
+            dcb.fun = FUNCTIONS[params["FUN"] & 0xF]
+        if "KEYM" in params:
+            dcb.keym = params["KEYM"] & 0xFF
+        if "BUF" in params:
+            dcb.buf = params["BUF"] & 0x1FFFF
+        if "RSZ" in params:
+            dcb.rsz = params["RSZ"] & 0x7FFF
+        presence = self.fetch(u, ctx.r7)
+        if not presence & 0x3FF or not dcb.flp:
+            return
+        a = ctx.r7 + 1 + bin(presence >> 10).count("1")   # the VLPs follow the parameters
+        for code, words in vlps_at(self.s.umem[u], a).items():
+            dcb.set_vlp(code, words)
+
+    def device_open(self, ctx, dcb):
+        """M:OPEN of a device DCB: MSROPN's parameters into the DCB (the error and
+        abnormal addresses, buffer, record size, device option, byte displacement),
+        then OPENDEV (devopen.py). A DCB that is open already: X'2E' (OPN.txt:91-:94)."""
+        u, params = ctx.u, self._open_params(ctx, dcb)
         if dcb.open:
             return self.msr012(ctx, dcb, 0x2E)             # OPEN AN OPEN DCB
         if "BUF" in params:
