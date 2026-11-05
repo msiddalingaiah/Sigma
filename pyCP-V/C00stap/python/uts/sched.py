@@ -485,6 +485,10 @@ class Scheduler:
         # COC lines and ghosts. S:GJOBTBL holds (name, account) per slot 1..MAXG, and
         # SB:GJOBUN the slot's user number (0 while the ghost isn't running).
         self.LB_UN = [0] * lines
+        self.coc = None                 # coc.Coc: the lines' input and output
+        self.on_logon = None            # (sched, u, line): the new user's command processor
+        self.breaks = set()             # users with a BREAK (or Ctrl-Y) not yet acted on
+        self.hangups = set()            # users whose line dropped
         self.MAXG = maxg
         self.S_GJOBTBL = [None] * (maxg + 1)
         for slot, name in enumerate(ghost_names, 1):
@@ -993,6 +997,8 @@ class Scheduler:
         self.S_OUIS += 1
         self.LB_UN[line] = u
         self.trace(f"LOGON line {line}: user {u}")
+        if self.on_logon is not None:
+            self.on_logon(self, u, line)               # UB:ACP: LOGON (online.py)
         return self.add1(u, self.L.SL_OPRIO)
 
     def add1(self, u, prio, resource=0):
@@ -1047,6 +1053,8 @@ class Scheduler:
         self.UH_FLG[u] = self.UH_FLG2[u] = self.UH_DL[u] = self.UB_MF[u] = 0
         self.do_list[u] = []
         self.S_CUIS -= 1
+        self.breaks.discard(u)
+        self.hangups.discard(u)
         if u in self.LB_UN:
             self.LB_UN[self.LB_UN.index(u)] = 0
             self.S_OUIS -= 1
@@ -1706,7 +1714,17 @@ class Scheduler:
         return self.cal
 
     def pulle(self, u):
-        """T:PULLE  :2069 - back into the user: resume its program."""
+        """T:PULLE  :2069 - back into the user: resume its program. A user whose line
+        dropped is removed; a BREAK goes to the BREAK hook (online.py), as the break
+        address STBEEA set up would."""
+        if u in self.hangups:
+            self.hangups.discard(u)
+            self.breaks.discard(u)
+            return self.hook("HANGUP", u)
+        if u in self.breaks:
+            self.breaks.discard(u)
+            if "BREAK" in self.hooks:
+                return self.hook("BREAK", u)
         stack = self.stacks.get(u)
         if stack is None:
             prog = self.programs.get(u)

@@ -18,7 +18,7 @@ scheduler runs as the ghost's CAL.
 import queue
 import threading
 
-from .cal import (F_NWK, F_ONWK, P_ABN, P_BUF, P_ERR, P_KEY, P_SIZE, Fpt)
+from .cal import (F_NWK, F_ONWK, P_ABN, P_BTD, P_BUF, P_ERR, P_KEY, P_SIZE, Fpt)
 from .files import EBCDIC, GRAN, FileError, protection
 from .sched import Cal1, Compute
 
@@ -69,7 +69,8 @@ def program(sched, u, name, account):
     from . import interp
     image = interp.read_image(cal.fs, name, account)
     if image is not None:                              # an absolute image: interpreted
-        cal.account[u] = account
+        if u not in sched.LB_UN:
+            cal.account[u] = account                   # a ghost: its GJOB account
         cal.running[u] = (name, account)
         yield from interp.program(sched, u, *image, name=name,
                                   type_line=lambda text: _type(cal, u, text))
@@ -87,7 +88,8 @@ def program(sched, u, name, account):
         return
     sched.trace(f"LOAD {name}.{account}: {len(source.splitlines())} lines")
     yield Compute(1)                                   # loading takes a moment
-    cal.account[u] = account                           # the ghost's account (GJOB NAME.ACCOUNT)
+    if u not in sched.LB_UN:                           # an on-line user keeps their own
+        cal.account[u] = account                       # the ghost's account (GJOB NAME.ACCOUNT)
     cal.running[u] = (name, account)                   # M:XX, for an execute vehicle
     cpv = Cpv(sched, u, name)
     bridge = Bridge(main, cpv)
@@ -203,6 +205,18 @@ class Cpv:
         self._call(Cal1(2, Fpt(4, presence=presence, params=[self.MSG, self.BUF, size])))
         n = ord(self.cal.read_text(self.u, self.BUF, 0, 1) or "\0")
         return self.cal.read_text(self.u, self.BUF, 1, n)
+
+    def readline(self, size=80):
+        """M:READ on M:UC: the next line typed at the user's terminal (on-line users
+        only; COCIO waits for it)."""
+        from .cal import M_UC
+        self._call(Cal1(1, Fpt(0x10, word0=M_UC, presence=P_BUF | P_SIZE | P_BTD,
+                               params=[self.BUF, int(size), 0])))
+        return self.cal.read_text(self.u, self.BUF, 0, self.cal.dcb_at(self.u, M_UC).ars)
+
+    def prompt(self, c=""):
+        """M:PC: the character COC sends at the start of each terminal read ('' none)."""
+        self._call(Cal1(1, Fpt(0x2C, word0=ord(c) if c else 0)))
 
     def wait(self, units=1):
         """M:WAIT: sleep for ``units`` (1/50 minute each, assumed)."""

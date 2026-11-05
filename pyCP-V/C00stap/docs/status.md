@@ -1,7 +1,7 @@
 # Project status
 
 Where the documentation and the Python translation stand, what is still open, and what the rest
-of the source contains. Last updated 2026-11-03.
+of the source contains. Last updated 2026-11-04.
 
 ## Documented
 
@@ -18,6 +18,8 @@ of the source contains. Last updated 2026-11-03.
 | [`cal.md`](cal.md) | CAL dispatch: the trap entry, decoding the FPT, the CAL1,1–CAL1,9 tables, the DCB check, monitor overlays (`T:OVERLAY` and `E:AP`), and the returns |
 | [`scheduler.md`](scheduler.md) | `SCHED`: user states and queues, events and the transition tables, priorities, resources, the exit path (quanta, preemption, DO lists), log-on, `T:SE` and the idle loop, and the `T:SS` swap scheduler |
 | [`dcb.md`](dcb.md) | The DCB in the user's memory: its words and bits (from the system DCB procedure and how the code tests each field), the VLP list, and how the translation reads and writes it |
+| [`coc.md`](coc.md) | COC, the terminal handler: the line tables, input and the immediate characters, BREAK, echo, reads (`COCIO`, `COCRD`) and writes (`COCWR`), lines coming ready and dropping |
+| [`online.md`](online.md) | On-line users: from a BREAK through the scheduler's `LOGON`, the LOGON processor and `STEP041` to TEL, and `OFF`; the TCP terminals and the LOGON/TEL stand-ins |
 | [`interpreter.md`](interpreter.md) | A design for a user-mode instruction interpreter: the user's machine state, decoding and effective addresses, the instruction groups from simh's Sigma simulator, traps and the hand-off to the Python monitor, memory, and what programs to run |
 
 Every claim and line reference in them was checked against the `.txt` sources. Anything not
@@ -26,7 +28,7 @@ settled is listed under each document's **Open questions**.
 ## Translated (`python/uts`)
 
 A hand translation on a small machine model with stubbed devices, not an instruction emulator.
-304 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
+325 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
 simplification; the top-level `README.md` has the commands.
 
 | Area | Module | Status |
@@ -46,6 +48,7 @@ simplification; the top-level `README.md` has the commands.
 | Consecutive files | `files.py`, `cal.py` | Byte-exact granules and segments, forward reads, writes, the cut at a mid-file write, `M:DELREC`, FIX1's `CHKCON`; `cpv.open(..., org="consec")`. No backward reads or positioning CALs |
 | Disc images | `image.py` | `--disc PATH` keeps the swap and public discs in a host file, so files and the installed monitor survive between runs. Not a translation: see `python-programs.md` |
 | Python ghost jobs | `keyin.py` (`GJOB`), `pyprog.py` | `GJOB NAME` runs a Python program from the file system as a ghost; its `cpv` calls are real CALs, including `M:KEYIN` to ask the operator. Not a translation: see `python-programs.md` |
+| On-line users | `coc.py`, `online.py`, `terminals.py` | `--terminals N`: telnet to localhost, a BREAK or connection logs on, LOGON and TEL stand-ins, `STEP041`/`STEP10`; COC's input, echo, reads and writes on `M:UC`, BREAK and hang-up. LOGON, TEL and the TCP server aren't translations: see `online.md` |
 | Read/write | `cal.py`, `io.py` | M:TYPE/M:MESSAGE/M:PRINT, M:WRITE and M:CHECK to `M:OC` through the console IOQ, with `FRONTEND`, `REQCOM`'s DCB branch, `E:IC`, the wait and the error codes |
 | CAL dispatch | `cal.py` | The trap, FPT decode, the CAL1,1–CAL1,9 tables, overlays through the scheduler (`E:AP`), and the returns. Translated: M:WAIT, M:TIME, M:PC, `T:CLRERR`, and the exits. GHOST1 leaves with M:EXIT to FILL |
 

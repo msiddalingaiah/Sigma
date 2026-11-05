@@ -126,6 +126,9 @@ python -m uts --tape --replies IP 06/15/76 13:45 YES -
 | `--version V` | WRITEMON's 4-character version, which `SYSVERS` is built from. | `C00 ` |
 | `--trace` | Print a trace of the boot steps, and the LP output. | off |
 | `--file HOST=NAME[.ACCOUNT] …` | Import Python programs into the CP-V file system before the key-ins. Start one with the key-in `GJOB NAME`; see `docs/python-programs.md`. | none |
+| `--terminals N` | After the boot comes up (and any `--keyins`), N terminal lines on a TCP port, in real time: connect with `telnet` to log on and use TEL. Ctrl-C ends. See `docs/online.md`. | off |
+| `--port P` | The terminals' TCP port. | `2323` |
+| `--bind ADDRESS` | The address the terminals listen on. There is no authentication: only for trusted networks. | `127.0.0.1` |
 | `--sched` | Instead of a boot, run the scheduler demo: three ghosts and an on-line user on 12 pages, with the scheduler's trace. | off |
 | `-h`, `--help` | Show the options. | |
 
@@ -189,6 +192,10 @@ python -m uts --disc sys.json.gz --replies 06/16/76 08:00 N --keyins "GJOB HELLO
 
 # Sigma machine code (the user-mode interpreter): a visitors' book kept in a file
 python -m uts --disc book.json.gz --replies 06/15/76 13:45 N --file examples/guests.s=GUESTS --keyins "GJOB GUESTS" ADA
+
+# On-line users: two terminal lines on localhost port 2323. In another window, telnet
+# localhost 2323, log on with any ACCOUNT,NAME, then at TEL's ! type HELLO, LIST or OFF.
+python -m uts --replies 06/15/76 13:45 N --file examples/hello.py=HELLO --terminals 2
 ```
 
 ```powershell

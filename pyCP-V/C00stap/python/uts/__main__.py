@@ -6,6 +6,7 @@ Examples:
     python -m uts -i                                       # answer the prompts yourself
     python -m uts --disc sys.json.gz --tape --replies ...  # install onto a disc image
     python -m uts --disc sys.json.gz --replies ...         # disc-boot it in a later run
+    python -m uts --replies 06/15/76 13:45 N --terminals 4 # then: telnet localhost 2323
 """
 
 import argparse
@@ -143,10 +144,11 @@ def import_files(mon, specs):
             from .interp import store_image
             dcbs = {}
             words, start = assemble(text, dcbs)
-            store_image(mon.sched.cal.fs, name[:7].upper(), account or ":SYS", words,
+            store_image(mon.sched.cal.fs, name[:7].upper(), (account or ":SYS").upper(), words,
                         start if start is not None else min(words), dcbs)
         else:
-            pyprog.store_source(mon.sched.cal.fs, name[:7].upper(), account or ":SYS", text)
+            pyprog.store_source(mon.sched.cal.fs, name[:7].upper(), (account or ":SYS").upper(),
+                                text)
 
 
 def operator(m, mon, sysgen=None, keyins=(), lp_faults=None, prints=(), files=()):
@@ -253,6 +255,13 @@ def main(argv=None):
     p.add_argument("--trace", action="store_true", help="print the boot trace")
     p.add_argument("--file", nargs="*", default=[], metavar="HOST=NAME[.ACCOUNT]", dest="files",
                    help="Python programs to import into the file system; start one with GJOB NAME")
+    p.add_argument("--terminals", type=int, default=0, metavar="N",
+                   help="after the boot comes up, N terminal lines on a TCP port (telnet), in"
+                        " real time; Ctrl-C ends")
+    p.add_argument("--port", type=int, default=2323, help="the terminals' TCP port")
+    p.add_argument("--bind", default="127.0.0.1", metavar="ADDRESS",
+                   help="the address the terminals listen on (no authentication: trusted"
+                        " networks only)")
     p.add_argument("--sched", action="store_true",
                    help="run the scheduler demo (sched.py) instead of a boot: ghosts and an on-line user")
     args = p.parse_args(argv)
@@ -265,6 +274,8 @@ def main(argv=None):
     args.replies = ["" if r == "-" else r for r in args.replies]
 
     sysgen = Sysgen(realtime=args.realtime, version=args.version.ljust(4)[:4])
+    if args.terminals:
+        sysgen.COC = sysgen.S_OUAIS = args.terminals   # an on-line system with N lines
     model = MODELS[args.machine]
     swap = public = None
     if args.disc and os.path.exists(args.disc):
@@ -321,16 +332,20 @@ def run(args, sysgen, model, swap, public, machines):
         if crashed.TRCVRAD:
             print(f"crash          RCVCODE=X'{crashed.RCVCODE:08X}'  recovery buffer@{crashed.TRCVRAD}"
                   f"  dump@{crashed.TRCVRAD + 4}..{crashed.RCVRAD - 1}  X'4000'@{crashed.SEEK4000}")
-    if (args.keyins is not None or args.console) and outcome == "up":
+    if (args.keyins is not None or args.console or args.terminals) and outcome == "up":
         m.console.transcript.clear()
         print("\n=== operator console ===")
-        if args.console and args.interactive:
+        if args.console and args.interactive and not args.terminals:
             print("(type key-ins at the ! prompt; end of input, Ctrl-Z Enter or Ctrl-D, ends)")
         keyins = ["" if k == "-" else k for k in (args.keyins or [])]
+        if args.terminals:
+            m.console.interactive = False              # the scripted key-ins first
         con = operator(m, mon, sysgen, keyins, parse_faults(args.lp_fault), args.prints,
                        args.files)
-        if not args.interactive:
+        if not args.interactive or args.terminals:
             print(m.console.text())
+        if args.terminals and con.shutdown is None and con.sched is not None:
+            terminals(con, args)
         print(operator_report(con))
         if args.trace and con.sched is not None:
             print("\nscheduler (clock units, T:SE and T:SS):\n" + "\n".join(con.sched.log))
@@ -338,6 +353,44 @@ def run(args, sysgen, model, swap, public, machines):
             m, mon, outcome = con.shutdown
             print("\n=== shutdown: SCREECH X'404' from the idle check, recovery and reboot ===")
             report(m, mon, outcome, args)
+
+
+def terminals(con, args):
+    """--terminals: COC lines on a TCP port, LOGON and TEL, in real time (docs/online.md).
+    With -i --console, key-ins typed on the host console go to the operator's KEYIN."""
+    import queue
+    import threading
+    from .coc import Coc
+    from .online import Online
+    from .terminals import TerminalServer, realtime
+    s = con.sched
+    coc = Coc(s, lines=min(args.terminals, len(s.LB_UN)))
+    Online(s)
+    try:
+        server = TerminalServer(coc, args.port, args.bind, log=lambda msg: print(f"({msg})"))
+    except OSError as e:
+        print(f"(terminals: can't listen on {args.bind}:{args.port}: {e})")
+        return
+    host, port = server.address
+    print(f"\n=== terminals: {len(coc.lines)} lines on telnet {host} {port}; Ctrl-C ends ===")
+    keyins = None
+    console = con.m.console
+    console.echo = True                                # the console's output, as it happens
+    if args.interactive and args.console:
+        print("(type key-ins here; they go to the operator's KEYIN)")
+        keyins = queue.Queue()
+
+        def read_stdin():
+            while True:
+                try:
+                    keyins.put(input())
+                except (EOFError, KeyboardInterrupt):
+                    keyins.put(None)
+                    return
+        threading.Thread(target=read_stdin, daemon=True, name="operator").start()
+    realtime(con, server, keyins)
+    console.echo = False
+    print(f"\n(terminals closed at {s.now} clock units)")
 
 
 def report(m, mon, outcome, args):

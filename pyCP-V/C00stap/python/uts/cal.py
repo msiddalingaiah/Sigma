@@ -25,7 +25,7 @@ modeled, so CALBAD always aborts.
 from dataclasses import dataclass, field, replace
 
 from .monitor import NotTranslated
-from .sched import E_AP, E_IC, E_IIP, E_IP, E_SL, E_WU, RTR, TIC, Dcb, Report
+from .sched import E_AP, E_CRD, E_IC, E_IIP, E_IP, E_SL, E_WU, RTR, TIC, Dcb, Report
 
 # --- Instruction and FPT layout -------------------------------------------------------
 
@@ -34,6 +34,7 @@ INDIRECT = 0x80000000
 J_JIT = 0x46 * 512              # JIT.txt:272 JJITVP: a PSD at or below this is the monitor
 FPT_ADDR, CAL_ADDR = 0xA000, 0xA100   # where a stand-in's FPT and CAL1 go (invented)
 M_OC, M_UC, M_XX = 0x8D00, 0x8D10, 0x8D20   # the monitor's DCB addresses (invented)
+KEYBUF = 0x8D40                              # M:KEYIN without a buffer: the reply goes here
 WAIT_UNIT = 600                 # clock units (2 ms) per M:WAIT unit: 1/50 minute (assumed)
 TMS = 0x00800000                # FPT word 0 flag for M:TIME's binary result (Y008)
 
@@ -300,6 +301,7 @@ class CalProcessor:
         self.io = None                                 # io.IOSystem, from attach_io
         self.fs = None                                 # files.FileSystem
         self.dcb_objs = {}                             # user -> {address: Dcb}
+        self.uc = {}                                   # user -> M:UC (in the user's JIT)
         self.monitor_dcbs = {M_OC: Dcb("M:OC", fcn=0, address=M_OC, dtype="TY"),
                              M_UC: Dcb("M:UC", fcn=0, address=M_UC, coc=True),
                              M_XX: Dcb("M:XX", fcn=0, address=M_XX)}
@@ -661,6 +663,8 @@ class CalProcessor:
         """A DCB: the monitor's, one registered by a stand-in (cpv), or one in the user's
         memory (an interpreted program's: MemDcb, docs/dcb.md)."""
         a = address & 0x1FFFF
+        if a == M_UC:
+            return self.uc.setdefault(u, Dcb("M:UC", fcn=0, address=M_UC, coc=True))
         dcb = self.monitor_dcbs.get(a) or self.dcb_objs.get(u, {}).get(a)
         if dcb is not None or a < 0x10:
             return dcb
@@ -756,9 +760,35 @@ class CalProcessor:
             raise NotTranslated("read/write with an ECB (ECBINIT)")
         dcb.wat = bool(presence & F_WAIT)              # WAT (bit position assumed)
         # The buffer check (JOSZE2, X'4A') needs the user's access codes: not modeled.
+        if dcb.coc and self.s.coc is not None:
+            return (yield from self.cocio(ctx, dcb, write))   # QUEUE: COCIO
         if not write:
             raise NotTranslated("device read (MSRRED / MSROTHR)")
         return (yield from self.msrwrt(ctx, dcb))
+
+    def cocio(self, ctx, dcb, write):
+        """COCIO  COC.txt:3832 - a terminal read or write, for the user's line: COCRD
+        (:2272) waits in terminal input (E:CRD) until E:CIC, then moves the line into
+        the buffer (COCMU); COCWR (:2851). TYC 1, the ARS, the function count. A BREAK
+        during the read ends the program (online.py), so CC2 isn't set here."""
+        s, u = self.s, ctx.u
+        line = s.coc.line_of(u)
+        if line is None:
+            raise NotTranslated("terminal I/O with no line (a batch or ghost user's M:UC)")
+        s.jit[u].CTIME += s.L.SL_IOTA                  # DING
+        if write:
+            text = self.read_text(u, dcb.buf, dcb.btd, dcb.rws)
+            s.coc.write(line, text)
+            dcb.ars = len(text)
+        else:
+            prompt = chr(self.prompt[u]) if self.prompt.get(u) else ""
+            while (text := s.coc.read(line, prompt)) is None:
+                yield Report(E_CRD)                    # STCRD: blocked in terminal input
+            data = text.encode("latin-1", errors="replace")[:min(dcb.rws, 140)]
+            self.write_bytes(u, dcb.buf, dcb.btd, data)   # COCMU
+            dcb.ars = len(data)
+        dcb.tyc, dcb.last = 1, "write" if write else "read"
+        return self.pullallexit(ctx, 0, 0)
 
     def msrwrt(self, ctx, dcb):
         """MSRWRT  WRTD.txt:140 - device write, by the device's attributes."""
@@ -883,14 +913,25 @@ class CalProcessor:
         presence = self.fetch(u, ctx.r7)               # FPT word 1
         oc_only = bool(presence & 0x10)                # OCONLY FLAG
         yield from self.msrtypr(replace(ctx, sr1=0 if oc_only else 2))   # MSROCTY / MSRTYPR
-        if u in s.LB_UN and not oc_only:
-            raise NotTranslated("M:KEYIN on a terminal (M:UC, COC)")
         take = self._params(u, (s.umem[u].get(ctx.r7 + 1 + i, 0) for i in range(4)))
         take()                                         # the message (CHKBIT1)
         buf = take() & 0x1FFFF if presence & 0x40000000 else 0
         size = take() & 0xFFFF if presence & 0x20000000 else 60   # USE DEFAULT FOR LIMIT
         if presence & 0x10000000:
             raise NotTranslated("M:KEYIN with an ECB")
+        if u in s.LB_UN and not oc_only and s.coc is not None:   # the reply from M:UC
+            uc = self.dcb_at(u, M_UC)
+            saved = uc.buf, uc.btd, uc.rws
+            uc.buf, uc.btd, uc.rws = buf or KEYBUF, 1, size - 1   # after the count byte
+            try:
+                yield from self.cocio(ctx, uc, write=False)
+                reply = self.read_text(u, uc.buf, 1, uc.ars)
+            finally:
+                uc.buf, uc.btd, uc.rws = saved                    # RESTORE BTD
+            if buf:
+                self.write_bytes(u, buf, 0, bytes([len(reply)]))
+            self.trace(f"M:KEYIN user {u}: reply {reply!r} (terminal)")
+            return self.pullallexit(ctx, 0, 0)
         oc = self.monitor_dcbs[M_OC]                   # a copy of M:OC on the user's stack
         dcb = Dcb("M:OC", fcn=1, address=M_OC, dct=oc.dct, dtype="TY", btd=1, rws=size)
         console = self.io.m.console if self.io else None
@@ -921,7 +962,7 @@ class CalProcessor:
                 return ("TRAPEXIT", None)              # NO M:LL :=> NOP
             dcb = self.dcb_at(u, address)
         elif ctx.sr1 == 2 and u in s.LB_UN:
-            dcb = self.monitor_dcbs[M_UC]              # TYPE, on-line: M:UC
+            dcb = self.dcb_at(u, M_UC)                 # TYPE, on-line: M:UC
         else:
             dcb = self.monitor_dcbs[M_OC]              # MESSAGE, or TYPE for batch/ghost
         take = self._params(u, (self.s.umem[u].get(ctx.r7 + 1 + i, 0) for i in range(2)))

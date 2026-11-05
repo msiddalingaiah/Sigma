@@ -85,7 +85,7 @@ def step_exit(cal, u):
 def boot_scheduler(m, mon, sysgen):
     """The scheduler for a booted monitor: its page pool, ghost table and BOOTFLG."""
     s = Scheduler(smuis=sysgen.SMUIS, ming=sysgen.MING, pages=mon.M_FPPC or 64,
-                  maxg=sysgen.MAXG, ghost_names=sysgen.GHOSTS,
+                  lines=max(4, sysgen.COC), maxg=sysgen.MAXG, ghost_names=sysgen.GHOSTS,
                   bootflg=lambda: m.mem[BOOTFLG])
     s.ghost_programs.update({"ALLOCAT": allocat, "RBBAT": rbbat, "GHOST1": ghost1(m),
                              "ANLZ": ends, "ERR:FIL": ends, "MOOSE": ends, "FILL": ends})

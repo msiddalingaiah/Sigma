@@ -45,6 +45,17 @@ def main(cpv):
         cpv.type(key + " " + data.decode())
 ```
 
+**Run from a terminal** (TEL, [`online.md`](online.md)), the same program talks to the user's
+terminal: `cpv.type` writes on `M:UC`, `cpv.keyin` asks at the terminal, and two more calls read
+it:
+
+```python
+    cpv.prompt("?")                         # M:PC: COC sends '?' at the start of each read
+    name = cpv.readline()                   # M:READ on M:UC: waits for the line (COCIO)
+```
+
+`readline` is for on-line users only. A ghost has no line.
+
 A service error raises `cpv.CpvError` with the CP-V code. For example, X'43' is a missing key and
 X'16' is NEWKEY on an existing key. End of file ends the iteration.
 
