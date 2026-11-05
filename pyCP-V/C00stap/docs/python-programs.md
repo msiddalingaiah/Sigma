@@ -77,10 +77,19 @@ makes one: the line number times 1000 (`EDIT.txt:495`). With `binary_keys=True`,
 `examples/mkedit.py` makes an EDIT-style file, POEM, with EBCDIC lines and a line inserted at
 2.500. From a terminal, `COPY POEM TO ME(K)` then lists it with EDIT numbers ([`online.md`](online.md)).
 
-Keys sort as bytes, so EDIT keys come back in line order. A bytes key works because memory holds
-characters and KEYTRAN encodes them to EBCDIC (`cal._key`): `cpv` stores the key as
-`key.decode(cpv.EBCDIC)`, which the encoding turns back into the same bytes. cp037 maps all 256
-values one to one.
+Keys sort as bytes, so EDIT keys come back in line order. A key goes into memory as its bytes:
+a text key in EBCDIC, a bytes key as it is.
+
+**Text is EBCDIC.** In CP-V's memory and files text is EBCDIC, and `cpv` follows that:
+- a string written, as a key or as data, is stored in EBCDIC; bytes are stored as they are;
+- a record read comes back as its bytes, in a `bytes` subclass whose `decode()` is EBCDIC by
+  default (as is a slice of it). So `data.decode()` gives the text back, and a program that
+  wrote strings needn't know;
+- `type`, `message`, `keyin` and `readline` take and give strings, converted at the boundary.
+
+A record written by a real program, or restored from a tape, decodes the same way. Disc images
+saved before 2026-11-06 hold their Python programs' records in ASCII, and those come back
+garbled.
 
 A **consecutive file** ([`files.md`](files.md) §4) has records in order and no keys:
 

@@ -153,8 +153,8 @@ The program's identity (its account, the program name for an execute vehicle) is
 
 `umem[u]` becomes words only, a dict from word address to a 32-bit int, with absent words
 reading as 0. Bytes and halfwords are big-endian within the word, as on the Sigma.
-- **`cal.py`'s text helpers** (`put_text`, `read_text`, `write_bytes`) pack and unpack EBCDIC, or
-  for now the characters they store, into words. Only their code changes, not their callers.
+- **`cal.py`'s helpers** pack and unpack memory: `read_bytes` and `write_bytes` move bytes as
+  they are, and `put_text` and `read_text` text, which memory holds in EBCDIC.
 - **No protection in phase 1.** In CP-V a user's virtual space is mapped page by page, with access
   codes, and the monitor's pages are protected (`sigma_map.c`). Here every address a program
   touches is its own. Later, the pages the monitor gave the user (`JX:CMAP`, not modeled) could
@@ -188,7 +188,7 @@ once the interpreter can load an absolute image.
 | The CPU | `python/uts/cpu.py` | The §4 phase 1 groups, ported from `sigma_cpu.c` with its notice. Traps as §5. The machine model (`sigma9` or `sigma7`) decides `TR_INVREG`, the searching shifts and `LAS`. `SF` traps as unimplemented with floating point, although it is a standard instruction, because it needs `sigma_fp.c`'s `ShiftF` |
 | A small assembler | `python/uts/asm.py` | For test programs: labels, `ORG`, `DATA`, `TEXT`, `TEXTC`, `RES`, `BOUND`, `EQU`, `END`, the mnemonics from the opcode table, shifts as `SLS`…`SSD`, `BA()`. The Python port of AP has no instruction mnemonics of its own, because they come from `SIG7FDP`, a Meta-Symbol procedure file built on `S:SIN`. That is left for when real sources are assembled |
 | Interpreted ghosts | `python/uts/interp.py` | An absolute image is kept as a keyed file (a header record and word records), so `GJOB NAME` finds it and a disc image keeps it. `--file host.s=NAME` assembles and stores one. A CAL1 is a `CalAt` request (`sched.py`); `cal.trap` takes the CAL from memory |
-| Words-only memory | `cal.py` | `put_text`, `read_text` and `write_bytes` pack Latin-1 bytes into words; `write_bytes` keeps the other bytes of a word it touches |
+| Words-only memory | `cal.py` | `read_bytes` and `write_bytes` move bytes into and out of words, keeping the other bytes of a word written; `put_text` and `read_text` are text, in EBCDIC |
 
 Tests: `python/tests/test_cpu.py` (instructions against simh's rules) and `test_interp.py`
 (programs under the scheduler: console output, `M:KEYIN`, a trap that ends the program, a program
@@ -223,7 +223,9 @@ runs about 10 million instructions in each 10 simulated seconds of a key-in sess
 - **CAL2–CAL4 and user traps** in CP-V: where they go, and how `M:TRAP`, `M:TRTN` and the TCB
   return a trap to the user. Not read.
 - **The slice size**: instructions per clock unit is a guess, and so is the instruction timing.
-- **The EBCDIC question**: memory text is characters today. Real programs will expect EBCDIC
-  bytes, and so will the files they read. The file system already keeps keys and names in
-  EBCDIC.
+- **The EBCDIC question** (resolved 2026-11-06): text in memory is EBCDIC. A real load module
+  needed it: SLIP compares its control card against `CARD TO DISK` and the like, blank-fills its
+  buffers with X'40' and keeps its messages in EBCDIC ([`devopen.md`](devopen.md)). Characters
+  are converted only where they meet the host: the terminal (COC), the console, the assembler's
+  `TEXT`, and the Python programs' strings (`cpv`).
 - **A Sigma 7 versus 9 choice** for programs from the tapes (CP-V C00 runs on both).

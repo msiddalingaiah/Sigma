@@ -107,8 +107,8 @@ class Assembler:
                         loc += 1
                 elif base in ("TEXT", "TEXTC"):
                     s = opnd.strip()[1:-1]
-                    data = (bytes([len(s)]) if base == "TEXTC" else b"") + s.encode("latin-1")
-                    data += b" " * (-len(data) % 4)
+                    data = (bytes([len(s)]) if base == "TEXTC" else b"") + s.encode("cp037")
+                    data += b"\x40" * (-len(data) % 4)          # EBCDIC blanks
                     for i in range(0, len(data), 4):
                         words[loc] = int.from_bytes(data[i:i + 4], "big")
                         loc += 1

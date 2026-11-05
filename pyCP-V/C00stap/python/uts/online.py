@@ -61,11 +61,8 @@ def _code(result):
 
 
 def _printable(data):
-    """A record as text. Records written from memory hold ASCII (Latin-1); an EDIT-style
-    file's lines are EBCDIC (pyprog.store_source). Anything else unprintable is '.'."""
-    if any(not 0x20 <= c < 0x7F for c in data):
-        data = data.decode(EBCDIC).encode("latin-1", errors="replace")
-    return "".join(chr(c) if 0x20 <= c < 0x7F else "." for c in data)
+    """A record as text: EBCDIC, as all text is; anything unprintable is '.'."""
+    return "".join(c if 0x20 <= ord(c) < 0x7F else "." for c in data.decode(EBCDIC))
 
 
 def bin2bcd(n):
@@ -342,7 +339,7 @@ class Online:
                     break
                 recnum += 1                            # READ27: MTW,1 RECNUM
                 dcb = cal.dcb_at(u, COPYDCB)
-                data = cal.read_text(u, FBUF, 0, min(dcb.ars, FSIZE)).encode("latin-1")
+                data = cal.read_bytes(u, FBUF, 0, min(dcb.ars, FSIZE))
                 key = dcb.kbuf if dcb.org == 0x20 else None
                 if "X" in options:
                     lines = hexdump(recnum, key, data)

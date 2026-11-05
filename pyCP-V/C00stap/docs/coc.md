@@ -163,11 +163,17 @@ The terminals are TCP connections speaking telnet ([`online.md`](online.md)). No
 - vertical format control, transparent mode, output pacing (`SL:TB`/`SL:UB`);
 - time-outs, lost-data mode, parity, paper tape, the 2741.
 
-**Characters** are kept as ASCII (Latin-1) in user memory, the translation's convention so far
-([`interpreter.md`](interpreter.md), open questions). `TTYIN` and `TTYOUT` give each character's
-class, not its code in memory.
+**Characters** are EBCDIC in user memory, as on the machine. A line typed in ASCII goes into the
+user's buffer in EBCDIC (`COCIO`'s read, the role of `TTYIN`). A record written goes to the
+terminal as the EBCDIC characters' ASCII equivalents (`TTYOUT`'s role). The editing and echo work
+on the terminal's characters. `TTYIN` and `TTYOUT` themselves, the character classes as well as
+the codes, aren't translated: the conversion is code page 037.
 
 ## Open questions
+
+- **TTYOUT for characters with no ASCII equivalent**: memory can hold any byte, and a record
+  written goes out as its code page 037 characters, control characters included. What TTYOUT
+  sends for those wasn't traced.
 
 - **Echo of a deletion.** On a hard-copy terminal, CP-V's echo of backspace and rubout
   (`COCECHO`'s "PROCESS BACKSPACE" and "PROCESS RUBOUT") wasn't traced in detail. The translation

@@ -94,9 +94,8 @@ loader builds that table from the load module's DCBs. Here an assembled image ca
 table, its labels that begin `F:` or `M:` (`python/uts/asm.py`). The loader stand-in
 (`interp.program`) enters them in `J:DCBLINK` (`cal.dcbs`).
 
-**Text.** Memory holds characters as Latin-1 for now ([`interpreter.md`](interpreter.md), open
-questions), while the file system keeps names and protection in EBCDIC. So a protection VLP read
-from memory is converted to EBCDIC before OPEN compares it.
+**Text.** Memory holds text as EBCDIC, as the file system does, so a DCB's names and protection
+VLPs are compared as they are.
 
 Tests: `python/tests/test_interp.py`:
 - a program opens its own DCB OUT, writes three records, closes, sets `FUN` to IN in place,

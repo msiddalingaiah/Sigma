@@ -24,6 +24,7 @@ modeled, so CALBAD always aborts.
 
 from dataclasses import dataclass, field, replace
 
+from .files import EBCDIC
 from .monitor import NotTranslated
 from .sched import E_AP, E_CRD, E_IC, E_IIP, E_IP, E_SL, E_WU, RTR, TIC, Dcb, Report
 
@@ -265,12 +266,8 @@ class MemDcb:
 
     @staticmethod
     def _ebcdic(code, words):
-        """Memory text is Latin-1 here, the file system's protection EBCDIC (files.py):
-        a protection VLP's characters are converted (the vehicle's count byte kept)."""
-        data = b"".join(w.to_bytes(4, "big") for w in words)
-        head, rest = (data[:1], data[1:]) if code == 0x15 else (b"", data)
-        data = head + rest.decode("latin-1").encode("cp037")
-        return [int.from_bytes(data[i:i + 4], "big") for i in range(0, len(data), 4)]
+        """A protection VLP's words: EBCDIC in memory, as the file system keeps them."""
+        return list(words)
 
     def _text(self, code, count=True):
         words = self._vlps().get(code)
@@ -279,7 +276,7 @@ class MemDcb:
         data = b"".join(w.to_bytes(4, "big") for w in words)
         if count:
             data = data[1:1 + data[0]]
-        return data.decode("latin-1").rstrip(" \0")
+        return data.decode(EBCDIC).rstrip(" \0")
 
 
 class CalProcessor:
@@ -680,22 +677,25 @@ class CalProcessor:
         return mem_dcbs[a]
 
     def put_text(self, u, address, text, textc=False):
-        """Store text in the user's memory, four characters a word, big-endian (TEXTC:
-        the count first). Memory holds 32-bit words only; a character is its Latin-1
-        byte (EBCDIC: an open question, docs/interpreter.md)."""
+        """Store text in the user's memory in EBCDIC, four characters a word, big-endian
+        (TEXTC: the count first). Memory holds 32-bit words only (docs/interpreter.md)."""
+        data = text.encode(EBCDIC, errors="replace")
         if textc:
-            text = chr(len(text)) + text
-        data = text.encode("latin-1")
+            data = bytes([len(data)]) + data
         data += bytes(-len(data) % 4)
         for i in range(0, len(data), 4):
             self.s.umem[u][address + i // 4] = int.from_bytes(data[i:i + 4], "big")
 
-    def read_text(self, u, address, btd, count):
-        """Bytes from the user's memory, as characters: word ``address`` plus ``btd``."""
+    def read_bytes(self, u, address, btd, count):
+        """Bytes from the user's memory: word ``address`` plus ``btd`` bytes."""
         n = btd + count
         out = b"".join((self.s.umem[u].get(address + i, 0) & 0xFFFFFFFF).to_bytes(4, "big")
                        for i in range((n + 3) // 4))
-        return out[btd:n].decode("latin-1")
+        return out[btd:n]
+
+    def read_text(self, u, address, btd, count):
+        """Text from the user's memory: its bytes as EBCDIC characters."""
+        return self.read_bytes(u, address, btd, count).decode(EBCDIC)
 
     def _params(self, u, words):
         """JHKBIT  IORT.txt:393 - take a parameter word: indirect through memory or a register."""
@@ -792,7 +792,7 @@ class CalProcessor:
             prompt = chr(self.prompt[u]) if self.prompt.get(u) else ""
             while (text := s.coc.read(line, prompt)) is None:
                 yield Report(E_CRD)                    # STCRD: blocked in terminal input
-            data = text.encode("latin-1", errors="replace")[:min(dcb.rws, 140)]
+            data = text.encode(EBCDIC, errors="replace")[:min(dcb.rws, 140)]   # TTYIN
             self.write_bytes(u, dcb.buf, dcb.btd, data)   # COCMU
             dcb.ars = len(data)
         dcb.tyc, dcb.last = 1, "write" if write else "read"
@@ -957,7 +957,7 @@ class CalProcessor:
             reply = (req.buffer if req is not None else "").rstrip("\n")
         reply = reply[:size - 1]
         if buf:
-            self.write_bytes(u, buf, 0, (chr(len(reply)) + reply).encode("latin-1"))
+            self.write_bytes(u, buf, 0, bytes([len(reply)]) + reply.encode(EBCDIC, errors="replace"))
         self.trace(f"M:KEYIN user {u}: reply {reply!r}")
         return self.pullallexit(ctx, 0, 0)             # DESTRUCT MSRWRTX
 
@@ -975,7 +975,7 @@ class CalProcessor:
             dcb = self.monitor_dcbs[M_OC]              # MESSAGE, or TYPE for batch/ghost
         take = self._params(u, (self.s.umem[u].get(ctx.r7 + 1 + i, 0) for i in range(2)))
         message = take() & 0x1FFFF                     # CHKBIT1: the TEXTC
-        size = ord(self.read_text(u, message, 0, 1) or "\0")   # LB,D2 *D1
+        size = self.read_bytes(u, message, 0, 1)[0]        # LB,D2 *D1
         saved, dcb.btd = dcb.btd, 1                    # skip the count byte
         try:
             return (yield from self.msrrdwt1(ctx, dcb, P_BUF | P_SIZE,
@@ -1104,9 +1104,8 @@ class CalProcessor:
 
     def _key(self, u, dcb):
         """KEYTRAN: the user's key, a TEXTC at KAD, in EBCDIC."""
-        n = ord(self.read_text(u, dcb.kad, 0, 1) or "\0")
-        from .files import EBCDIC
-        return self.read_text(u, dcb.kad, 1, n).encode(EBCDIC)   # memory holds characters
+        n = self.read_bytes(u, dcb.kad, 0, 1)[0]
+        return self.read_bytes(u, dcb.kad, 1, n)
 
     def write_bytes(self, u, address, btd, data):
         """RECTRAN into the user's buffer: ``data`` at word ``address`` + ``btd`` bytes;
@@ -1159,7 +1158,7 @@ class CalProcessor:
             key = dcb.kbuf                             # PREVIOUS OPN MUST BE READ
         else:
             return self.msr012(ctx, dcb, 0x15)         # OPERATION ERROR
-        data = self.read_text(u, dcb.buf, dcb.btd, dcb.rws).encode("latin-1")
+        data = self.read_bytes(u, dcb.buf, dcb.btd, dcb.rws)
         try:
             kf.write(key, data, newkey=dcb.nwk, onewkey=dcb.onwk)
         except FileError as e:
@@ -1205,7 +1204,7 @@ class CalProcessor:
         """SEQ0  WRTF.txt:273 - a record at the end of a consecutive file, or, before
         the end, the file cut at the position first."""
         from .files import FileError
-        data = self.read_text(ctx.u, dcb.buf, dcb.btd, dcb.rws).encode("latin-1")
+        data = self.read_bytes(ctx.u, dcb.buf, dcb.btd, dcb.rws)
         try:
             dcb.cfu.file.write(dcb.cpos, data)
         except FileError as e:
@@ -1228,7 +1227,7 @@ class CalProcessor:
             return self.pullallexit(ctx, 0, 0)
         try:
             if write:
-                data = self.read_text(u, dcb.buf, dcb.btd, dcb.rws).encode("latin-1")
+                data = self.read_bytes(u, dcb.buf, dcb.btd, dcb.rws)
                 n = f.write(dcb.rgran, data)
             else:
                 data = f.read(dcb.rgran, dcb.rws)

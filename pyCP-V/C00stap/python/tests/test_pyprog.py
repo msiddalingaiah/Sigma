@@ -271,4 +271,4 @@ def test_binary_keys():
                      "00ff15 ODD BYTES", "0186a0 LINE 100",     # in byte order
                      "LINE 3", "ODD BYTES", "def main(cpv):"]   # line 1 is blank
     kf = s.cal.fs.open("LINES", ":SYS", "IN").file
-    assert kf.read(bytes([0, 0xFF, 0x15])) == b"ODD BYTES" and kf.check() == []
+    assert kf.read(bytes([0, 0xFF, 0x15])) == "ODD BYTES".encode("cp037") and kf.check() == []

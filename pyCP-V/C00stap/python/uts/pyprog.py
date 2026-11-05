@@ -223,7 +223,7 @@ class Cpv:
         self.cal.put_text(self.u, self.MSG, str(question)[:120], textc=True)
         presence = 0xE0000000 | (0x10 if oc_only else 0)    # message, buffer, size
         self._call(Cal1(2, Fpt(4, presence=presence, params=[self.MSG, self.BUF, size])))
-        n = ord(self.cal.read_text(self.u, self.BUF, 0, 1) or "\0")
+        n = self.cal.read_bytes(self.u, self.BUF, 0, 1)[0]    # the reply's count byte
         return self.cal.read_text(self.u, self.BUF, 1, n)
 
     def readline(self, size=80):
@@ -276,6 +276,18 @@ class Cpv:
         return RandomFile(self, dcb) if dcb.org == 0x10 else File(self, dcb, binary_keys)
 
 
+class Record(bytes):
+    """A record's data: its bytes exactly as stored, whose decode() is EBCDIC by default,
+    since text in CP-V's memory and files is EBCDIC (docs/python-programs.md)."""
+
+    def decode(self, encoding=EBCDIC, errors="strict"):
+        return bytes.decode(self, encoding, errors)
+
+    def __getitem__(self, i):
+        part = bytes.__getitem__(self, i)
+        return Record(part) if isinstance(i, slice) else part
+
+
 class File:
     """An open file DCB."""
 
@@ -286,8 +298,8 @@ class File:
         """The key as a TEXTC at KEY. Text is EBCDIC'd by KEYTRAN (cal._key); a bytes
         key goes in as the characters KEYTRAN's EBCDIC encoding turns back into those
         very bytes (cp037 maps all 256 values one to one), so any binary key works."""
-        text = key.decode(EBCDIC) if isinstance(key, (bytes, bytearray)) else str(key)
-        self.cpv.cal.put_text(self.cpv.u, Cpv.KEY, text, textc=True)
+        data = bytes(key) if isinstance(key, (bytes, bytearray)) else str(key).encode(EBCDIC)
+        self.cpv.cal.write_bytes(self.cpv.u, Cpv.KEY, 0, bytes([len(data)]) + data)
 
     def read(self, key=None, size=2048):
         """M:READ: by key (text or bytes), or (no key) the next record. Returns the data,
@@ -305,7 +317,7 @@ class File:
                 return None                            # end of file
             raise
         n = min(self.dcb.ars, size)
-        return c.cal.read_text(c.u, Cpv.BUF, 0, n).encode("latin-1")
+        return Record(c.cal.read_bytes(c.u, Cpv.BUF, 0, n))
 
     def next(self):
         data = self.read()
@@ -325,8 +337,8 @@ class File:
         """M:WRITE by key: ONEWKEY, or NEWKEY with ``new``."""
         c = self.cpv
         if isinstance(data, str):
-            data = data.encode("latin-1")
-        c.cal.put_text(c.u, Cpv.BUF, data.decode("latin-1"))
+            data = data.encode(EBCDIC, errors="replace")     # text is EBCDIC
+        c.cal.write_bytes(c.u, Cpv.BUF, 0, data)
         self._key(key)
         flags = F_NWK if new else F_ONWK
         c._call(Cal1(1, Fpt(0x11, word0=self.dcb.address,
@@ -368,8 +380,8 @@ class ConsecFile(File):
         file is cut there first."""
         c = self.cpv
         if isinstance(data, str):
-            data = data.encode("latin-1")
-        c.cal.put_text(c.u, Cpv.BUF, data.decode("latin-1"))
+            data = data.encode(EBCDIC, errors="replace")     # text is EBCDIC
+        c.cal.write_bytes(c.u, Cpv.BUF, 0, data)
         c._call(Cal1(1, Fpt(0x11, word0=self.dcb.address,
                             presence=P_ERR | P_ABN | P_BUF | P_SIZE,
                             params=[Cpv.ERRR, Cpv.ABNR, Cpv.BUF, len(data)])))
@@ -398,15 +410,15 @@ class RandomFile(File):
         presence, params = self._gran(gran, P_ERR | P_ABN | P_BUF | P_SIZE,
                                       [Cpv.ERRR, Cpv.ABNR, Cpv.BUF, size])
         c._call(Cal1(1, Fpt(0x10, word0=self.dcb.address, presence=presence, params=params)))
-        return c.cal.read_text(c.u, Cpv.BUF, 0, self.dcb.ars).encode("latin-1")
+        return Record(c.cal.read_bytes(c.u, Cpv.BUF, 0, self.dcb.ars))
 
     def write(self, data, gran=None):
         """M:WRITE of ``data`` from granule ``gran`` (default: where the last request
         ended)."""
         c = self.cpv
         if isinstance(data, str):
-            data = data.encode("latin-1")
-        c.cal.put_text(c.u, Cpv.BUF, data.decode("latin-1"))
+            data = data.encode(EBCDIC, errors="replace")     # text is EBCDIC
+        c.cal.write_bytes(c.u, Cpv.BUF, 0, data)
         presence, params = self._gran(gran, P_ERR | P_ABN | P_BUF | P_SIZE,
                                       [Cpv.ERRR, Cpv.ABNR, Cpv.BUF, len(data)])
         c._call(Cal1(1, Fpt(0x11, word0=self.dcb.address, presence=presence, params=params)))

@@ -3,7 +3,7 @@ M:DELREC and M:CLOSE from stand-in ghosts."""
 
 from tests.test_keyin import started
 from uts.cal import (CODE, F_NWK, F_ONWK, Fpt, P_ABN, P_BUF, P_ERR, P_KEY, P_SIZE)
-from uts.files import FileSystem
+from uts.files import EBCDIC, FileSystem
 from uts.sched import Cal1, Sleep
 
 DCB, BUF, KEY, ERRR, ABNR = 0x9000, 0xB000, 0xB400, 0xC000, 0xC100
@@ -144,7 +144,7 @@ def test_delrec_and_update():
     _, u, out = run_ghost("UPDATER", updater, system)
     fs = system[3].cal.fs
     c = fs.open("PARTS", ":SYS", "IN")
-    assert c.file.read("P0001") == b"CHANGED PART 1" and c.file.read("P0002") is None
+    assert c.file.read("P0001") == "CHANGED PART 1".encode(EBCDIC) and c.file.read("P0002") is None
     assert c.file.keys() == ["P0000", "P0001", "P0003", "P0004"]
     assert out == [("ROUTINE", ERRR, (0x43 << 24) | DCB)]
     assert c.file.check() == []
@@ -189,4 +189,4 @@ def test_the_disc_holds_everything_needed_to_mount_it_again():
     again = FileSystem.mount(fs.disc, fs.ad.FDA)
     assert again.files(":SYS") == ["PARTS"]
     f = again.open("PARTS", ":SYS", "IN").file
-    assert f.read("P0059") == b"PART NUMBER 59" and len(f.keys()) == 60 and f.check() == []
+    assert f.read("P0059") == "PART NUMBER 59".encode(EBCDIC) and len(f.keys()) == 60 and f.check() == []

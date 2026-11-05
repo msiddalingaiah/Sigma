@@ -202,7 +202,7 @@ def test_a_program_does_file_io_with_its_own_dcb():
     text = keyins(m, con, "GJOB FILES")
     assert lines(text) == ["ENTRY 1", "ENTRY 2", "ENTRY 3", "END OF FILE"]
     f = s.cal.fs.open("LOG", ":SYS")
-    assert f.file.records() == [b"\x07ENTRY 1", b"\x07ENTRY 2", b"\x07ENTRY 3"]
+    assert f.file.records() == [b"\x07" + f"ENTRY {i}".encode("cp037") for i in (1, 2, 3)]
 
 
 def test_the_dcb_fields_change_in_memory():

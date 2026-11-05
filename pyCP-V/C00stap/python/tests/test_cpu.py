@@ -237,7 +237,7 @@ DST      RES      2
     cpu, _ = run(src)
     words = assemble("         ORG      X'D000'\n" + src)[0]
     dst = max(words) - 1
-    assert cpu.M[dst].to_bytes(4, "big") + bytes([cpu.M[dst + 1] >> 24]) == b"HELLO"
+    assert cpu.M[dst].to_bytes(4, "big") + bytes([cpu.M[dst + 1] >> 24]) == "HELLO".encode("cp037")
     assert cpu.CC & (CC3 | CC4) == 0                   # equal after the move
 
 

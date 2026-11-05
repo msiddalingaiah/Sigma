@@ -120,7 +120,7 @@ prompt with `cpv.prompt(c)` (`M:PC`). `cpv.keyin()` from an on-line user asks at
 | TEL's `LIST` sets where a program's listing goes (`LIST ON`/`OVER`, `TEL.txt:1019`) | `LIST` is another name for `L` |
 | LIST `(A)` prints granules, records, a date and the file's attributes in PCLLIST's own columns | Organization and record count only, in the heading's columns |
 | HEXDUMP's printable test is the EBCDIC table `CCTAB` | A key is printable if every byte is an EBCDIC character in ASCII's graphic range |
-| A record's bytes go to the terminal as they are | A record that isn't ASCII is read as EBCDIC, since EDIT-style files hold EBCDIC and other records hold ASCII here (the memory convention, `interpreter.md`) |
+| A record's bytes go to the terminal through COC's output translation (TTYOUT) | A record is shown as EBCDIC characters, with any that has no printable ASCII equivalent as `.` |
 | A BREAK with TEL in control interrupts the program, and TEL can `CONTINUE` it | A BREAK ends the program, and TEL prompts again |
 | `UB:ACP` an index into `P:NAME` | The processor's name |
 | A BREAK interrupts the user at the break address (`STBEEA`) | The user is marked, and at the next `T:PULLE` the command processor gets the terminal |

@@ -74,6 +74,35 @@ M:DO     DATA     X'33000003',X'00040005',0,0,0,0,0,0,0,0,0,0,0,0,0,0
 """
 
 
+ECHO = """
+* Read a line from M:SI (the terminal, on-line) and write it back on M:LO, with a prefix
+         ORG      X'D000'
+START    CAL1,1   READ
+         CAL1,1   WRITE
+         CAL1,9   1
+READ     DATA     X'10000000'+M:SI,X'30000000',BUF,20
+WRITE    DATA     X'11000000'+M:LO,X'30000000',OUT,24
+OUT      TEXT     'GOT '
+BUF      TEXT     '                    '
+M:SI     DATA     X'33000003',X'00020009',0,0,0,0,0,0,0,0,0,0,0,0,0,0
+M:LO     DATA     X'33000003',X'00040003',0,0,0,0,0,0,0,0,0,0,0,0,0,0
+         END      START
+"""
+
+
+def test_text_in_memory_is_ebcdic():
+    t = logged_on()
+    dcbs = {}
+    words, start = assemble(ECHO, dcbs)
+    store_image(t.s.cal.fs, "ECHO", ":SYS", words, start, dcbs)
+    t.type("ECHO\r")
+    t.type("Hello, 42!\r")                               # typed in ASCII
+    assert t.text() == "ECHO\r\nHello, 42!\r\nGOT Hello, 42!          \r\n!"
+    out = next(a for a, w in words.items() if w == int.from_bytes("GOT ".encode("cp037"), "big"))
+    buf = t.s.cal.read_bytes(t.s.LB_UN[0], out + 1, 0, 10)   # BUF follows OUT's one word
+    assert buf == "Hello, 42!".encode("cp037")           # in memory: EBCDIC (TTYIN's role)
+
+
 def test_a_program_writes_on_device_dcbs():
     t = logged_on()
     dcbs = {}
