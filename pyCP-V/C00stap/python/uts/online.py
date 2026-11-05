@@ -42,7 +42,7 @@ def _read(cal, u, size=SIZE):
 
 def _prompt(c):
     """M:PC: the prompt character, JB:PROMPT (0: none)."""
-    yield Cal1(1, Fpt(0x2C, word0=ord(c) if c else 0))
+    yield Cal1(1, Fpt(0x2C, word0=c.encode(EBCDIC)[0] if c else 0))
 
 
 def _time(cal, u):
@@ -236,6 +236,7 @@ class Online:
                 continue
             # :USERS isn't modeled: any account, privilege 0, the password ignored
             cal.account[u], cal.priv[u] = account, 0
+            cal.uname[u] = parts[1]
             self.accounts[u] = account
             if cal.fs is not None:
                 cal.fs.add_account(account)
@@ -252,7 +253,8 @@ class Online:
         cal = self.s.cal
         yield from _prompt("!")
         while True:
-            command = (yield from _read(cal, u)).strip().upper()
+            typed = (yield from _read(cal, u)).strip()
+            command = typed.upper()
             verb, _, rest = command.partition(" ")
             rest = rest.strip()
             if not verb:
@@ -267,8 +269,9 @@ class Online:
             if verb in ("COPY", "C") and rest:         # PCL  TEL.txt:3889, :4567
                 yield from self.copy(u, rest)
                 continue
-            fid = re.fullmatch(FID, rest if verb in ("RUN", "START") else verb)
-            if fid is None or (rest and verb not in ("RUN", "START")):
+            target = rest.split()[0] if verb in ("RUN", "START") and rest else verb
+            fid = re.fullmatch(FID, target)     # a name and more: the more is the
+            if fid is None:                     # program's, in J:CCBUF (CHKULM, TEL.txt:950)
                 yield from _type(cal, u, "EH?")        # EHMSG  TEL.txt:3879
                 continue
             name, account = fid.groups()
@@ -279,6 +282,7 @@ class Online:
                 continue
             yield from _prompt("")                     # the program's own reads
             cal.trace(f"TEL user {u}: run {name}.{account}")
+            cal.ccbuf[u] = typed                       # TELCCBUF: the line, into J:CCBUF
             yield from pyprog.program(self.s, u, name, account)
             return                                     # (it ends with a CAL1,9: the step)
 

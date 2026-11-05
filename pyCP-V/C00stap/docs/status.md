@@ -23,6 +23,7 @@ of the source contains. Last updated 2026-11-04.
 | [`labtape.md`](labtape.md) | Labeled tapes: the sentinels, LBLT's blocks of keyed records, split and unblocked records, sequential keys; checked against two real tape images |
 | [`loadmodule.md`](loadmodule.md) | Load modules: `HEAD`, `TREE` and the section records FETCH reads, and how the step starts the program; checked against three real load modules |
 | [`devopen.md`](devopen.md) | Opening a device DCB: OPEN's device option, `OPENDEV`'s reading of word 1 (operational label or name), the assignment tables by kind of user and P2OPL's defaults, device allocation and its errors |
+| [`jit.md`](jit.md) | The JIT page in user memory: its layout from `JIT.txt`'s template (`M:UC` and `M:XX` inside it, `J:CCBUF`, the kind of user), and what the translation builds there |
 | [`interpreter.md`](interpreter.md) | A design for a user-mode instruction interpreter: the user's machine state, decoding and effective addresses, the instruction groups from simh's Sigma simulator, traps and the hand-off to the Python monitor, memory, and what programs to run |
 
 Every claim and line reference in them was checked against the `.txt` sources. Anything not
@@ -31,7 +32,7 @@ settled is listed under each document's **Open questions**.
 ## Translated (`python/uts`)
 
 A hand translation on a small machine model with stubbed devices, not an instruction emulator.
-356 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
+358 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
 simplification; the top-level `README.md` has the commands.
 
 | Area | Module | Status |
@@ -56,6 +57,7 @@ simplification; the top-level `README.md` has the commands.
 | Device DCBs: OPEN (OPN.txt `MSROPN`, OPND.txt `OPENDEV`, P2OPL.txt's defaults) | `devopen.py`, `cal.py` | A device DCB in memory opened by label or name for batch, ghost and on-line users: the terminal (COC), the console, or the null device; the default OPEN on a read or write. SLIP's `M:SI` on `CR` fails (X'49') and its error routine runs. No symbiont streams or device allocation. See `devopen.md` |
 | OPEN's merge of the FPT (OPN.txt `CHKASN`, `MSROPN09`, `MSROPN10`–`98B`; IOD.txt `SETDCB`) | `cal.py` | The FPT's assignment over the DCB's, its parameters and VLPs merged into a DCB in memory, `M:SETDCB`. UPDATE of a missing file is X'03' (OPNF). See `devopen.md` §4 |
 | Card reader and punch (**not a translation**) | `cards.py` | `--reader DECK.txt`, `--punch FILE.txt`: card devices whose media are host files; allocated to one job at a time. Departure: `JB:MAX` isn't modeled, so on-line users may have them. SLIP reads its control card from the reader and runs into its own deck checks. See `devopen.md` |
+| The JIT page (JIT.txt) | `jit.py`, `pyprog.py` | Built in the user's memory at X'8C00' when a load module starts: the template plus the user's fields, the command line in `J:CCBUF`; `M:UC` at its real address X'8C2C'. Not kept in step afterwards. See `jit.md` |
 | Labeled tapes (**not a translation**: the restore) | `labtape.py` | `--restore TAPE.tap`: a CP-V labeled tape image's files into the file system, in the tape's account; consecutive files for sequential keys, keyed otherwise. See `labtape.md` |
 | Read/write | `cal.py`, `io.py` | M:TYPE/M:MESSAGE/M:PRINT, M:WRITE and M:CHECK to `M:OC` through the console IOQ, with `FRONTEND`, `REQCOM`'s DCB branch, `E:IC`, the wait and the error codes |
 | CAL dispatch | `cal.py` | The trap, FPT decode, the CAL1,1–CAL1,9 tables, overlays through the scheduler (`E:AP`), and the returns. Translated: M:WAIT, M:TIME, M:PC, `T:CLRERR`, and the exits. GHOST1 leaves with M:EXIT to FILL |

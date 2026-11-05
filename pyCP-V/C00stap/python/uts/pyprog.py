@@ -80,6 +80,9 @@ def program(sched, u, name, account):
             cal.account[u] = account
         cal.running[u] = (name, account)
         sched.uregs[u][0] = lm.tcb                     # XIT38: TO USERS R0
+        from . import jit
+        proc = (lm.tree[8] & 0xFFFF) * 2 if len(lm.tree) > 8 and lm.tree[8] >> 16 else 0
+        lm.words.update(jit.build(sched, u, lm.tcb, lm.dcblink, proc, lm.start, name))
         sched.trace(f"FETCH {name}.{account}: start X'{lm.start:X}', TCB X'{lm.tcb:X}',"
                     f" DCBs {', '.join(lm.dcbs)}")
         yield from interp.program(sched, u, lm.words, lm.start, lm.dcbs, name=name,
@@ -228,7 +231,7 @@ class Cpv:
 
     def prompt(self, c=""):
         """M:PC: the character COC sends at the start of each terminal read ('' none)."""
-        self._call(Cal1(1, Fpt(0x2C, word0=ord(c) if c else 0)))
+        self._call(Cal1(1, Fpt(0x2C, word0=c.encode(EBCDIC)[0] if c else 0)))
 
     def wait(self, units=1):
         """M:WAIT: sleep for ``units`` (1/50 minute each, assumed)."""

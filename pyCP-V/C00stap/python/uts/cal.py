@@ -34,8 +34,10 @@ OP_CAL1, OP_EXU = 0x04, 0x25
 INDIRECT = 0x80000000
 J_JIT = 0x46 * 512              # JIT.txt:272 JJITVP: a PSD at or below this is the monitor
 FPT_ADDR, CAL_ADDR = 0xA000, 0xA100   # where a stand-in's FPT and CAL1 go (invented)
-M_OC, M_UC, M_XX = 0x8D00, 0x8D10, 0x8D20   # the monitor's DCB addresses (invented)
-KEYBUF = 0x8D40                              # M:KEYIN without a buffer: the reply goes here
+M_OC = 0x8E00                                # M:OC, the monitor's (invented: outside the JIT)
+M_UC = 0x8C2C                                # M:UC: in the JIT, word 44 (jit.py, JIT.txt:460)
+M_XX = 0x8CE6                                # M:XX: in the JIT, word 230 (JIT.txt:527)
+KEYBUF = 0x8E40                              # M:KEYIN without a buffer: the reply goes here
 WAIT_UNIT = 600                 # clock units (2 ms) per M:WAIT unit: 1/50 minute (assumed)
 TMS = 0x00800000                # FPT word 0 flag for M:TIME's binary result (Y008)
 
@@ -327,6 +329,8 @@ class CalProcessor:
         self.dcb_objs = {}                             # user -> {address: Dcb}
         self.uc = {}                                   # user -> M:UC (in the user's JIT)
         self.intent = {}                               # J:INTENT per user: M:INT's address
+        self.uname = {}                                # J:UNAME per user (the log-on name)
+        self.ccbuf = {}                                # J:CCBUF per user: the command line
         self.tcb = {}                                  # J:TCB per user, if M:INT set it
         self.unit_record = None                        # cards.UnitRecord: the card devices
         self.monitor_dcbs = {M_OC: Dcb("M:OC", fcn=0, address=M_OC, dtype="TY"),
@@ -516,6 +520,8 @@ class CalProcessor:
         u = ctx.u
         address = ctx.r6 & 0x1FFFF
         self.intent[u] = (address | 0x08000000) if address else 0
+        from . import jit
+        self.s.umem[u][jit.J_JIT + jit.INTENT] = self.intent[u]   # STW,6 J:INTENT
         self.tcb.setdefault(u, self.s.uregs[u][0])     # INT10: USE USER R0 AS TCB
         return ("TRAPEXIT", None)
         yield
@@ -941,7 +947,7 @@ class CalProcessor:
                 data = data[1:]                        # COCWR70: the control isn't sent
             s.coc.write(line, data.decode(EBCDIC), lines)
         else:
-            prompt = chr(self.prompt[u]) if self.prompt.get(u) else ""
+            prompt = bytes([self.prompt[u]]).decode(EBCDIC) if self.prompt.get(u) else ""
             while (text := s.coc.read(line, prompt)) is None:
                 yield Report(E_CRD)                    # STCRD: blocked in terminal input
             data = text.encode(EBCDIC, errors="replace")[:min(dcb.rws, 140)]   # TTYIN
