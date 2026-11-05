@@ -331,3 +331,38 @@ def test_copy_errors():
     assert "COPY: SYNTAX ERROR" in t.text()
     t.type("L\r")
     assert t.text() == "L\r\nNO FILES IN DIRECTORY\r\n!"
+
+
+def test_copy_with_k_numbers_edit_lines():
+    t = logged_on(MKEDIT=open("examples/mkedit.py").read())
+    t.type("MKEDIT\r")
+    out = t.text()
+    assert "   1.000 THE SIGMA HUMS IN THE MACHINE ROOM" in out
+    assert "   2.500 (INSERTED AT 2.5)" in out and "WROTE POEM: 5 LINES" in out
+    t.type("COPY POEM TO ME(K)\r")                       # PCL's K option: WRITE3
+    assert t.text().splitlines()[1:] == [
+        "     1 -    1.000 THE SIGMA HUMS IN THE MACHINE ROOM",
+        "     2 -    2.000 ITS DISCS SPIN AND ITS LIGHTS BLINK",
+        "     3 -    2.500 (INSERTED AT 2.5)",
+        "     4 -    3.000 A USER LOGS ON AT A TELETYPE",
+        "     5 -    5.000 AND TYPES A LINE TO SEE WHAT IT WILL THINK",
+        "!"]
+    t.type("COPY POEM\r")                                # no K: the records only
+    assert t.text().splitlines()[1] == "THE SIGMA HUMS IN THE MACHINE ROOM"
+
+
+def test_copy_with_x_dumps_records_in_hex():
+    t = logged_on()
+    dcbs = {}
+    words, start = assemble(HELLO_S, dcbs)
+    store_image(t.s.cal.fs, "HELLOS", "BOB", words, start, dcbs)
+    t.type("COPY HELLOS TO ME(X)\r")                     # HEXDUMP.txt
+    lines = t.text().splitlines()
+    assert lines[1:4] == [" ", "KEY= X'FE0000'    -       56 BYTES", " "]
+    assert lines[4] == "00000    0000D000   22500003   0420D004   6450D001"
+    assert "KEY= X'FFFFFF'    -       13 BYTES" in lines   # the header: start, SIGMA ABS
+    assert lines[-2] == "00000    0000D000   5349474D   41204142   53"   # ASCII in memory
+    t.type("COPY HELLOS TO ME(X,K)\r")                   # X before K (READ20)
+    assert "KEY= X'FE0000'    -       56 BYTES" in t.text()
+    t.type("COPY HELLOS TO ME(Q)\r")
+    assert "COPY: SYNTAX ERROR" in t.text()

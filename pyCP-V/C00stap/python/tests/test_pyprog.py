@@ -241,3 +241,34 @@ def main(cpv):
     m, con, s = system(SHORT=prog)
     text = keyins(m, con, "GJOB SHORT", "ABCDEFGH")
     assert "GOT ABCD" in text and "GOT ABCDE" not in text
+
+
+# --- binary keys ---------------------------------------------------------------------------
+
+BINKEYS = '''
+def main(cpv):
+    f = cpv.open("LINES", fun="OUT", keym=3)
+    for n in (20, 3, 100, 1):                       # EDIT keys, out of order
+        f.write(cpv.line_key(n), f"LINE {n}")
+    f.write(bytes([0, 0xFF, 0x15]), "ODD BYTES")    # any byte values
+    f.close()
+    g = cpv.open("LINES", binary_keys=True)
+    for key, data in g:
+        cpv.type(key.hex() + " " + data.decode())
+    cpv.type(g.read(cpv.line_key(3)).decode())
+    cpv.type(g.read(bytes([0, 0xFF, 0x15])).decode())
+    g.close()
+    h = cpv.open("BINKEYS", binary_keys=True)       # this program's own source, by EDIT key
+    cpv.type(h.read(cpv.line_key(2)).decode(cpv.EBCDIC).strip())
+'''
+
+
+def test_binary_keys():
+    m, con, s = system(BINKEYS=BINKEYS)
+    text = keyins(m, con, "GJOB BINKEYS")
+    lines = [l.split(": ", 1)[1] for l in text.splitlines() if ": " in l]
+    assert lines == ["0003e8 LINE 1", "000bb8 LINE 3", "004e20 LINE 20",
+                     "00ff15 ODD BYTES", "0186a0 LINE 100",     # in byte order
+                     "LINE 3", "ODD BYTES", "def main(cpv):"]   # line 1 is blank
+    kf = s.cal.fs.open("LINES", ":SYS", "IN").file
+    assert kf.read(bytes([0, 0xFF, 0x15])) == b"ODD BYTES" and kf.check() == []

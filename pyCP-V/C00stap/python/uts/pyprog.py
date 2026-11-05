@@ -171,6 +171,8 @@ class CpvError(Exception):
 class Cpv:
     """The services a Python program asks for. Each method is one (or a few) CAL1s."""
     MSG, BUF, KEY = 0xBE00, 0xB000, 0xBF00             # parameter areas in the user's memory
+    EBCDIC = EBCDIC                                    # for an EDIT file's lines
+    line_key = staticmethod(line_key)                  # EDIT's 3-byte key for a line number
     ERRR, ABNR = 0xC000, 0xC100                        # error and abnormal "routines"
     CpvError = CpvError
 
@@ -233,13 +235,16 @@ class Cpv:
 
     # files
     def open(self, name, account=None, fun="IN", keym=11, org="keyed", size=0,
-             password=None, read=None, write=None, execute=None, vehicle=None):
+             password=None, read=None, write=None, execute=None, vehicle=None,
+             binary_keys=False):
         """M:OPEN on a new file DCB. ``org`` ("keyed", "consec" or "random", with
         ``size`` granules) is for a new file; an existing one keeps its own. Without
         ``account``, the program's own. ``password`` opens a protected file and, with
         the account lists ``read``, ``write`` and ``execute`` (accounts, "ALL" or
-        "NONE") and ``vehicle`` (a processor), protects a new one. Returns a File, a
-        ConsecFile or a RandomFile."""
+        "NONE") and ``vehicle`` (a processor), protects a new one. With
+        ``binary_keys``, a keyed file's iteration and ``next()`` give keys as bytes
+        (KBUF as it is) instead of EBCDIC text. Returns a File, a ConsecFile or a
+        RandomFile."""
         self._dcbs += 1
         address = 0x9000 + 16 * self._dcbs
         dcb = self.cal.add_dcb(self.u, f"F:{self._dcbs}", address, asn=1, fname=name,
@@ -250,21 +255,25 @@ class Cpv:
                                params=[self.ERRR, self.ABNR])))
         if dcb.org == 0:
             return ConsecFile(self, dcb)
-        return RandomFile(self, dcb) if dcb.org == 0x10 else File(self, dcb)
+        return RandomFile(self, dcb) if dcb.org == 0x10 else File(self, dcb, binary_keys)
 
 
 class File:
     """An open file DCB."""
 
-    def __init__(self, cpv, dcb):
-        self.cpv, self.dcb = cpv, dcb
+    def __init__(self, cpv, dcb, binary_keys=False):
+        self.cpv, self.dcb, self.binary_keys = cpv, dcb, binary_keys
 
     def _key(self, key):
-        self.cpv.cal.put_text(self.cpv.u, Cpv.KEY, str(key), textc=True)
+        """The key as a TEXTC at KEY. Text is EBCDIC'd by KEYTRAN (cal._key); a bytes
+        key goes in as the characters KEYTRAN's EBCDIC encoding turns back into those
+        very bytes (cp037 maps all 256 values one to one), so any binary key works."""
+        text = key.decode(EBCDIC) if isinstance(key, (bytes, bytearray)) else str(key)
+        self.cpv.cal.put_text(self.cpv.u, Cpv.KEY, text, textc=True)
 
     def read(self, key=None, size=2048):
-        """M:READ: by key, or (no key) the next record. Returns the data, or None at the
-        end of the file."""
+        """M:READ: by key (text or bytes), or (no key) the next record. Returns the data,
+        or None at the end of the file."""
         c, presence = self.cpv, P_ERR | P_ABN | P_BUF | P_SIZE
         params = [Cpv.ERRR, Cpv.ABNR, Cpv.BUF, size]
         if key is not None:
@@ -284,7 +293,8 @@ class File:
         data = self.read()
         if data is None:
             return None
-        return self.dcb.kbuf.decode(EBCDIC), data
+        key = bytes(self.dcb.kbuf)
+        return (key if self.binary_keys else key.decode(EBCDIC)), data
 
     def __iter__(self):
         while True:

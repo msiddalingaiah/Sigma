@@ -67,6 +67,73 @@ def _printable(data):
     return "".join(chr(c) if 0x20 <= c < 0x7F else "." for c in data)
 
 
+def bin2bcd(n):
+    """BIN2BCD  UTILITY.txt:82 - the low 8 decimal digits, right-justified, blank-filled."""
+    return f"{n % 100_000_000:8d}"
+
+
+def edit_number(recnum, key):
+    """WRITE3's prefix for a 3-byte key (RDWRT.txt:345-:370): SEQNUM, the record number
+    (6 columns: BTD 2 skips two of BIN2BCD's 8), then LINENO, ' - ' and the key as
+    XXXX.XXX (the last 7 of BIN2BCD's digits; the units and fraction digits
+    zero-filled), then a blank. Key 1000, record 1: '     1 -    1.000 '."""
+    d = bin2bcd(int.from_bytes(key, "big"))[1:]       # SLD,R2 8: seven digits
+    lineno = " - " + d[:3] + (d[3].strip() or "0") + "." + d[4:].replace(" ", "0") + " "
+    return bin2bcd(recnum)[2:] + lineno
+
+
+def unprint(key):
+    """UNPRINT  UTILITY.txt - a key as it prints: itself, or X'hex' if any of it isn't
+    printable (CCTAB: here, an EBCDIC character outside ASCII's graphics)."""
+    chars = key.decode(EBCDIC)
+    if all(0x20 <= ord(c) < 0x7F for c in chars):
+        return chars
+    return "X'" + key.hex().upper() + "'"
+
+
+def hexdump(recnum, key, data):
+    """HEXDUMP  HEXDUMP.txt - one record dumped for a terminal, as lines: a blank line,
+    the key (or record number) and the size, a blank line, then 4 words a line with
+    the word offset (:177-:188); the character column is for the printer only (PRNT1).
+    A line equal to the one before is left out, and the next line printed gets '*' in
+    column 5 (DUMP4). A null record, or one of zeros, gets a message instead."""
+    size = len(data)
+    if key is not None:                                # :100-:126
+        k = unprint(key)
+        line = list(("KEY= " + k).ljust(84))
+        w = (len(k) + 12) // 4                         # R5: the size's word
+        span = w * 4 + 14
+        if size == 0:                                  # NULLREC
+            return [" ", "".join(line[:len(k) + 5]), "THIS KEYED RECORD IS NULL"]
+    else:                                              # PRTREC#: '  REC #' at BTD 2
+        line = list("  REC # " + bin2bcd(recnum)[4:] + " " * 76)
+        w, span = 4, 28
+    line[(w - 1) * 4:(w + 3) * 4] = "  - " + bin2bcd(size) + " BYTES  "   # RECSIZE
+    head = "".join(line[:span] if key is not None else line[2:2 + span])
+    out = [" ", head]
+    if size == 0:
+        return out
+    out.append(" ")
+    words = [int.from_bytes(data[i:i + 4].ljust(4, b"\0"), "big") for i in range(0, size, 4)]
+    if not any(words):
+        return out + ["THIS RECORD CONTAINS ALL ZEROES"]           # ZERORTRN
+    star, i = False, 0
+    while i < len(words):
+        if 0 < i and i + 4 < len(words) and words[i:i + 4] == words[i - 4:i]:
+            star, i = True, i + 4                      # DUMP4: the same as the line before
+            continue
+        text = list(f"{i:08X}"[3:] + "   ")          # HEX2BCD, SLD 24: five digits
+        if star:
+            text[5] = "*"
+        for j, word in enumerate(words[i:i + 4]):
+            text += [" "] * (9 + 11 * j - len(text)) + list(f"{word:08X}")
+        if i + 4 >= len(words) and size % 4:           # a partial last word
+            text = text[:len(text) - (8 - 2 * (size % 4))]
+        out.append("".join(text).rstrip())
+        star, i = False, i + 4
+    return out
+
+
 def _exit():
     yield Cal1(9, address=EXIT, regs={6: 0})
 
@@ -219,16 +286,21 @@ class Online:
         return None
 
     def copy(self, u, args):
-        """PCL's COPY, the part for a terminal: COPY fid [TO ME | OVER ME]. With no
-        output on-line, the output is ME (COPYTO.txt:140-143). The file is read through
-        M:OPEN, M:READ to the end and M:CLOSE; each record goes to M:UC with M:WRITE."""
+        """PCL's COPY, the part for a terminal: COPY fid [TO ME[(opts)] | OVER ME[(opts)]],
+        the options K and X. With no output on-line, the output is ME (COPYTO.txt:
+        140-143). The file is read through M:OPEN, M:READ to the end and M:CLOSE; each
+        line goes to M:UC with M:WRITE. With K, a record with a 3-byte key gets its
+        record number and EDIT line number in front (RDWRT.txt WRITE3, :338-:370).
+        With X, each record is dumped in hex, its key or record number first
+        (HEXDUMP.txt; RDWRT.txt READ20 :1077, which takes X before K)."""
         cal = self.s.cal
-        m = re.fullmatch(r"([A-Z0-9:]{1,31})(?:\.([A-Z0-9:]{1,8}))?(?:\s+(TO|OVER)\s+(\S+))?",
-                         args)
-        if m is None:
+        m = re.fullmatch(r"([A-Z0-9:]{1,31})(?:\.([A-Z0-9:]{1,8}))?"
+                         r"(?:\s+(TO|OVER)\s+([^\s(]+)(?:\(([A-Z,]+)\))?)?", args)
+        options = set((m.group(5) or "").split(",")) - {""} if m else set()
+        if m is None or options - {"K", "X"}:
             yield from _type(cal, u, "COPY: SYNTAX ERROR")
             return
-        name, account, _, dest = m.groups()
+        name, account, _, dest, _ = m.groups()
         if dest is not None and dest != "ME":
             yield from _type(cal, u, f"COPY: ONLY TO ME, NOT {dest}")
             return
@@ -243,6 +315,7 @@ class Online:
         if cal.dcb_at(u, COPYDCB).org == 0x10:
             yield from _type(cal, u, "COPY: A RANDOM FILE")
         else:
+            recnum = 0
             while True:
                 result = yield Cal1(1, Fpt(0x10, word0=COPYDCB,
                                            presence=P_ERR | P_ABN | P_BUF | P_SIZE,
@@ -251,11 +324,21 @@ class Online:
                     if _code(result) != 0x06:          # not the end of the file
                         yield from _type(cal, u, f"COPY: READ ERROR, CODE {_code(result):02X}")
                     break
-                n = min(cal.dcb_at(u, COPYDCB).ars, FSIZE)
-                text = _printable(cal.read_text(u, FBUF, 0, n).encode("latin-1"))
-                cal.put_text(u, FBUF, text)
-                yield Cal1(1, Fpt(0x11, word0=M_UC, presence=P_BUF | P_SIZE | P_BTD,
-                                  params=[FBUF, len(text), 0]))
+                recnum += 1                            # READ27: MTW,1 RECNUM
+                dcb = cal.dcb_at(u, COPYDCB)
+                data = cal.read_text(u, FBUF, 0, min(dcb.ars, FSIZE)).encode("latin-1")
+                key = dcb.kbuf if dcb.org == 0x20 else None
+                if "X" in options:
+                    lines = hexdump(recnum, key, data)
+                else:
+                    text = _printable(data)
+                    if "K" in options and key is not None and len(key) == 3:
+                        text = edit_number(recnum, key) + text
+                    lines = [text]
+                for text in lines:
+                    cal.put_text(u, FBUF, text)
+                    yield Cal1(1, Fpt(0x11, word0=M_UC, presence=P_BUF | P_SIZE | P_BTD,
+                                      params=[FBUF, len(text), 0]))
         yield Cal1(1, Fpt(0x15, word0=COPYDCB))         # M:CLOSE
 
     def list(self, u):

@@ -59,6 +59,29 @@ it:
 A service error raises `cpv.CpvError` with the CP-V code. For example, X'43' is a missing key and
 X'16' is NEWKEY on an existing key. End of file ends the iteration.
 
+A key is text or **bytes**. Text keys are stored in EBCDIC, as CP-V's are. A bytes key is
+stored exactly as given, so binary keys such as EDIT's 3-byte line keys work. `cpv.line_key(n)`
+makes one: the line number times 1000 (`EDIT.txt:495`). With `binary_keys=True`, iteration and
+`next()` give keys back as bytes:
+
+```python
+    f = cpv.open("LINES", fun="OUT", keym=3)
+    f.write(cpv.line_key(10), "LINE TEN")   # key X'002710'
+    f.close()
+    for key, data in cpv.open("LINES", binary_keys=True):
+        cpv.type(key.hex() + " " + data.decode())
+    src = cpv.open("HELLO", account=":SYS", binary_keys=True)   # an imported program
+    line = src.read(cpv.line_key(1)).decode(cpv.EBCDIC)         # its lines are EBCDIC
+```
+
+`examples/mkedit.py` makes an EDIT-style file, POEM, with EBCDIC lines and a line inserted at
+2.500. From a terminal, `COPY POEM TO ME(K)` then lists it with EDIT numbers ([`online.md`](online.md)).
+
+Keys sort as bytes, so EDIT keys come back in line order. A bytes key works because memory holds
+characters and KEYTRAN encodes them to EBCDIC (`cal._key`): `cpv` stores the key as
+`key.decode(cpv.EBCDIC)`, which the encoding turns back into the same bytes. cp037 maps all 256
+values one to one.
+
 A **consecutive file** ([`files.md`](files.md) §4) has records in order and no keys:
 
 ```python
