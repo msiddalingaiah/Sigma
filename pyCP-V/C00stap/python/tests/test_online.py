@@ -1,8 +1,11 @@
 """On-line users: COC (uts/coc.py), the LOGON and TEL stand-ins (uts/online.py) and
 the telnet terminals (uts/terminals.py)."""
 
+import os
 import socket
 import time
+
+import pytest
 
 from tests.test_interp import HELLO as HELLO_S
 from tests.test_pyprog import HELLO, system
@@ -366,3 +369,54 @@ def test_copy_with_x_dumps_records_in_hex():
     assert "KEY= X'FE0000'    -       56 BYTES" in t.text()
     t.type("COPY HELLOS TO ME(Q)\r")
     assert "COPY: SYNTAX ERROR" in t.text()
+
+
+UTIL_TAPE = os.path.join(os.path.dirname(__file__), "..", "..", "c00si", "sw-lib-utility-pgm-util.tap")
+
+
+@pytest.mark.skipif(not os.path.exists(UTIL_TAPE), reason="the UTIL tape image isn't here")
+def test_copy_shows_a_restored_load_module():
+    from uts import labtape
+    t = logged_on()
+    with open(UTIL_TAPE, "rb") as f:
+        labtape.restore(t.s.cal.fs, labtape.read_tape(f.read()))
+    t.type("COPY SLIP.:UTIL TO ME(X)\r")
+    lines = t.text().splitlines()
+    assert lines[2:5] == ["KEY= HEAD     -       48 BYTES", " ",
+                          "00000    8000FF30   8000A064   50005000   04005000"]
+    assert "KEY= TREE     -       48 BYTES" in lines
+    t.type("COPY JCL:LOAD:SLIP.:UTIL TO ME(K)\r")
+    assert "     3 -    3.000 !LOAD (LMN,SLIP),(EF,(CDTBO),(VFYBO),(CPYBO)),(MAP),(SL,F),(PERM)" \
+        in t.text().splitlines()
+
+
+@pytest.mark.skipif(not os.path.exists(UTIL_TAPE), reason="the UTIL tape image isn't here")
+def test_list_another_account_with_attributes():
+    from uts import labtape
+    t = logged_on()
+    with open(UTIL_TAPE, "rb") as f:
+        labtape.restore(t.s.cal.fs, labtape.read_tape(f.read()))
+    t.type("L .:UTIL\r")                                 # COPYTRAN's file id form A
+    assert "SLIP" in t.text().splitlines()
+    t.type("L .:UTIL(A)\r")                              # PCLLIST: the attributes
+    lines = t.text().splitlines()
+    assert lines[1] == "ORG    GRAN     REC     DATE    NAME"
+    assert "K               6               SLIP" in lines       # a load module: keyed
+    assert "C               36              CDTBO" in lines      # a ROM: consecutive
+    t.type("L SLIP.:UTIL(A)\r")
+    assert t.text().splitlines()[1:] == ["ORG    GRAN     REC     DATE    NAME",
+                                         "K               6               SLIP", "!"]
+
+
+@pytest.mark.skipif(not os.path.exists(UTIL_TAPE), reason="the UTIL tape image isn't here")
+def test_tel_runs_a_real_load_module_up_to_untranslated_code():
+    from uts import labtape
+    t = logged_on()
+    with open(UTIL_TAPE, "rb") as f:
+        labtape.restore(t.s.cal.fs, labtape.read_tape(f.read()))
+    t.type("SLIP.:UTIL\r")                               # FETCH, then its first CAL: M:OPEN M:SI
+    assert t.text() == ("SLIP.:UTIL\r\nNOT TRANSLATED: DCB X'A922' in user memory with ASN 3"
+                        " (only files)\r\n!")
+    assert any("FETCH SLIP.:UTIL: start X'A064', TCB X'A000'" in line for line in t.s.log)
+    t.type("L\r")                                        # TEL has the terminal again
+    assert "NO FILES IN DIRECTORY" in t.text()

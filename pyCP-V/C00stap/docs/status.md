@@ -20,6 +20,8 @@ of the source contains. Last updated 2026-11-04.
 | [`dcb.md`](dcb.md) | The DCB in the user's memory: its words and bits (from the system DCB procedure and how the code tests each field), the VLP list, and how the translation reads and writes it |
 | [`coc.md`](coc.md) | COC, the terminal handler: the line tables, input and the immediate characters, BREAK, echo, reads (`COCIO`, `COCRD`) and writes (`COCWR`), lines coming ready and dropping |
 | [`online.md`](online.md) | On-line users: from a BREAK through the scheduler's `LOGON`, the LOGON processor and `STEP041` to TEL, and `OFF`; the TCP terminals and the LOGON/TEL stand-ins |
+| [`labtape.md`](labtape.md) | Labeled tapes: the sentinels, LBLT's blocks of keyed records, split and unblocked records, sequential keys; checked against two real tape images |
+| [`loadmodule.md`](loadmodule.md) | Load modules: `HEAD`, `TREE` and the section records FETCH reads, and how the step starts the program; checked against three real load modules |
 | [`interpreter.md`](interpreter.md) | A design for a user-mode instruction interpreter: the user's machine state, decoding and effective addresses, the instruction groups from simh's Sigma simulator, traps and the hand-off to the Python monitor, memory, and what programs to run |
 
 Every claim and line reference in them was checked against the `.txt` sources. Anything not
@@ -28,7 +30,7 @@ settled is listed under each document's **Open questions**.
 ## Translated (`python/uts`)
 
 A hand translation on a small machine model with stubbed devices, not an instruction emulator.
-328 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
+340 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
 simplification; the top-level `README.md` has the commands.
 
 | Area | Module | Status |
@@ -49,6 +51,8 @@ simplification; the top-level `README.md` has the commands.
 | Disc images | `image.py` | `--disc PATH` keeps the swap and public discs in a host file, so files and the installed monitor survive between runs. Not a translation: see `python-programs.md` |
 | Python ghost jobs | `keyin.py` (`GJOB`), `pyprog.py` | `GJOB NAME` runs a Python program from the file system as a ghost; its `cpv` calls are real CALs, including `M:KEYIN` to ask the operator. Not a translation: see `python-programs.md` |
 | On-line users | `coc.py`, `online.py`, `terminals.py` | `--terminals N`: telnet to localhost, a BREAK or connection logs on, LOGON and TEL stand-ins, `STEP041`/`STEP10`; COC's input, echo, reads and writes on `M:UC`, BREAK and hang-up. LOGON, TEL and the TCP server aren't translations: see `online.md` |
+| Load modules: FETCH (STPNR.txt) | `fetch.py`, `pyprog.py`, `online.py` | A load module's `HEAD` and `TREE` checked (A6 codes), the root's sections into memory, `J:START`, the TCB in R0, the DCB table; started from TEL or `GJOB` on the interpreter. SLIP from the UTIL tape loads and runs to its first CAL, an `M:OPEN` of the device DCB `M:SI`. No overlays. See `loadmodule.md` |
+| Labeled tapes (**not a translation**: the restore) | `labtape.py` | `--restore TAPE.tap`: a CP-V labeled tape image's files into the file system, in the tape's account; consecutive files for sequential keys, keyed otherwise. See `labtape.md` |
 | Read/write | `cal.py`, `io.py` | M:TYPE/M:MESSAGE/M:PRINT, M:WRITE and M:CHECK to `M:OC` through the console IOQ, with `FRONTEND`, `REQCOM`'s DCB branch, `E:IC`, the wait and the error codes |
 | CAL dispatch | `cal.py` | The trap, FPT decode, the CAL1,1–CAL1,9 tables, overlays through the scheduler (`E:AP`), and the returns. Translated: M:WAIT, M:TIME, M:PC, `T:CLRERR`, and the exits. GHOST1 leaves with M:EXIT to FILL |
 

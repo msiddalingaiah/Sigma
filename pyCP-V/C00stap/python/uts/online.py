@@ -15,13 +15,14 @@ T:ABORT and CALBAD's T:ABORTM):
 
 import re
 
-from . import interp, pyprog
+from . import fetch, interp, pyprog
 from .cal import M_UC, P_ABN, P_BTD, P_BUF, P_ERR, P_SIZE, Fpt
 from .files import EBCDIC, FileError
 from .sched import Cal1
 
 BUF, SIZE = 0xB400, 80                 # the command processors' input buffer
 COPYDCB, FBUF, FSIZE = 0x9F00, 0xA800, 2048   # COPY's file DCB and record buffer
+FID = r"([A-Z0-9:]{1,31})(?:\.([A-Z0-9:]{1,8}))?"      # NAME[.ACCOUNT]
 EXIT = 1                               # CAL1,9 exit type: M:EXIT
 TRIES = 3
 STEP_HOOKS = ("T:EXIT", "T:ERROR", "T:ABORT", "T:ABORTM")
@@ -152,6 +153,7 @@ class Online:
             cal.hooks[name] = self._step(name)
         sched.on_logon = self._new_user
         sched.hooks["BREAK"] = self._break
+        sched.hooks["NOT TRANSLATED"] = self._not_translated
 
     def online(self, u):
         return u in self.acp and u in self.s.LB_UN
@@ -194,6 +196,19 @@ class Online:
                 self.acp[u] = "TEL"
             return self._start(u, self.tel(u))
         return hook
+
+    def _not_translated(self, s, u):
+        """An on-line user's program reached code that isn't translated: say so on the
+        terminal (straight to COC: the CAL in progress can't go on) and give the
+        terminal back to TEL. Not CP-V: there, everything is translated."""
+        e = s.not_translated.pop(u, None)
+        line = s.coc.line_of(u) if s.coc is not None else None
+        if line is not None:
+            s.coc.write(line, f"NOT TRANSLATED: {e}"[:140])
+        if not self.online(u):
+            return s.t_delus(u)
+        s.cal.running.pop(u, None)
+        return self._start(u, self.tel(u) if self.logged[u] else self.logon(u))
 
     def _break(self, s, u):
         """A BREAK or Ctrl-Y: with TEL in control, TEL gets the terminal back (the
@@ -249,20 +264,18 @@ class Online:
                 self.acp[u], self.logged[u] = "LOGON", False
                 yield from _exit()                     # to LOGON, which ends: STEP10
                 return
-            if verb in ("L", "LIST") and not rest:     # PCL LIST (L); LIST: a stand-in alias
-                yield from self.list(u)
+            if verb in ("L", "LIST"):                  # PCL LIST (L); LIST: a stand-in alias
+                yield from self.list(u, rest)
                 continue
             if verb in ("COPY", "C") and rest:         # PCL  TEL.txt:3889, :4567
                 yield from self.copy(u, rest)
                 continue
-            if verb in ("RUN", "START") and re.fullmatch(r"[A-Z0-9:]{1,7}", rest):
-                name = rest
-            elif not rest and re.fullmatch(r"[A-Z0-9:]{1,7}", verb):
-                name = verb
-            else:
+            fid = re.fullmatch(FID, rest if verb in ("RUN", "START") else verb)
+            if fid is None or (rest and verb not in ("RUN", "START")):
                 yield from _type(cal, u, "EH?")        # EHMSG  TEL.txt:3879
                 continue
-            account = self.find(u, name)
+            name, account = fid.groups()
+            account = self.find(u, name, account)
             if account is None:
                 yield from _type(cal, u, "EH?" if verb not in ("RUN", "START")
                                  else f"{name} NOT FOUND")
@@ -272,10 +285,13 @@ class Online:
             yield from pyprog.program(self.s, u, name, account)
             return                                     # (it ends with a CAL1,9: the step)
 
-    def find(self, u, name):
-        """The program's account: the user's own, else :SYS."""
+    def find(self, u, name, account=None):
+        """The program's account: the one given, else the user's own, else :SYS."""
         fs = self.s.cal.fs
-        for account in dict.fromkeys((self.s.cal.account.get(u, ":SYS"), ":SYS")):
+        accounts = (account,) if account else (self.s.cal.account.get(u, ":SYS"), ":SYS")
+        for account in dict.fromkeys(accounts):
+            if fetch.is_load_module(fs, name, account):
+                return account
             if interp.read_image(fs, name, account) is not None:
                 return account
             try:
@@ -341,13 +357,48 @@ class Online:
                                       params=[FBUF, len(text), 0]))
         yield Cal1(1, Fpt(0x15, word0=COPYDCB))         # M:CLOSE
 
-    def list(self, u):
+    def list(self, u, args=""):
+        """PCL's LIST: L [fid][(A)]. The fid is NAME, NAME.ACCOUNT or .ACCOUNT (COPYTRAN's
+        file id forms N, N.A and A, COPYTRAN.txt:37); none is the user's own account.
+        With (A), the attributes: the heading LISTHEAD (PCLLIST.txt:1113), then per file
+        its organization, K, C or R (:521-:525), and its record count (PRECORD, :558).
+        The granules and the date aren't shown, and the columns follow the heading."""
         cal = self.s.cal
+        m = re.fullmatch(r"([A-Z0-9:]{1,31})?(?:\.([A-Z0-9:]{1,8}))?(\(A\))?", args.replace(" ", ""))
+        if m is None:
+            yield from _type(cal, u, "L: SYNTAX ERROR")
+            return
+        name, account, attributes = m.groups()
+        account = account or cal.account.get(u, ":SYS")
         try:
-            names = cal.fs.files(cal.account.get(u, ":SYS"))
+            names = cal.fs.files(account)
         except FileError:
             names = []
-        for name in names:
-            yield from _type(cal, u, name)
+        if name is not None:
+            names = [n for n in names if n == name]
         if not names:
             yield from _type(cal, u, "NO FILES IN DIRECTORY")   # PCLLIST.txt:677
+            return
+        if attributes:
+            yield from _type(cal, u, "ORG    GRAN     REC     DATE    NAME")
+        for n in names:
+            if not attributes:
+                yield from _type(cal, u, n)
+                continue
+            org, recs = self._attributes(n, account)
+            yield from _type(cal, u, f"{org:<7}{'':<9}{recs:<8}{'':<8}{n}")
+
+    def _attributes(self, name, account):
+        """A file's organization letter and record count (host-side, as LIST's own read)."""
+        from .files import ConsecutiveFile, RandomFile
+        fs = self.s.cal.fs
+        cfu = fs.open(name, account, "IN")
+        try:
+            f = cfu.file
+            if isinstance(f, RandomFile):
+                return "R", ""
+            if isinstance(f, ConsecutiveFile):
+                return "C", str(len(f.records()))
+            return "K", str(len(f.keys()))
+        finally:
+            fs.close(cfu)

@@ -126,6 +126,7 @@ python -m uts --tape --replies IP 06/15/76 13:45 YES -
 | `--version V` | WRITEMON's 4-character version, which `SYSVERS` is built from. | `C00 ` |
 | `--trace` | Print a trace of the boot steps, and the LP output. | off |
 | `--file HOST=NAME[.ACCOUNT] …` | Import Python programs into the CP-V file system before the key-ins. Start one with the key-in `GJOB NAME`; see `docs/python-programs.md`. | none |
+| `--restore TAPE.tap …` | Restore the files of CP-V labeled tapes (simh `.tap` images) into the file system, in the tape's account. See `docs/labtape.md`. | none |
 | `--terminals N` | After the boot comes up (and any `--keyins`), N terminal lines on a TCP port, in real time: connect with `telnet` to log on and use TEL. Ctrl-C ends. See `docs/online.md`. | off |
 | `--port P` | The terminals' TCP port. | `2323` |
 | `--bind ADDRESS` | The address the terminals listen on. There is no authentication: only for trusted networks. | `127.0.0.1` |

@@ -85,6 +85,8 @@ memory, one an interpreted program assembled, is read through **`cal.MemDcb`**:
   the request's key, the last operation) is kept beside it, by address.
 
 Only file DCBs (`ASN` 1) in memory are handled. A device DCB in memory raises `NotTranslated`.
+A real load module's DCBs are mostly devices (SLIP's `M:SI`, `M:LO`, `M:OC`, `M:DO`:
+[`loadmodule.md`](loadmodule.md)), so that is the next step.
 
 **The DCB table.** A CAL's DCB must also be in the user's DCB table, `J:DCBLINK`: `CAL11M`
 aborts the user with X'AF', "ILLEGAL-DCB", otherwise (`CALPROC.txt:156`; `cal.py` `cal11`). CP-V's

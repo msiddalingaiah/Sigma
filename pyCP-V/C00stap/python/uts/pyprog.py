@@ -66,7 +66,25 @@ def loader(sched):
 def program(sched, u, name, account):
     """The ghost: load, then run main(cpv) in a thread, then M:EXIT or M:XXX."""
     cal = sched.cal
-    from . import interp
+    from . import fetch, interp
+    if fetch.is_load_module(cal.fs, name, account):    # a load module: FETCH, interpreted
+        try:
+            lm = fetch.read_load_module(cal.fs, name, account)
+        except fetch.LoadModuleError as e:
+            sched.trace(f"FETCH {name}.{account}: {e}")
+            yield from _type(cal, u, f"{name}: LOAD MODULE ERROR {e}")
+            sched.jit[u].ABC = 0xA6
+            yield Cal1(9, address=ABORT, regs={6: 0})
+            return
+        if u not in sched.LB_UN:
+            cal.account[u] = account
+        cal.running[u] = (name, account)
+        sched.uregs[u][0] = lm.tcb                     # XIT38: TO USERS R0
+        sched.trace(f"FETCH {name}.{account}: start X'{lm.start:X}', TCB X'{lm.tcb:X}',"
+                    f" DCBs {', '.join(lm.dcbs)}")
+        yield from interp.program(sched, u, lm.words, lm.start, lm.dcbs, name=name,
+                                  type_line=lambda text: _type(cal, u, text))
+        return
     image = interp.read_image(cal.fs, name, account)
     if image is not None:                              # an absolute image: interpreted
         if u not in sched.LB_UN:

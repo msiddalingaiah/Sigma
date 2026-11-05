@@ -488,6 +488,7 @@ class Scheduler:
         self.coc = None                 # coc.Coc: the lines' input and output
         self.on_logon = None            # (sched, u, line): the new user's command processor
         self.breaks = set()             # users with a BREAK (or Ctrl-Y) not yet acted on
+        self.not_translated = {}        # user -> the NotTranslated their program reached
         self.hangups = set()            # users whose line dropped
         self.MAXG = maxg
         self.S_GJOBTBL = [None] * (maxg + 1)
@@ -1733,6 +1734,12 @@ class Scheduler:
             stack = self.stacks[u] = [prog]
         try:
             req = stack[-1].send(self._send.pop(u, None))
+        except NotTranslated as e:
+            if "NOT TRANSLATED" not in self.hooks:
+                raise
+            self.trace(f"user {u}: not translated: {e}")
+            self.not_translated[u] = e                 # the hook says what happened
+            return self.hook("NOT TRANSLATED", u)
         except StopIteration as e:
             stack.pop()
             if not stack:

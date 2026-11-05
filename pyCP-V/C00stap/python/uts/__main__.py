@@ -151,11 +151,23 @@ def import_files(mon, specs):
                                 text)
 
 
-def operator(m, mon, sysgen=None, keyins=(), lp_faults=None, prints=(), files=()):
+def restore_tapes(mon, paths):
+    """--restore TAPE: a labeled tape's files into the file system, in the tape's
+    account (labtape.py, a host-side stand-in for copying the tape to disc)."""
+    from . import labtape
+    for path in paths or ():
+        with open(path, "rb") as f:
+            tape = labtape.read_tape(f.read())
+        names = labtape.restore(mon.sched.cal.fs, tape)
+        print(f"(tape {path}: reel {tape.reel}, {len(names)} files restored to {tape.account})")
+
+
+def operator(m, mon, sysgen=None, keyins=(), lp_faults=None, prints=(), files=(), tapes=()):
     """Key-ins on a system that is up. ``lp_faults`` makes the line printer fail
     (see io.Unit); ``prints`` are lines queued to it first; ``files`` are --file
-    imports. Returns the OperatorConsole."""
+    imports, ``tapes`` --restore tapes. Returns the OperatorConsole."""
     sysgen = sysgen or Sysgen()
+    restore_tapes(mon, tapes)
     import_files(mon, files)
     con = keyin.OperatorConsole(m, mon, sysgen, lp_faults=lp_faults,
                                 screech=lambda code, sub: _recover(m, mon, sysgen, code, sub))
@@ -255,6 +267,9 @@ def main(argv=None):
     p.add_argument("--trace", action="store_true", help="print the boot trace")
     p.add_argument("--file", nargs="*", default=[], metavar="HOST=NAME[.ACCOUNT]", dest="files",
                    help="Python programs to import into the file system; start one with GJOB NAME")
+    p.add_argument("--restore", nargs="*", default=[], metavar="TAPE.tap", dest="tapes",
+                   help="labeled tapes (simh .tap) whose files are restored into the file system,"
+                        " in the tape's account")
     p.add_argument("--terminals", type=int, default=0, metavar="N",
                    help="after the boot comes up, N terminal lines on a TCP port (telnet), in"
                         " real time; Ctrl-C ends")
@@ -332,7 +347,7 @@ def run(args, sysgen, model, swap, public, machines):
         if crashed.TRCVRAD:
             print(f"crash          RCVCODE=X'{crashed.RCVCODE:08X}'  recovery buffer@{crashed.TRCVRAD}"
                   f"  dump@{crashed.TRCVRAD + 4}..{crashed.RCVRAD - 1}  X'4000'@{crashed.SEEK4000}")
-    if (args.keyins is not None or args.console or args.terminals) and outcome == "up":
+    if (args.keyins is not None or args.console or args.terminals or args.tapes) and outcome == "up":
         m.console.transcript.clear()
         print("\n=== operator console ===")
         if args.console and args.interactive and not args.terminals:
@@ -341,7 +356,7 @@ def run(args, sysgen, model, swap, public, machines):
         if args.terminals:
             m.console.interactive = False              # the scripted key-ins first
         con = operator(m, mon, sysgen, keyins, parse_faults(args.lp_fault), args.prints,
-                       args.files)
+                       args.files, args.tapes)
         if not args.interactive or args.terminals:
             print(m.console.text())
         if args.terminals and con.shutdown is None and con.sched is not None:

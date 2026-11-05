@@ -88,7 +88,7 @@ command processor.
 | Command | Does |
 |---|---|
 | `RUN name` or `START name`, or just `name` | Runs the program `name` (Python or machine code) from the user's account, else from `:SYS`. When it ends, TEL prompts again |
-| `L` (or `LIST`) | PCL's LIST: the files in the user's account (not `:SYS`, where `--file` puts programs by default); `NO FILES IN DIRECTORY` (`PCLLIST.txt:677`) if there are none |
+| `L [fid][(A)]` (or `LIST`) | PCL's LIST: the files in the user's account, or with a fid of `.ACCOUNT` another account's, or `NAME[.ACCOUNT]` one file (COPYTRAN's file-id forms, `COPYTRAN.txt:37`). `--file` puts programs in `:SYS` by default. With `(A)`, PCL's heading `ORG GRAN REC DATE NAME` (`PCLLIST.txt:1113`) and each file's organization, `K`, `C` or `R` (`:521`–`:525`), and record count; the granules and date are left blank. `NO FILES IN DIRECTORY` (`:677`) if there are none |
 | `COPY fid`, `COPY fid TO ME`, `COPY fid OVER ME` (or `C`) | PCL's COPY to the terminal: each record of the file typed. `fid` is `NAME` or `NAME.ACCOUNT`. With the `K` option, `COPY fid TO ME(K)`, a record with a 3-byte key gets its record number and EDIT line number in front: `     1 -    1.000 LINE ONE` (`RDWRT.txt:338`–`:370`, WRITE3, with BIN2BCD `UTILITY.txt:82`). With `X`, `COPY fid TO ME(X)`, each record is dumped in hex (HEXDUMP): `KEY=` and the key (as `X'...'` if it isn't printable, UNPRINT) or `REC #n`, the size in bytes, then 4 words a line with the word offset; a run of lines equal to the one before is left out and the next line marked `*`. This is how a load module's records can be looked at. `X` takes precedence over `K` (`RDWRT.txt:1077`) |
 | `OFF` | Logs off |
 
@@ -118,6 +118,7 @@ prompt with `cpv.prompt(c)` (`M:PC`). `cpv.keyin()` from an on-line user asks at
 | `COPY`, `C` and `L` load the PCL processor (`TEL.txt:3889`–`:3891`, `:4567`, `:4590`), which parses the command (`COPYTO.txt`, `DEVTRAN.txt`) | TEL does them itself, through the same CALs (`M:OPEN`, `M:READ` to the end, `M:WRITE` on `M:UC`, `M:CLOSE`). Only output to `ME`; of the options only `K` and `X`, `K` only for 3-byte keys (the record's key length stands in for the DCB's KEYM, and other keys aren't printed with WRITE6, nor unkeyed records numbered with WRITE5); no devices or file-to-file copies; random files refused |
 | PCL's error messages come from an error file, keyed by error number (`ERROR.txt:96`–`:100`) | Invented: `COPY: CAN'T OPEN fid: CODE nn`, `COPY: SYNTAX ERROR`, `COPY: ONLY TO ME` |
 | TEL's `LIST` sets where a program's listing goes (`LIST ON`/`OVER`, `TEL.txt:1019`) | `LIST` is another name for `L` |
+| LIST `(A)` prints granules, records, a date and the file's attributes in PCLLIST's own columns | Organization and record count only, in the heading's columns |
 | HEXDUMP's printable test is the EBCDIC table `CCTAB` | A key is printable if every byte is an EBCDIC character in ASCII's graphic range |
 | A record's bytes go to the terminal as they are | A record that isn't ASCII is read as EBCDIC, since EDIT-style files hold EBCDIC and other records hold ASCII here (the memory convention, `interpreter.md`) |
 | A BREAK with TEL in control interrupts the program, and TEL can `CONTINUE` it | A BREAK ends the program, and TEL prompts again |

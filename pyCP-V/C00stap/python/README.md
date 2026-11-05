@@ -59,6 +59,7 @@ python -m pytest
 | The step's end for on-line users (STPNR.txt `STEP041`, `STEP10`) | `online.Online` | LOGON switching to TEL, TEL again after a program, `T:DELUS` when the processor is still LOGON; a BREAK hands the terminal to the command processor (`Scheduler.breaks`, the `BREAK` hook) |
 | LOGON and TEL (**not a translation**) | `online` | Stand-ins: LOGON's greeting, `LOGON PLEASE:`, `ID?`/`ACCOUNT?`, three tries; TEL's `!`, `RUN`/`START`/a name, `L`/`LIST`, `COPY fid [TO ME]` (PCL's part), `OFF`, `EH?`. Any account. See `docs/online.md` |
 | Terminals over TCP (**not a translation**) | `terminals` | `--terminals N`: a telnet server in character mode on localhost (`--port`, `--bind`), and the real-time loop that drives the scheduler from the wall clock, with operator key-ins from the host console |
+| Labeled tapes (LBLT.txt, OPNL.txt) (**not a translation**: the restore) | `labtape` | Reads simh `.tap` images of CP-V labeled tapes: the sentinels, LBLT's 2048-byte blocks of keyed records, records split across blocks, unblocked records, sequential keys. `--restore` puts the files into the file system. See `docs/labtape.md` |
 | Pack swappers, `SWAPPER` | — | Not translated: swaps are stand-ins that complete at once. |
 
 `crash()` and `operator_recovery()` in `__main__` act on a system that is up: they run the
