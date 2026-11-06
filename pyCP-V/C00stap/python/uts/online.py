@@ -18,6 +18,7 @@ import re
 from . import fetch, interp, labtape, pyprog
 from .cal import M_UC, P_ABN, P_BTD, P_BUF, P_ERR, P_SIZE, Fpt
 from .files import EBCDIC, FileError
+from .monitor import NotTranslated
 from .sched import TIC, Cal1
 
 BUF, SIZE = 0xB400, 80                 # the command processors' input buffer
@@ -150,6 +151,7 @@ class Online:
         for name in STEP_HOOKS:
             cal.hooks[name] = self._step(name)
         sched.on_logon = self._new_user
+        cal.hooks["LDTRC"] = self._ldtrc
         sched.hooks["BREAK"] = self._break
         sched.hooks["NOT TRANSLATED"] = self._not_translated
 
@@ -195,6 +197,27 @@ class Online:
                 self.acp[u] = "TEL"
             return self._start(u, self.tel(u))
         return hook
+
+    def _ldtrc(self, cal, u, name, account, password):
+        """T:ASP after M:LDTRC (LNKTRC.txt L10LNK, :738-:796): the named processor in the
+        program's place. A shared processor is found in P:NAME: here the stand-ins, LOGON
+        and TEL. LOGON for a user logged on is the log-off, as TEL's OFF (STEP10,
+        STPNR.txt:1828-:1830: T:DELUS). TEL is TEL again. Any other name is a program run
+        in place, through FETCH, from its account (else the user's, else :SYS)."""
+        if not self.online(u):
+            raise NotTranslated(f"M:LDTRC {name}.{account}: T:ASP for a batch or ghost user")
+        cal.running.pop(u, None)
+        if name == "LOGON":
+            cal.trace(f"T:ASP user {u}: LOGON, the log-off (STEP10, T:DELUS)")
+            self.acp[u], self.logged[u] = "LOGON", False
+            return cal.s.t_delus(u)
+        if name == "TEL":
+            return self._start(u, self.tel(u))
+        found = self.find(u, name, account) or self.find(u, name) or account
+        cal.trace(f"T:ASP user {u}: {name}.{found}")
+        result = self._start(u, pyprog.program(self.s, u, name, found))
+        self.s.UH_FLG[u] &= ~TIC                       # a program, not TEL, in control
+        return result
 
     def _not_translated(self, s, u):
         """An on-line user's program reached code that isn't translated: say so on the

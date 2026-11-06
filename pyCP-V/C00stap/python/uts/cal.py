@@ -653,6 +653,13 @@ class CalProcessor:
             if ext & 0x80000000:
                 return None                            # KICKOFF
             ext |= 0x80000000                          # THE ABORT/HANGUP BIT
+        return self._xcon_setup(u, rnst, ext)
+
+    def _xcon_setup(self, u, rnst, ext):
+        """XCONSETUP  STPNR.txt:669-:719, from the exit (XCONSEE) or from M:LINK/M:LDTRC
+        (MLNK): returns the exit-control address, the program set to go on there."""
+        s, j = self.s, self.s.jit[u]
+        address = ext & 0x1FFFF
         regs = s.uregs[u]
         w0, w1 = self.psd_at_trap(u)
         stack = self._push_environment(u, w0, w1)      # XCONSETUP
@@ -682,6 +689,58 @@ class CalProcessor:
         s.psd_cc[u] = 0
         self.trace(f"XCON user {u}: exit control at X'{address:X}', run status X'{rnst:02X}'")
         return address
+
+    def mlnk(self, ctx):
+        """MLNK  ALTCP.txt:1028 - M:LINK (X'02') and M:LDTRC (X'03'). Exit control first:
+        if the program has it and it isn't in progress, the exit routine is taken, with the
+        M:LINK bit (X'08') set (:1035-:1043); if it is in progress, the address is cleared
+        (MLNK2). Then LNKTRC (LDLNKSEG): for M:LDTRC (LDT0, LNKTRC.txt:433), the trap and
+        timer entries cleared, M:XX and the program's open DCBs closed, its memory released
+        (RELCORE; here the next program's FETCH replaces it), and the name, account and
+        password taken from the FPT (L10LNK, :738-:773) for T:ASP,
+        which starts a shared processor or a load module in the program's place (the
+        "LDTRC" hook, online.py). Not modeled: RTCHK, VALID's checks (:978-:1050: no
+        debugger, a module from the overlay loader, no page CALs), the FPOOLs (T:ZBUF), and a
+        saved IDN file (:456-:522). M:LINK, which keeps the caller, isn't translated."""
+        s, u = self.s, ctx.u
+        if ctx.sr1 == 2:
+            raise NotTranslated("M:LINK (load and link: LNKTRC LNK0)")
+        ext = self.jword(u, jit.EXTENT)
+        if ext & 0x1FFFF:                              # HONOUR EXIT CONTROL IF SPECIFIED
+            if ext & 0x20000000:
+                self.set_jword(u, jit.EXTENT, ext & ~0x1FFFF)   # MLNK2: CLEAR THE ADDRESS
+            else:
+                self.trace(f"MLNK user {u}: exit control first (the M:LINK bit)")
+                return ("XCON", self._xcon_setup(u, 0, ext | 0x08000000))
+        flags, at = ctx.r6 & 3, ctx.r7                 # L10LNK: word 0's flags, the name
+        n = min(self.read_bytes(u, at, 0, 1)[0], 11)   # TRUNCATE AT 11 CHARS
+        name = self.read_bytes(u, at, 1, n).decode(EBCDIC, "replace").strip()
+        at += (n >> 2) + 1
+        account = self.account.get(u, ":SYS")          # J:ACCN, IN CASE NONE SPEC
+        if flags & 2:
+            account = self.read_bytes(u, at, 0, 8).decode(EBCDIC, "replace").strip()
+            at += 2
+        password = self.read_bytes(u, at, 0, 8) if flags & 1 else b""
+        yield from self.t_overlay(u, LDLNKSEG)         # OVERLAY LDLNKSEG
+        for i in (jit.INTENT, jit.TIMENT, 37, jit.USENT):   # J:INTENT, TIMENT, UTIMER, USENT
+            self.set_jword(u, i, 0)
+        self.intent[u] = 0
+        self._close_all(u)                             # M:XX and the user's DCBs
+        self.trace(f"M:LDTRC user {u}: {name}.{account}")
+        hook = self.hooks.get("LDTRC")
+        if hook is None:
+            raise NotTranslated(f"M:LDTRC {name}.{account}: T:ASP for this user")
+        return ("SE", hook(self, u, name, account, password))
+
+    def _close_all(self, u):
+        """LDT0's CLOSE: each open DCB of the program closed, files saved; M:XX too."""
+        for address in list(self.dcbs.get(u, {}).values()) + [M_XX]:
+            dcb = self.dcb_at(u, address)
+            if dcb is not None and dcb.open:
+                if getattr(dcb, "cfu", None) is not None and self.fs is not None:
+                    self.fs.close(dcb.cfu)
+                    dcb.cfu = None
+                dcb.open = False
 
     def _push_environment(self, u, w0, w1):
         """T:UTSXTS  SCHED.txt:1984 - the PSD and registers onto the stack whose pointer
@@ -2084,7 +2143,7 @@ CalProcessor.overlaid.update({"T:GDP": CalProcessor.get_pages(None, 1),
                               "T:ASSOCIATE": CalProcessor.t_associate,
                               "T:DISASSOCIATE": CalProcessor.t_associate})
 CalProcessor.resident.update({"T:CLRERR": CalProcessor.t_clrerr, "MTRAP": CalProcessor.mtrap,
-                              "MSEGLD": CalProcessor.msegld,
+                              "MSEGLD": CalProcessor.msegld, "MLNK": CalProcessor.mlnk,
                               "MSRTYPR": CalProcessor.msrtypr, "MSROCTY": CalProcessor.msrtypr})
 for _kind in ("T:EXIT", "T:ERROR", "T:ABORT"):
     CalProcessor.resident[_kind] = CalProcessor.exit_cal(None, _kind)

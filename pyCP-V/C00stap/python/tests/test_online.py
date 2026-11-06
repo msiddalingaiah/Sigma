@@ -146,6 +146,34 @@ def test_tape_lists_and_copies_a_mounted_tapes_files():
     assert "HELLO 13:45" in t.text()
 
 
+LDTRC = """
+* M:LDTRC to another program (the name given; the account: the user's), as EDIT's BYE
+* transfers to LOGON.:SYS
+         ORG      X'D000'
+START    CAL1,8   FPT
+         CAL1,9   1                 not reached
+FPT      DATA     X'03000000'
+         TEXTC    'HELLO'
+         END      START
+"""
+
+
+def test_m_ldtrc_runs_another_program_in_place_and_to_logon_logs_off():
+    t = logged_on(**{"HELLO.BOB": HELLO})
+    words, start = assemble(LDTRC)
+    write_load_module(t.s.cal.fs, "GO", ":SYS", words, start)
+    t.type("GO\r")
+    assert t.text() == "GO\r\nHELLO 13:45 JUN 15,'76\r\n!"      # HELLO ran, then TEL
+    assert any("M:LDTRC user" in line and "HELLO.BOB" in line for line in t.s.log)
+    u = t.user()
+    words, start = assemble(LDTRC.replace("X'03000000'", "X'03000002'")
+                            .replace("'HELLO'", "'LOGON'\n         TEXT     ':SYS    '"))
+    write_load_module(t.s.cal.fs, "BYE", ":SYS", words, start)
+    t.type("BYE\r")
+    t.text()
+    assert t.user() == 0 and u not in t.s.LB_UN                 # logged off: T:DELUS
+
+
 def test_tel_runs_machine_code():
     t = logged_on()
     dcbs = {}
