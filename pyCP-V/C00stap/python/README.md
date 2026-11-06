@@ -148,8 +148,9 @@ the files outlive a recovery or reboot, and `--disc` keeps it between runs.
   than as read, and `XFDFF` clears `RMAHOLD` as the source says (see `docs/scheduler.md`).
 - CALs (`cal.py`): stand-ins yield `sched.Cal1`, and the monitor's processing runs as a generator
   on the user's stack until it returns. Not modeled: access protection (`T:IACU`); DCB contents
-  (open state, blocking buffers, `AGER`); user trap control (`J:USENT`), so `CALBAD` always aborts;
-  and the overlays' mapping. Overlay sizes and processor numbers, and the M:WAIT unit of 1/50
+  (open state, blocking buffers, `AGER`); delivering a trap or a bad CAL to the user's trap entry
+  (`M:TRAP` records it, then it stops as not translated); exit control's limits; and the
+  overlays' mapping. Overlay sizes and processor numbers, and the M:WAIT unit of 1/50
   minute (from TIM's `1MIN` and BACKUP's `MINUTE EQU 50`), are assumptions. A timer stands in for
   CLOCK4's wake-up.
 - Read/write: devices only, and only the typewriter (`M:OC`). Not modeled: the buffer access

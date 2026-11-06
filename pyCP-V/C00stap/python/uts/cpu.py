@@ -127,6 +127,7 @@ class Cpu:
         self.PC, self.CC = pc & VAMASK, cc
         self.FPC = 0                                   # FR FS FZ FN (PSD bits 4-7)
         self.AM = False                                # arithmetic trap mask
+        self.DM = False                                # decimal mask (kept for the PSD only)
         self.s89 = model in ("sigma9", "x560", "sigma8")
         self.s567 = not self.s89
 

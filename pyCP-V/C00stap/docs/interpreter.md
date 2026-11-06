@@ -128,9 +128,12 @@ interpreter stops and hands the trap to Python:
   Exits (`M:EXIT`, `M:ERR`, `M:XXX`) end the program as they do now.
 - **`CAL2`–`CAL4`**: only CAL1 (X'48') is translated in `cal.py`. What CP-V does at X'49'–X'4B'
   hasn't been read. Until it is, they end the program as an abort.
-- **Any other trap**: CP-V's trap handling for a user (its trap control CALs, `M:TRAP`/`M:TRTN`
-  and the TCB) hasn't been read. Until it is, a trap ends the program with an abort, and the
-  trap location, CC and the instruction's address are typed on the console.
+- **Any other trap**: `M:TRAP` is translated ([`trapxcon.md`](trapxcon.md)): it sets the trap
+  flags in `J:USENT` and the PSD's masks, which the interpreter takes back after each CAL. The
+  delivery of a trap to the user's trap entry (`40TRAP`, `STKTOTMP`, `M:TRTN`) hasn't been read:
+  a trap whose flag is set stops as not translated. Any other trap ends the program with an
+  abort (and its exit control, if any), and the trap location, CC and the instruction's address
+  are typed on the console.
 
 ## 6. Running under the scheduler
 

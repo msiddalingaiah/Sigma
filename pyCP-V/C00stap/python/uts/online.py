@@ -18,7 +18,7 @@ import re
 from . import fetch, interp, pyprog
 from .cal import M_UC, P_ABN, P_BTD, P_BUF, P_ERR, P_SIZE, Fpt
 from .files import EBCDIC, FileError
-from .sched import Cal1
+from .sched import TIC, Cal1
 
 BUF, SIZE = 0xB400, 80                 # the command processors' input buffer
 COPYDCB, FBUF, FSIZE = 0x9F00, 0xA800, 2048   # COPY's file DCB and record buffer
@@ -176,6 +176,7 @@ class Online:
                 pass
         s.stacks[u] = [program]
         s.programs[u] = program
+        s.UH_FLG[u] |= TIC                             # ISTEL: the command processor in control
         return ("RUN", u)
 
     def _step(self, name):
@@ -283,6 +284,7 @@ class Online:
             yield from _prompt("")                     # the program's own reads
             cal.trace(f"TEL user {u}: run {name}.{account}")
             cal.ccbuf[u] = typed                       # TELCCBUF: the line, into J:CCBUF
+            self.s.UH_FLG[u] &= ~TIC                   # STEP04C: DRTEL1, TEL no longer in control
             yield from pyprog.program(self.s, u, name, account)
             return                                     # (it ends with a CAL1,9: the step)
 

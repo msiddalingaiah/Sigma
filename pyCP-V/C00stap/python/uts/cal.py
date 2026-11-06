@@ -18,12 +18,13 @@ raise NotTranslated with the routine's name and overlay.
 Simplifications: no access-protection checks (T:IACU); DCBs are names and addresses
 only (no open state, blocking buffers or AGER); the wait unit is assumed to be 1/50
 minute (TIM.txt's 1MIN, BACKUP.txt's MINUTE EQU 50), with a timer standing in for
-CLOCK4's wake-up; overlays have invented sizes; user trap control (J:USENT) isn't
-modeled, so CALBAD always aborts.
+CLOCK4's wake-up; overlays have invented sizes; M:TRAP records trap control in J:USENT,
+but delivering a trap or a bad CAL to the trap entry isn't translated (docs/trapxcon.md).
 """
 
 from dataclasses import dataclass, field, replace
 
+from . import jit
 from .files import EBCDIC
 from .monitor import NotTranslated
 from .sched import E_AP, E_CRD, E_IC, E_IIP, E_IP, E_SL, E_WU, RTR, TIC, Dcb, Report
@@ -40,6 +41,12 @@ M_XX = 0x8CE6                                # M:XX: in the JIT, word 230 (JIT.t
 KEYBUF = 0x8E40                              # M:KEYIN without a buffer: the reply goes here
 WAIT_UNIT = 600                 # clock units (2 ms) per M:WAIT unit: 1/50 minute (assumed)
 TMS = 0x00800000                # FPT word 0 flag for M:TIME's binary result (Y008)
+SMPSD = 0x00C00000              # STPNR.txt:407: slave, mapped; no masks, CC 0
+PSD1 = 0x10000000               # a user's PSD word 1: the write key (JIT.txt's TSTACK)
+DMAM = 0x00300000               # PSD bits 10-11: the decimal and arithmetic masks (Y003)
+TRAPFLGB = 17                   # TABLES.txt:792: J:USENT's trap flags, bits 7-14 (Y01FE)
+BCALMSK = 0x80                  # TABLES.txt:801: a bad CAL goes to the trap entry
+JOVVPA = 0x40 * 512             # JIT.txt:271: the first page outside the monitor root
 
 
 def instruction(op, r=0, address=0, x=0, indirect=False):
@@ -332,6 +339,7 @@ class CalProcessor:
         self.uname = {}                                # J:UNAME per user (the log-on name)
         self.ccbuf = {}                                # J:CCBUF per user: the command line
         self.tcb = {}                                  # J:TCB per user, if M:INT set it
+        self.upsd = {}                                 # the user's PSD at its last trap (TSTACK's)
         self.unit_record = None                        # cards.UnitRecord: the card devices
         self.monitor_dcbs = {M_OC: Dcb("M:OC", fcn=0, address=M_OC, dtype="TY"),
                              M_UC: Dcb("M:UC", fcn=0, address=M_UC, coc=True),
@@ -379,6 +387,9 @@ class CalProcessor:
             ctx = self.cal1p11(u, psd)
             result = yield from self.dispatch(ctx)
         except CalAbort as e:
+            if self.jword(u, jit.USENT) & (BCALMSK << TRAPFLGB):   # CALBAD  ALTCP.txt:1018
+                raise NotTranslated(f"CALBAD X'{e.code:02X}' to the user's trap entry"
+                                    " (STKTOTMP)")
             return ("ABORT", e.code)
         return result
 
@@ -522,9 +533,162 @@ class CalProcessor:
         self.intent[u] = (address | 0x08000000) if address else 0
         from . import jit
         self.s.umem[u][jit.J_JIT + jit.INTENT] = self.intent[u]   # STW,6 J:INTENT
-        self.tcb.setdefault(u, self.s.uregs[u][0])     # INT10: USE USER R0 AS TCB
+        self._tcb_from_r0(u)                           # INT10: USE USER R0 AS TCB
         return ("TRAPEXIT", None)
         yield
+
+    def jword(self, u, i):
+        """Word ``i`` of the user's JIT page (jit.py)."""
+        return self.s.umem[u].get(jit.J_JIT + i, 0) & 0xFFFFFFFF
+
+    def set_jword(self, u, i, v):
+        self.s.umem[u][jit.J_JIT + i] = v & 0xFFFFFFFF
+
+    def _tcb_from_r0(self, u):
+        """J:TCB, if it is 0, from the user's R0 (MINT's INT10, MTRAP's MTRAPX)."""
+        if not self.jword(u, jit.TCB):
+            self.set_jword(u, jit.TCB, self.s.uregs[u][0])
+        self.tcb.setdefault(u, self.jword(u, jit.TCB))
+
+    def psd_at_trap(self, u, address=None):
+        """The user's PSD as TSTACK holds it: the CC, the masks and the return address."""
+        w0, w1 = self.upsd.get(u, (SMPSD, PSD1))
+        if address is not None:
+            w0 = (w0 & ~0x1FFFF) | (address & 0x1FFFF)
+        return ((self.s.psd_cc[u] & 0xF) << 28) | (w0 & 0x0FFFFFFF), w1
+
+    def mtrap(self, ctx):
+        """MTRAP  ALTCP.txt:1170 - M:TRAP: the trap entry address into J:USENT, the trap
+        flags in its bits 7-14 reset (ABORT, FPT word 1 bits 1-8) and set (TRAP, bits 9-16),
+        and the PSD's decimal and arithmetic masks set (PERMIT, bits 22-23) and cleared
+        (IGNORE, bits 30-31). The previous conditions go to SR1 (J:USENT's left half and
+        the PSD's) and SR2 (J:USENT). With bit 0, RESTORE: the conditions from the SR1/SR2
+        pair at word 0's address. A foreground user's FPDTTF copy isn't kept."""
+        s, u = self.s, ctx.u
+        w0, w1 = self.psd_at_trap(u)
+        d2 = self.fetch(u, ctx.r7)                     # LW,D2 0,R7: FPT word 1
+        old = self.jword(u, jit.USENT)
+        if d2 & 0x80000000:                            # RSTRTRAP
+            a = ctx.r6 & 0x1FFFF
+            d1, r2 = self.fetch(u, a), self.fetch(u, a + 1)
+            word = (old & ~0x1FFFF) | (r2 & 0x1FFFF)   # STS,R2 USRENT,R5
+            word = (word & ~0x01FE0000) | (d1 & 0x01FE0000)   # STS,D1 TRAPFLAG (Y01FE)
+            w0 = (w0 & ~DMAM) | ((d1 << 16) & DMAM)    # STH,D1 D1 / STS,D1 D3: DM, AM
+        else:
+            word = (old & ~0x1FFFF) | (ctx.r6 & 0x1FFFF)      # STS,R6 USRENT,R5
+            regs = s.uregs[u]
+            regs[8] = (word & 0xFFFF0000) | (w0 >> 16)        # SR1: TRAPFLAG, PSD left halves
+            regs[9] = old                                     # SR2
+            reset = ((d2 >> 24) & 0x7F) | (BCALMSK if d2 & 0x00800000 else 0)
+            word &= ~(reset << TRAPFLGB)               # MTRAP2: EOR,D1 M32 / SCS / AND
+            set_ = ((d2 >> 16) & 0x7F) | (BCALMSK if d2 & 0x00008000 else 0)
+            word |= set_ << TRAPFLGB                   # MTRAP4
+            w0 = (w0 & ~((d2 << 20) & DMAM)) | ((d2 << 12) & DMAM)   # MTRAP6
+        self.set_jword(u, jit.USENT, word)             # STW,R2 TRAPFLAG,R5
+        self.upsd[u] = (w0 & 0x0FFFFFFF, w1)           # MTRAPX  STD,D3 *R1
+        self._tcb_from_r0(u)
+        return ("TRAPEXIT", None)
+        yield
+
+    def mxcon(self, ctx):
+        """MXCON  TRAPC.txt:106 - M:XCON: the exit-control address (and LAST, bit 8) into
+        J:EXTENT; the old address to SR1. After LAST, a new one is refused (CC1) unless
+        exit control is in progress. Bit 3, exit control set by a command processor, is
+        set only when TEL is in control (TIC)."""
+        s, u = self.s, ctx.u
+        ext = self.jword(u, jit.EXTENT)
+        s.uregs[u][8] = ext & 0x1FFFF                  # LS,R2 J:EXTENT / STW,R2 *TSTACK,R1
+        if not ext & 0x20000000 and ext & 0x00800000:  # Y2: in progress; Y008: LAST
+            return ("CC", 8)                           # CC1SET
+        ext = (ext & ~0x0081FFFF) | (ctx.r6 & 0x0081FFFF)   # REPLACE  STS,R6 J:EXTENT
+        if s.UH_FLG[u] & TIC:
+            ext |= 0x10000000                          # X'10' in byte 0
+        else:
+            ext &= ~0x10000000                         # NTIC
+        self.set_jword(u, jit.EXTENT, ext)
+        return ("CC", 0)                               # CC0RST
+        yield
+
+    def exit_control(self, u, rnst):
+        """XCONSEE  STPNR.txt:583-:719 - at a program's exit with run status ``rnst``: the
+        exit-control address, if M:XCON gave one and it is to be taken, with the program's
+        state prepared for it (XCONSETUP); otherwise None. The PSD and registers are pushed
+        on the user's stack (T:UTSXTS); R8 = the run status, R9 = the limit bits, R10 = the
+        abort code, R11 = its subcode, R12 bit 0 = the user's stack was bad, bit 1 = an
+        M:LINK exit. The limits (RNST X'04', TIMELMT) aren't modeled."""
+        s, j = self.s, self.s.jit[u]
+        ext = self.jword(u, jit.EXTENT)
+        address = ext & 0x1FFFF
+        if not address:
+            return None                                # NOXCON
+        flags = ext >> 24
+        if flags & 0x20 and not rnst & 0x3F:           # in progress: M:EXIT, M:ERR or M:XXX
+            return None
+        if bool(flags & 0x10) != bool(s.UH_FLG[u] & TIC):   # NOTINPRO / NOTCP
+            return None
+        if rnst and rnst != 0x04 and rnst & 0x18:      # an X key-in, a hang-up
+            if ext & 0x80000000:
+                return None                            # KICKOFF
+            ext |= 0x80000000                          # THE ABORT/HANGUP BIT
+        regs = s.uregs[u]
+        w0, w1 = self.psd_at_trap(u)
+        stack = self._push_environment(u, w0, w1)      # XCONSETUP
+        if stack is None:                              # TCBMESS
+            regs[2], regs[3] = w0, w1
+            r12 = 0x80000000
+        else:
+            regs[0], regs[1] = self.jword(u, jit.TCB), stack
+            r12 = 0
+        regs[8] = rnst & 0xFF                          # RUNSTATUS FLGS
+        regs[9] = (regs[9] & ~0x1FF) | (self.jword(u, jit.ASSIGN) & 0x1FF)
+        regs[10] = j.ABC & 0xFF
+        regs[11] = j.ERO & 0xFF
+        j.RNST = j.ABC = 0
+        j.ERO &= ~0xFF
+        flags = (ext >> 24) | 0x20                     # SET IN-PROGRESS BIT
+        if flags & 0x08:                               # an M:LINK exit
+            flags &= ~0x08
+            r12 |= 0x40000000
+        regs[12] = r12
+        self.set_jword(u, jit.EXTENT, (flags << 24) | (ext & 0x00FFFFFF))
+        j.INTENT = j.TIMENT = 0                        # XCONENT
+        self.intent[u] = 0
+        self.set_jword(u, jit.INTENT, 0)
+        self.set_jword(u, jit.TIMENT, 0)
+        self.upsd[u] = (SMPSD, PSD1)                   # SMPSD around the address
+        s.psd_cc[u] = 0
+        self.trace(f"XCON user {u}: exit control at X'{address:X}', run status X'{rnst:02X}'")
+        return address
+
+    def _push_environment(self, u, w0, w1):
+        """T:UTSXTS  SCHED.txt:1984 - the PSD and registers onto the stack whose pointer
+        doubleword J:TCB addresses: 20 words if its top is even, 21 if odd (the PSD
+        doubleword-aligned), a 0 or -1 below the PSD, R0 on top. Returns the PSD's address
+        in the stack, or None if the stack is bad (CHKPROT: in the monitor's pages, or no
+        room; the access codes aren't checked)."""
+        mem, regs = self.s.umem[u], self.s.uregs[u]
+        spd = self.jword(u, jit.TCB) & 0x1FFFF
+        if spd < JOVVPA:
+            return None                                # CHKPROT-1: the pointer's page
+        top, sp1 = mem.get(spd, 0) & 0xFFFFFFFF, mem.get(spd + 1, 0) & 0xFFFFFFFF
+        if ((top + 1) & 0x1FFFF) < JOVVPA:
+            return None                                # CHKPROT: the stack's bottom
+        n, filler = (21, 0xFFFFFFFF) if top & 1 else (20, 0)
+        space, words = (sp1 >> 16) & 0x7FFF, sp1 & 0x7FFF
+        if space < n or words + n > 0x7FFF:
+            return None                                # MSP: BCS,10 EVIL STACK
+        top2 = (top + n) & 0x1FFFF
+        if top2 < JOVVPA:
+            return None                                # CHKPROT: the stack's top
+        mem[spd] = (top & ~0x1FFFF) | top2             # STD,12 *1: the updated pointer
+        mem[spd + 1] = (sp1 & 0x80008000) | ((space - n) << 16) | (words + n)
+        p = top2 - 18                                  # 2 => PLACE FOR PSD
+        mem[p], mem[p + 1] = w0, w1
+        mem[p - 1] = filler
+        for i in range(16):                            # REGS 0-7, 8-15
+            mem[p + 2 + i] = regs[i]
+        mem[p + 18] = regs[0]                          # STM,8 with 9: R0 last, on top
+        return p
 
     def t_chtbl(self, ctx):
         """T:CHTBL  UCAL.txt:436 - on-line users only (CC1 otherwise). Arming BREAK
@@ -676,6 +840,13 @@ class CalProcessor:
             return s.exit_path(swap=False)             # TRAPEXIT
         if kind == "ABORT":                            # CALBAD  ALTCP.txt:1018
             s.jit[u].ABC = result[1]
+            address = self.exit_control(u, 0x01)       # T:ABORTM: RNST 1
+            if address is not None:
+                kind, result = "XCON", ("XCON", address)
+        if kind == "XCON":                             # XCONSETUP: the program goes on there
+            s._send[u] = ("ROUTINE", result[1], None, 0)
+            return s.exit_path(swap=False)             # SSEMDEST
+        if kind == "ABORT":
             self.trace(f"CALBAD user {u}: abort X'{result[1]:02X}' (T:ABORTM)")
             self.ended[u] = ("ABORT", result[1])
             return self._hook("T:ABORTM", u)
@@ -759,6 +930,9 @@ class CalProcessor:
                 j.RNST, j.ABC = 0x80, 0xA8
             elif kind == "T:ABORT":
                 j.RNST, j.ABC = 0x40, 0xA8
+            address = self.exit_control(ctx.u, j.RNST)  # XCONSEE
+            if address is not None:
+                return ("XCON", address)
             self.ended[ctx.u] = (kind,)
             self.trace(f"{kind} user {ctx.u}")
             return ("SE", self._hook(kind, ctx.u))
@@ -1446,7 +1620,8 @@ CalProcessor.overlaid.update({"T:WAIT": CalProcessor.t_wait, "MTIME": CalProcess
                               "CLOSE entry 2": CalProcessor.file_close,
                               "CLOSE entry 4": CalProcessor.cal_delrec,
                               "MSRKEY": CalProcessor.msrkey})
-CalProcessor.resident.update({"T:CLRERR": CalProcessor.t_clrerr,
+CalProcessor.overlaid["MXCON"] = CalProcessor.mxcon
+CalProcessor.resident.update({"T:CLRERR": CalProcessor.t_clrerr, "MTRAP": CalProcessor.mtrap,
                               "MSRTYPR": CalProcessor.msrtypr, "MSROCTY": CalProcessor.msrtypr})
 for _kind in ("T:EXIT", "T:ERROR", "T:ABORT"):
     CalProcessor.resident[_kind] = CalProcessor.exit_cal(None, _kind)

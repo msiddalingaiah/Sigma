@@ -26,6 +26,8 @@ DCBs `M:UC` and `M:XX`. A program's references to `M:UC` are to its address in t
 | 33 | `J:TELFLGS` | TEL's flags | |
 | 34 | `J:CASSIN` | | X'02000000' |
 | 35 | `J:INTENT` | The BREAK address (`M:INT`) | |
+| 36 | `J:TIMENT` | The timer's exit (`M:STIMER`) | |
+| 38 | `J:USENT` | The trap entry and the trap flags (`M:TRAP`, [`trapxcon.md`](trapxcon.md)) | |
 | 39 | `J:TCB` | The TCB's address | |
 | 40 | `J:TREE` | The overlay tree in memory | |
 | 43 | `J:DCBLINK` | The DCB table | |
@@ -35,7 +37,8 @@ DCBs `M:UC` and `M:XX`. A program's references to `M:UC` are to its address in t
 | 68 | `J:ABUF` | The assign/merge buffer | |
 | 69 | `J:PUF` | Byte 0: the command line's length (`TELCCBUF`) | X'0000000F' |
 | 70 | `JB:LPP`, `JB:LC`, `JB:PCW`, `JB:PROMPT` | Lines a page 54, the line count 49, the platen width 72, the prompt | X'36314800' |
-| 71, 72 | `J:IDELTAT`, `J:EXTENT` | | |
+| 71 | `J:IDELTAT` | | |
+| 72 | `J:EXTENT` | Exit control: the address and its flags (`M:XCON`, [`trapxcon.md`](trapxcon.md)) | |
 | 74–196 | `TSTACK` | The temporary stack: its pointer, its counts (102, 19), the write key, saved registers, `:SYS`, a `CAL1,9 1`, then 102 words of X'BAD' | |
 | 197–199 | `J:OVRLY`, `J:CPROCS`, `J:CFLGS` | | |
 | **200–212** | **`J:CCBUF`** | **The command line**: TEL moves the line it read here (`TELCCBUF`, `TEL.txt:6235`–`:6245`), up to 80 bytes | |
@@ -66,7 +69,8 @@ JIT: its address is still invented, now X'8E00', outside the page.
 
 **A departure**: the page is built when the program starts and isn't kept in step with the
 monitor's own fields, which stay Python objects (`sched.Jit`). Only `J:INTENT` is written again,
-by `M:INT`. A program that reads, say, `J:ABC` after an error sees the value from its start.
+by `M:INT`; `J:USENT`, `J:EXTENT` and `J:TCB` are kept in the page itself (`M:TRAP`, `M:XCON`,
+exit control). A program that reads, say, `J:ABC` after an error sees the value from its start.
 
 ## Open questions
 
