@@ -26,21 +26,27 @@ M_UC = 44                               # M:UC: a DCB of 22 words (JH:PC, its la
 PRIV_BYTE = 268                         # JB:PRIV
 PUF = 69                                # J:PUF: byte 0, the command line's length (TEL.txt:6239)
 PROMPT_BYTE = 283                       # JB:PROMPT
-TSTACK = 74                             # the temporary stack, 123 words
-CCBUF, CCBUF_WORDS = 200, 13            # J:CCBUF: the command line
-LMN, START = 226, 229                   # J:LMN (3 words), J:START
-M_XX = 230                              # M:XX, the program's own load module's DCB
+# CP-V's JIT, as the tape's processors address it, has 4 words more than JIT.txt's (a UTS
+# JIT) between TMPDCPK (word 73) and TSTACK: TEL, SHOW, EDIT and LOGON address J:CCBUF at
+# word 204, TSTACK at 78, J:START at 233, M:XX's name VLP at 257, J:BUP at 274; everything
+# up to J:EXTENT where JIT.txt has it. What the 4 words hold isn't known: 0 here.
+CPV_EXTRA = 4
+TSTACK = 74 + CPV_EXTRA                 # the temporary stack, 123 words (JTSTACKSZ 121 + 2)
+CCBUF, CCBUF_WORDS = 200 + CPV_EXTRA, 13   # J:CCBUF: the command line
+LMN, START = 226 + CPV_EXTRA, 229 + CPV_EXTRA   # J:LMN (3 words), J:START
+M_XX = 230 + CPV_EXTRA                  # M:XX, the program's own load module's DCB
+MXFPL, MXKB = M_XX + 22, M_XX + 32      # its VLPs (name, account, password), key buffer
 # Memory management (JIT.txt:539-:617): page numbers, lower and upper limits of each area
-BUP, EUP = 270, 271                     # J:BUP, J:EUP: the user's pages
-PLL, PUL, DLL, DUL = 272, 273, 274, 275           # pure procedure; data
-DDLL, DDUL, CLL, CUL = 276, 277, 278, 279         # dynamic data; context
-DCBLL, DCBUL = 280, 281                           # DCBs
-PCP_BYTE = 4 * 282                      # JB:PCP, PCD, PCDD, PCC, PCDCB: page counts by area
-TDP_BYTE, BCP_BYTE = 4 * 285, 4 * 285 + 1   # JB:TDP, JB:BCP: the next dynamic, common page
+BUP, EUP = M_XX + 40, M_XX + 41         # J:BUP, J:EUP: the user's pages
+PLL, PUL, DLL, DUL = BUP + 2, BUP + 3, BUP + 4, BUP + 5       # pure procedure; data
+DDLL, DDUL, CLL, CUL = BUP + 6, BUP + 7, BUP + 8, BUP + 9     # dynamic data; context
+DCBLL, DCBUL = BUP + 10, BUP + 11                             # DCBs
+PCP_BYTE = 4 * (BUP + 12)               # JB:PCP, PCD, PCDD, PCC, PCDCB: page counts by area
+TDP_BYTE, BCP_BYTE = 4 * (BUP + 15), 4 * (BUP + 15) + 1   # JB:TDP, JB:BCP
 JBUPVP, JEUPVP = 0x50, 0xDF             # JIT.txt:282, :284
-SIZE = 286                              # the template's words
+SIZE = BUP + 16                         # the template's words
 UC_ADDRESS = J_JIT + M_UC               # X'8C2C'
-XX_ADDRESS = J_JIT + M_XX               # X'8CE6'
+XX_ADDRESS = J_JIT + M_XX               # X'8CEA'
 
 TEMPLATE = {ABC: 0x80700000,            # J:ABC  DATA X'80700000'
             26: 0x0FFE0000,             # J:JIP  GEN,15,17 X'7FF',0
@@ -58,17 +64,17 @@ TEMPLATE = {ABC: 0x80700000,            # J:ABC  DATA X'80700000'
             TSTACK + 20: 0x04900001,    # CAL1,9 1  REG. 15
             **{i: 0x00000BAD for i in range(TSTACK + 21, TSTACK + 123)},   # DO ... X'BAD'
             M_XX: 1,                    # M:XX  DATA 1,0,0,0,0,0,MXFPL / 0,0,0,MXKB
-            M_XX + 6: J_JIT + 252,      # MXFPL
-            M_XX + 10: J_JIT + 262,     # MXKB
-            252: 0x01000003,            # MXFPL: the name VLP
-            256: 0x02000002,            # the account VLP
-            259: 0x03010002,            # the password VLP, the last
+            M_XX + 6: J_JIT + MXFPL,    # MXFPL
+            M_XX + 10: J_JIT + MXKB,    # MXKB
+            MXFPL: 0x01000003,          # MXFPL: the name VLP
+            MXFPL + 4: 0x02000002,      # the account VLP
+            MXFPL + 7: 0x03010002,      # the password VLP, the last
             BUP: JBUPVP, EUP: JEUPVP,   # an area's upper limit below its lower: no pages
             PLL: JBUPVP, PUL: JBUPVP - 1, DLL: JBUPVP, DUL: JBUPVP - 1,
             DDLL: JBUPVP, DDUL: JEUPVP, CLL: 0x46, CUL: JBUPVP - 1,
             DCBLL: JBUPVP, DCBUL: JBUPVP - 1,
-            284: 0x00004000,            # JB:CBLL  DATA,1 JOVVP
-            285: (JBUPVP << 24) | (JEUPVP << 16)}   # JB:TDP, JB:BCP
+            BUP + 14: 0x00004000,       # JB:CBLL  DATA,1 JOVVP
+            BUP + 15: (JBUPVP << 24) | (JEUPVP << 16)}   # JB:TDP, JB:BCP
 KIND_BATCH, KIND_GHOST, KIND_ONLINE = 0, 1, 2   # J:JIT byte 0 >> 6 (OPND.txt:268-:270)
 EOM = 0x15                              # the end of a command line (EBCDIC NL)
 
@@ -95,13 +101,16 @@ def build(sched, u, tcb=0, dcblink=0, tree=0, start=0, name="", limits=None, acc
     words[UNAME:UNAME + 3] = text_words(cal.uname.get(u, "").encode(EBCDIC), 3)
     words[TCB], words[DCBLINK], words[TREE], words[START] = tcb, dcblink, tree, start
     words[INTENT] = cal.intent.get(u, 0)
+    line = sched.coc.line_of(u) if getattr(sched, "coc", None) is not None else None
+    if line is not None:                               # LINE#: M:UC+COCLN's low byte
+        words[M_UC + 1] = (words[M_UC + 1] & ~0xFF) | (line & 0xFF)   # (UCAL.txt:418, :439)
     words[LMN:LMN + 3] = text_words(bytes([len(name)]) + name.encode(EBCDIC), 3)
     if name:                                           # MXFPL: the name VLP, 3 words used
-        words[252] = (words[252] & 0xFFFF00FF) | (3 << 8)
-        words[253:256] = words[LMN:LMN + 3]
+        words[MXFPL] = (words[MXFPL] & 0xFFFF00FF) | (3 << 8)
+        words[MXFPL + 1:MXFPL + 4] = words[LMN:LMN + 3]
     if account:                                        # the account VLP, 2 words used
-        words[256] = (words[256] & 0xFFFF00FF) | (2 << 8)
-        words[257:259] = text_words(account.encode(EBCDIC), 2)
+        words[MXFPL + 4] = (words[MXFPL + 4] & 0xFFFF00FF) | (2 << 8)
+        words[MXFPL + 5:MXFPL + 7] = text_words(account.encode(EBCDIC), 2)
     line = cal.ccbuf.get(u, "").encode(EBCDIC, errors="replace")[:4 * CCBUF_WORDS - 1]
     line += bytes([EOM])                               # TEL's line ends with its NL
     words[CCBUF:CCBUF + CCBUF_WORDS] = text_words(line, CCBUF_WORDS)

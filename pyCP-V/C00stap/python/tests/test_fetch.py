@@ -69,7 +69,7 @@ def test_overlays_and_other_files():
     lm = fetch.read_load_module(fs, "PROG", ":T")       # the root only; M:SEGLD the rest
     assert fetch.overlaid(lm)
     with pytest.raises(fetch.LoadModuleError) as e:     # no M:SGLD: B6-00 (ABN2)
-        fetch.init_sgld(lm, lm.words, 0x8CE6)
+        fetch.init_sgld(lm, lm.words, 0x8CEA)
     assert (e.value.abc, e.value.code) == (0xB6, 0)
     cfu = fs.open("TEXT", ":T", "OUT", keym=3)
     cfu.file.write((1000).to_bytes(3, "big"), b"LINE")

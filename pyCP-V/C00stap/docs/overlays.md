@@ -98,14 +98,12 @@ Not modeled:
 
 | Processor | |
 |---|---|
-| EDIT | Its banner and `*` prompt. Commands are read and understood: `BUILD fid` creates the file, then goes back to command mode instead of prompting for lines (not yet understood). `EDIT fid` stops at `M:PRECORD`. `END` returns to TEL |
+| EDIT | Its banner and `*` prompt. `BUILD fid` creates the file and takes its lines (`1.000`, `2.000`, ...) until an empty one. `EDIT fid` stops at `M:PRECORD`. `END` returns to TEL |
 | SORT | `M:SEGLD` reads `BO:RTPRE`. `TELEFILE SORT`, then its parameter errors, then the debugger CAL (CAL1,3) |
 | AP | `M:SEGLD` reads `BO:APCCI`. AP reads `M:SI` from the terminal and stops at `M:GDDL` (CAL1,8 X'1B') |
 | FORT | `TELEFILE EXTENDED FORTRAN-IV`, then garbage |
 | BASIC | Stops at `M:RFILE` (`MSRTFILE`) |
 | LOADER | Stops at `M:STIMER` |
 
-## Open questions
-
-- **EDIT's BUILD**: after creating and reopening the file it returns to command mode; why isn't
-  known. Values the translation supplies (the `M:TS` bytes, a DCB field) are the suspects.
+EDIT's BUILD needed CP-V's JIT layout: before it, BUILD returned to command mode at once
+([`jit.md`](jit.md) §1).

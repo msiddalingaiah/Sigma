@@ -10,6 +10,22 @@ DCBs `M:UC` and `M:XX`. A program's references to `M:UC` are to its address in t
 
 ## 1. The layout
 
+**CP-V's JIT is not quite JIT.txt's.** The source is a UTS JIT (`SYSTEM UTS`; `JTSTACKSZ`'s
+comment, `:496`, gives other systems other sizes). The CP-V processors on the boot tape were
+assembled against a JIT with **4 more words between `TMPDCPK` (word 73) and `TSTACK`**. Their
+instructions' addresses show it:
+- **Words 0–73 are as below.** TEL, LOGON, PCL and EDIT address `J:ABC` 17, `J:RNST` 18,
+  `J:TELFLGS` 33, `J:USENT` 38, `J:TCB` 39, `J:DCBLINK` 43, `M:UC` 44, `JB:PRIV` 67, `J:PUF` 69
+  and `J:EXTENT` 72 there.
+- **Everything from `TSTACK` on is 4 words later.** TEL addresses words 78–81 (`TSTACK`),
+  202–206 (`J:CPROCS`, `J:CFLGS`, `J:CCBUF`), 228 (`J:OPT`), 233 (`J:START`), 257–258 (`M:XX`'s
+  name VLP) and 274–275 (`J:BUP`, `J:EUP`). SHOW and EDIT scan the command line from word 204,
+  and SHOW reads `JB:BCP` in word 289.
+
+What the 4 words hold isn't known. The translation builds CP-V's layout (`jit.CPV_EXTRA`), with
+the 4 words 0, and the table below gives JIT.txt's offsets. The tape's `JIT0` module is a third
+layout again (`M:UC` at word 46), so it isn't this JIT.
+
 `JIT.txt` assembles the JIT's initial contents. Its first 270 words, as assembled:
 
 | Word | Label | Holds | Initially |
@@ -65,7 +81,9 @@ into the user's memory:
   passes the whole line typed, the program's name included. A name followed by more is run as a
   program, as TEL runs an unrecognized command as a load module (`CHKULM`, `TEL.txt:950`).
 
-`M:UC` is at its real address, X'8C2C', and `M:XX` at X'8CE6'. The monitor's `M:OC` isn't in the
+`M:UC` is at its real address, X'8C2C', and `M:XX` at X'8CEA' (word 234). An on-line user's COC
+line number is the low byte of `M:UC`'s word 1 (`LINE#` = `M:UC+COCLN`, `UCAL.txt:418`, `:439`);
+which routine stores it in CP-V wasn't traced. The monitor's `M:OC` isn't in the
 JIT: its address is still invented, now X'8E00', outside the page.
 
 **A departure**: the page is built when the program starts and isn't kept in step with the

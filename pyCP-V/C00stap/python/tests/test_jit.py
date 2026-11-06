@@ -18,8 +18,10 @@ def test_the_template_and_the_users_fields():
     assert b"".join(w(jit.ACCN + i).to_bytes(4, "big") for i in range(2)) == "BOB     ".encode(EBCDIC)
     assert b"".join(w(jit.UNAME + i).to_bytes(4, "big") for i in range(3)).decode(EBCDIC).strip() == "ROBERT"
     assert (w(jit.TCB), w(jit.DCBLINK), w(jit.START)) == (0xA000, 0xA800, 0xA064)
-    assert w(jit.M_UC) == 3 and w(jit.M_UC + 1) == 0x1E4C3            # M:UC: ASN 3, 'UC'
-    assert jit.UC_ADDRESS == 0x8C2C and jit.XX_ADDRESS == 0x8CE6
+    assert w(jit.M_UC) == 3 and w(jit.M_UC + 1) >> 8 == 0x1E4            # M:UC: ASN 3
+    assert w(jit.M_UC + 1) & 0xFF == t.s.coc.line_of(u)                  # LINE#: the COC line
+    assert jit.UC_ADDRESS == 0x8C2C and jit.XX_ADDRESS == 0x8CEA
+    assert jit.CCBUF == 204 and jit.TSTACK == 78                         # CP-V's JIT (jit.py)
     assert w(jit.ABC) == 0x80700000 and w(70) & ~0xFF == 0x36314800   # JB:LPP/LC/PCW
     assert w(70) & 0xFF == ord("!".encode(EBCDIC))                       # JB:PROMPT: TEL's
     line = b"".join(w(jit.CCBUF + i).to_bytes(4, "big") for i in range(3))
@@ -32,7 +34,7 @@ CCLINE = """
          ORG      X'D000'
 START    CAL1,1   WRITE
          CAL1,9   1
-WRITE    DATA     X'11008C2C',X'30000000',X'8CC8',18
+WRITE    DATA     X'11008C2C',X'30000000',X'8CCC',18
          END      START
 """
 
