@@ -66,8 +66,11 @@ def test_a_bad_head_is_refused(head0, code):
 def test_overlays_and_other_files():
     fs = FileSystem(Disc(512))
     load_module(fs, tree_size=23)
-    with pytest.raises(NotTranslated, match="M:SEGLD"):
-        fetch.read_load_module(fs, "PROG", ":T")
+    lm = fetch.read_load_module(fs, "PROG", ":T")       # the root only; M:SEGLD the rest
+    assert fetch.overlaid(lm)
+    with pytest.raises(fetch.LoadModuleError) as e:     # no M:SGLD: B6-00 (ABN2)
+        fetch.init_sgld(lm, lm.words, 0x8CE6)
+    assert (e.value.abc, e.value.code) == (0xB6, 0)
     cfu = fs.open("TEXT", ":T", "OUT", keym=3)
     cfu.file.write((1000).to_bytes(3, "big"), b"LINE")
     fs.close(cfu)

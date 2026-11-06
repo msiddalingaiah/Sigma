@@ -50,7 +50,7 @@ def test_the_limits_fetch_sets():
     assert (lm.limits[jit.DLL], lm.limits[jit.DUL]) == (0x68, 0x68)    # X'D000'-X'D1FF'
     assert lm.limits[jit.PUL] < lm.limits[jit.PLL]                      # no procedure
     assert (lm.limits[jit.DDLL], lm.limits[jit.DDUL]) == (0x69, 0xDF)
-    assert fetch.pages(lm.limits) == {0x68}
+    assert fetch.pages(lm) == {0x68}
 
 
 def test_getting_and_freeing_pages():

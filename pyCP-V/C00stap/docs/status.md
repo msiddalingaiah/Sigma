@@ -26,6 +26,7 @@ of the source contains. Last updated 2026-11-05.
 | [`jit.md`](jit.md) | The JIT page in user memory: its layout from `JIT.txt`'s template (`M:UC` and `M:XX` inside it, `J:CCBUF`, the kind of user), and what the translation builds there |
 | [`trapxcon.md`](trapxcon.md) | Trap and exit control: `M:TRAP`'s flags and masks in `J:USENT` and the PSD, `M:XCON` and `J:EXTENT`, and how the step exit runs the exit-control routine (`XCONSEE`, `XCONSETUP`, the environment pushed on the user's stack) |
 | [`pages.md`](pages.md) | Memory: the areas and their limits in the JIT, what FETCH sets (`LINKLIMS`, `OLAYLIM`), and the page calls `M:GP`, `M:GCP`, `M:GVP`, `M:FP`, `M:FCP`, `M:FVP`, `M:GL` (`MMNR`, `T:GVPI`, `T:RVPI`) |
+| [`overlays.md`](overlays.md) | Overlays: the tree's entries and links, FETCH's `M:SGLD`, and `M:SEGLD` (`MSEGLD`, `SEGLD`: the flags, the memory set for a segment, the path read to the root) |
 | [`interpreter.md`](interpreter.md) | A design for a user-mode instruction interpreter: the user's machine state, decoding and effective addresses, the instruction groups from simh's Sigma simulator, traps and the hand-off to the Python monitor, memory, and what programs to run |
 
 Every claim and line reference in them was checked against the `.txt` sources. Anything not
@@ -34,7 +35,7 @@ settled is listed under each document's **Open questions**.
 ## Translated (`python/uts`)
 
 A hand translation on a small machine model with stubbed devices, not an instruction emulator.
-365 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
+368 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
 simplification; the top-level `README.md` has the commands.
 
 | Area | Module | Status |
@@ -62,6 +63,7 @@ simplification; the top-level `README.md` has the commands.
 | The JIT page (JIT.txt) | `jit.py`, `pyprog.py` | Built in the user's memory at X'8C00' when a load module starts: the template plus the user's fields, the command line in `J:CCBUF`; `M:UC` at its real address X'8C2C'. Not kept in step afterwards. See `jit.md` |
 | Trap and exit control (ALTCP.txt `MTRAP`, TRAPC.txt `MXCON`, STPNR.txt `XCONSEE`/`XCONSETUP`, SCHED.txt `T:UTSXTS`) | `cal.py`, `interp.py`, `online.py` | `M:TRAP`'s flags in `J:USENT` and its masks in the PSD (PERMIT FX turns on overflow traps); `M:XCON`; every exit runs the exit-control routine, with the environment on the user's stack. TEL's `TIC` is reset while a program runs. Delivering a trap to the trap entry stops as not translated. BACKUP, RESTORE and GAC now end through their exit routines; LEMUR, STATS, JOURNAL and SYMCON prompt and read. See `trapxcon.md` |
 | The page calls (MMNR.txt; MM.txt `T:GVPI`/`T:RVPI` reduced; STPNR.txt `LINKLIMS`/`OLAYLIM`) | `cal.py`, `fetch.py`, `jit.py` | FETCH sets the memory limits in the JIT; `M:GP`, `M:GCP`, `M:GVP`, `M:FP`, `M:FCP`, `M:FVP`, `M:GL` with their checks, pointers, SR1/SR2 and CC1. Memory isn't paged: a page got is only recorded. No size limits or waits for core. `M:CVM` and `M:SMPRT` not translated. BATCH, LINK, LYNX, SPLIST, SPOOL and UNSPOOL now answer; PCL gets its pages and then ends without reading. See `pages.md` |
+| Overlays (STPNR.txt FETCH's `M:SGLD`; ALTCP.txt `MSEGLD`; SEGLD.txt) | `fetch.py`, `cal.py`, `jit.py` | Overlaid load modules are fetched (the root) and `M:SEGLD` reads segments and their path to the root, with MEMSET's pages. Also `M:ASSOC`/`M:DISASSOC` (no shared processors: CC1), `M:TS`, a terminal record's NL and `M:UC`'s ARS in memory, empty protection VLPs not taken as lists, and the account written to a DCB's VLP at OPEN. EDIT, SORT, AP, FORT start; EDIT reads and understands commands. See `overlays.md` |
 | Labeled tapes (**not a translation**: the restore) | `labtape.py` | `--restore TAPE.tap`: a CP-V labeled tape image's files into the file system, in the tape's account; consecutive files for sequential keys, keyed otherwise. See `labtape.md` |
 | Read/write | `cal.py`, `io.py` | M:TYPE/M:MESSAGE/M:PRINT, M:WRITE and M:CHECK to `M:OC` through the console IOQ, with `FRONTEND`, `REQCOM`'s DCB branch, `E:IC`, the wait and the error codes |
 | CAL dispatch | `cal.py` | The trap, FPT decode, the CAL1,1–CAL1,9 tables, overlays through the scheduler (`E:AP`), and the returns. Translated: M:WAIT, M:TIME, M:PC, `T:CLRERR`, and the exits. GHOST1 leaves with M:EXIT to FILL |

@@ -68,23 +68,24 @@ def program(sched, u, name, account):
     cal = sched.cal
     from . import fetch, interp
     if fetch.is_load_module(cal.fs, name, account):    # a load module: FETCH, interpreted
+        from . import jit
         try:
             lm = fetch.read_load_module(cal.fs, name, account)
+            tree = lm.limits[jit.PLL] << 9             # TREE IS IN FIRST PAGE OF PROCEDURE
+            lm.words.update(jit.build(sched, u, lm.tcb, lm.dcblink, tree, lm.start, name,
+                                      lm.limits, account))
+            fetch.init_sgld(lm, lm.words, jit.XX_ADDRESS)
         except fetch.LoadModuleError as e:
             sched.trace(f"FETCH {name}.{account}: {e}")
             yield from _type(cal, u, f"{name}: LOAD MODULE ERROR {e}")
-            sched.jit[u].ABC = 0xA6
+            sched.jit[u].ABC, sched.jit[u].ERO = e.abc, e.code
             yield Cal1(9, address=ABORT, regs={6: 0})
             return
         if u not in sched.LB_UN:
             cal.account[u] = account
         cal.running[u] = (name, account)
         sched.uregs[u][0] = lm.tcb                     # XIT38: TO USERS R0
-        from . import jit
-        proc = (lm.tree[8] & 0xFFFF) * 2 if len(lm.tree) > 8 and lm.tree[8] >> 16 else 0
-        lm.words.update(jit.build(sched, u, lm.tcb, lm.dcblink, proc, lm.start, name,
-                                  lm.limits))
-        cal.cmap[u] = fetch.pages(lm.limits)           # JX:CMAP: the program's pages
+        cal.cmap[u] = fetch.pages(lm)                  # JX:CMAP: the program's pages
         sched.trace(f"FETCH {name}.{account}: start X'{lm.start:X}', TCB X'{lm.tcb:X}',"
                     f" DCBs {', '.join(lm.dcbs)}")
         yield from interp.program(sched, u, lm.words, lm.start, lm.dcbs, name=name,

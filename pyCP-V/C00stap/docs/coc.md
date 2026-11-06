@@ -113,7 +113,9 @@ A record is at most `C:140` bytes. **`COCRD`**:
 4. **without an activation yet, waits**: the user is blocked in terminal input (`E:CRD`, the
    scheduler's `STI` state), and `E:CIC` releases them;
 5. moves the line to the user's buffer through `COCMU`, which applies backspace, rubout and tabs
-   as it goes (`:2655`–`:2850`);
+   as it goes (`:2655`–`:2850`). **The activation character ends the record**: `MUCRLFNL`
+   (`:2770`–`:2773`) stores the CR, LF or NL at the message's last position, so it is counted
+   in the ARS;
 6. sets the TYC and ARS. A BREAK or Ctrl-Y during the read sets CC2 (`:2272`–`:2654`).
 
 ## 5. Writing (`COCWR`, `:2851`–`:3226`)
@@ -146,8 +148,16 @@ the 16-byte buffer chains) and translates:
 - **§3:** echo of printable characters and CR/NL, backspace and rubout, and Ctrl-X, only while
   a read is pending.
 - **§4:** reads through `COCIO` (`CalProcessor.cocio`): the prompt (`JB:PROMPT`, set by `M:PC`),
-  the type-ahead echoed, `E:CRD` until `E:CIC`, then the line into the buffer and the ARS. An
-  on-line user's `M:KEYIN` types its message on `M:UC` and reads the reply from it.
+  the type-ahead echoed, `E:CRD` until `E:CIC`, then the line into the buffer and the ARS. The
+  record ends with X'15', the NL, whichever of CR, LF or CR LF ended the line. That CR and LF
+  translate to X'15' is an assumption (TEL's `J:CCBUF` line ends in X'15'). `M:UC` is in the JIT
+  page, so its ARS and TYC are written to its words as well as to the monitor's object
+  (`CalProcessor._mirror`): EDIT reads the ARS there. An on-line user's `M:KEYIN` types its
+  message on `M:UC` and reads the reply from it.
+- **`M:TS`** (`T:TS`, `UCAL.txt:530`): the line's bytes into R8–R11. The modes are those
+  `COCMINT` sets for a TTY (`MODE` X'88', `MODE2` X'20', `MODE3` 0, `COC.txt:4403`–`:4421`), since
+  COC keeps no others here. `COCTERM`, `MODE4` (from the SYSGEN table `MODE4INIT`), `CPI`,
+  `COCOC`, `BUFCNT` and the table's dummy entries are 0.
 - **§5:** writes. A record starts on a new line unless the carriage is at the left margin
   (`CPOS`, kept per line). An EBCDIC NL (X'15') in a record is a new line. With vertical format
   control (the DCB's X'100'), the first character is format control and isn't sent: X'C1'–X'CF'

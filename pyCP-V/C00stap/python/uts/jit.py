@@ -78,9 +78,11 @@ def text_words(data, n, fill=b"\x40"):
     return [int.from_bytes(data[i:i + 4], "big") for i in range(0, 4 * n, 4)]
 
 
-def build(sched, u, tcb=0, dcblink=0, tree=0, start=0, name="", limits=None):
+def build(sched, u, tcb=0, dcblink=0, tree=0, start=0, name="", limits=None, account=""):
     """The JIT page for user ``u``: {word address: value}. ``limits``: FETCH's memory
-    limits by JIT word (fetch.linklims), with JB:TDP from the dynamic data's lower limit."""
+    limits by JIT word (fetch.linklims), with JB:TDP from the dynamic data's lower limit.
+    M:XX's name and account VLPs hold the load module's NAME.ACCOUNT, as the step's
+    open of M:XX leaves them (the source of M:SGLD's, STPNR.txt:1497-:1499)."""
     cal = sched.cal
     kind = KIND_ONLINE if u in sched.LB_UN else KIND_GHOST if u in sched.SB_GJOBUN else KIND_BATCH
     words = [TEMPLATE.get(i, 0) for i in range(SIZE)]
@@ -94,6 +96,12 @@ def build(sched, u, tcb=0, dcblink=0, tree=0, start=0, name="", limits=None):
     words[TCB], words[DCBLINK], words[TREE], words[START] = tcb, dcblink, tree, start
     words[INTENT] = cal.intent.get(u, 0)
     words[LMN:LMN + 3] = text_words(bytes([len(name)]) + name.encode(EBCDIC), 3)
+    if name:                                           # MXFPL: the name VLP, 3 words used
+        words[252] = (words[252] & 0xFFFF00FF) | (3 << 8)
+        words[253:256] = words[LMN:LMN + 3]
+    if account:                                        # the account VLP, 2 words used
+        words[256] = (words[256] & 0xFFFF00FF) | (2 << 8)
+        words[257:259] = text_words(account.encode(EBCDIC), 2)
     line = cal.ccbuf.get(u, "").encode(EBCDIC, errors="replace")[:4 * CCBUF_WORDS - 1]
     line += bytes([EOM])                               # TEL's line ends with its NL
     words[CCBUF:CCBUF + CCBUF_WORDS] = text_words(line, CCBUF_WORDS)

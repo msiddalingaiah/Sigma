@@ -27,7 +27,8 @@ from dataclasses import dataclass, field, replace
 from . import jit
 from .files import EBCDIC
 from .monitor import NotTranslated
-from .sched import E_AP, E_CRD, E_IC, E_IIP, E_IP, E_SL, E_WU, RTR, SJAC, TIC, Dcb, Report
+from .sched import (E_AP, E_CRD, E_IC, E_IIP, E_IP, E_SL, E_WU, PPSWP, RTR, SJAC, TIC, Dcb,
+                    Report)
 
 # --- Instruction and FPT layout -------------------------------------------------------
 
@@ -258,9 +259,9 @@ class MemDcb:
             return self._text(0x01)
         if name == "account":
             return self._text(0x02, count=False)
-        if name == "prot":
+        if name == "prot":                             # a slot with 0 words used: not given
             v = self._vlps()
-            return {c: self._ebcdic(c, v[c]) for c in PROT_CODES if c in v}
+            return {c: self._ebcdic(c, v[c]) for c in PROT_CODES if v.get(c)}
         side = self._side
         if name in side:
             return side[name]
@@ -299,6 +300,25 @@ class MemDcb:
             if last:
                 return
             a += 1 + reserved
+
+    def put_vlp_words(self, code, words):
+        """CHKFLACN's STM,R1 *R7,R3 (OBSE.txt:289-:290): ``words`` into the slot for
+        ``code``, its used count left as it is. No slot, or one too small: False."""
+        mem, a = self._cal.s.umem[self._u], self._w(6) & 0x1FFFF
+        for _ in range(32):
+            if not a:
+                return False
+            cw = mem.get(a, 0) & 0xFFFFFFFF
+            if cw >> 24 == code:
+                if (cw & 0xFF) < len(words):
+                    return False
+                for i, w in enumerate(words):
+                    mem[a + 1 + i] = w
+                return True
+            if (cw >> 16) & 0xFF:
+                return False
+            a += 1 + (cw & 0xFF)
+        return False
 
     @staticmethod
     def _ebcdic(code, words):
@@ -832,6 +852,11 @@ class CalProcessor:
                 return False                           # DON'T RELEASE IT
         elif not self._limits(u, jit.DDLL, page):      # RVP1
             return False
+        return self._rvpi(u, page)
+
+    def _rvpi(self, u, page):
+        """T:RVPI  MM.txt:855 - the page released if it is mapped (RVP3 otherwise). The
+        physical page, the swap granule and the access codes aren't modeled."""
         cmap = self.cmap.setdefault(u, set())
         if page not in cmap:
             return False                               # RVP3: not in use
@@ -839,6 +864,163 @@ class CalProcessor:
         self._count(u, page, -1)
         self._clean(u, page)
         return True
+
+    # --- overlays: M:SEGLD (ALTCP.txt MSEGLD, SEGLD.txt; docs/overlays.md) ---------------
+
+    def msegld(self, ctx):
+        """MSEGLD  ALTCP.txt:1051 - M:SEGLD: the segment name's address from FPT word 1
+        (perhaps indirect, perhaps a register), then SEGLD in MISOV with J:DCBLINK. A
+        shared processor's overlays (PB:LNK, T:PROCOV) and RTCHK aren't modeled."""
+        u = ctx.u
+        sr2 = self.fetch(u, ctx.r7)                    # LW,SR2 0,R7
+        if sr2 & INDIRECT:
+            sr2 = self.fetch(u, sr2 & 0x1FFFF)         # LW,SR2 *SR2 (a register: J:BASE)
+        yield from self.t_overlay(u, MISOVSEG)         # OVERTO MISOVSEG,SEGLD#
+        self.trace(f"CAL1,8 user {u}: SEGLD in overlay MISOV")
+        return (yield from self.segld(ctx, sr2 & 0x1FFFF))
+
+    def _segld_abort(self, u, code):
+        """ABORTIT  SEGLD.txt:502: abort X'B1' with the code as its subcode."""
+        self.s.jit[u].ERO = code
+        raise CalAbort(0xB1)
+
+    def segld(self, ctx, name_at):
+        """SEGLD  SEGLD.txt:62 - load the overlay segment whose TEXTC name is at
+        ``name_at``, and every segment on its path to the root not already in memory.
+        Tree entry words: 0-2 the name, 3 the flags (bit 0: in memory now, bit 1: was in
+        at this call's start) and the parent's link in the right half, 4 the first
+        child's link (left) and the next sibling's (right), 5 the data section, 7 the
+        procedure. A link is the entry's tree offset less 1; 0 is the root."""
+        u = ctx.u
+        mem = self.s.umem[u]
+        address = self.dcbs.get(u, {}).get("M:SGLD")   # FIND SGLD DCB IN NAME TABLE
+        if not address:
+            return ("TRAPEXIT", None)                  # MSEGLDEX: back to CAL+1
+        dcb = self.dcb_at(u, address)
+        if not dcb.open:                               # Y002: OPEN M:SGLD, IN, keyed
+            dcb.asn, dcb.org, dcb.fun = 1, 0x20, "IN"  # OPN  :507: X'0F000001', ORG 2, FUN 1
+            yield from self.t_overlay(u, OPNSEG)       # OVERLAY OPNSEG,0
+            if self._open(u, dcb):
+                self._segld_abort(u, 0)                # EREXIT
+            yield from self.t_overlay(u, MISOVSEG)
+        tree = self.jword(u, jit.TREE) & 0x1FFFF
+        end = tree + (mem.get(tree, 0) & 0xFFFFFFFF)   # TREE END+1
+        cmap = self.cmap.setdefault(u, set())
+        for page in range((end >> 9) & 0xFF, self.jword(u, jit.PLL), -1):
+            if page not in cmap:                       # LC JB:LMAP,2: in the user's pages
+                self._segld_abort(u, 1)                # BADTREE
+        w = lambda e, i: mem.get(e + i, 0) & 0xFFFFFFFF
+        count = 0
+        for e in range(tree + 1, end, 11):             # MEMLOP: bit 0 to bit 1
+            flags = w(e, 3)
+            mem[e + 3] = (flags & 0xFFFF) | (0x40000000 if flags & 0x80000000 else 0)
+            count += 1
+        segs = count                                   # STW,10 *TSTACK: for NXTSEG
+        name = self.read_bytes(u, name_at, 0, 1 + self.read_bytes(u, name_at, 0, 1)[0])
+        seg = next((e for e in range(tree + 12, end, 11)          # KEYLOOP
+                    if self.read_bytes(u, e, 0, len(name)) == name), None)
+        if seg is None:
+            self._segld_abort(u, 0)                    # EREXIT
+        target = seg
+        if w(seg, 3) & 0xC0000000:                     # IS REQ SEG IN CORE
+            cur, target = seg, None
+            while True:                                # NXTBRNCH: mark it, and its first
+                mem[cur + 3] = w(cur, 3) | 0xC0000000  # children still in, in
+                count -= 1
+                if not count:
+                    self._segld_abort(u, 2)            # CIRCSEG
+                link = w(cur, 4) >> 16                 # FLINK
+                if not link:
+                    break                              # NONE LEFT: memory as it is
+                if link & 0x8000 or tree + link >= end:
+                    self._segld_abort(u, 1)            # BADTREE
+                child = tree + link + 1
+                if w(child, 3) & 0xC0000000:
+                    cur = child
+                    continue
+                back = w(child, 3) & 0xFFFF            # its parent: the last one to stay
+                if back & 0x8000 or back >= end:
+                    self._segld_abort(u, 1)
+                target = tree + back + 1
+                break
+        ends = {}
+        if target is not None:                         # CHKSEG
+            for index, lower, code in ((5, jit.DLL, 3), (7, jit.PLL, 4)):
+                ends[lower] = self._memset0(u, w(target, index), lower, code)
+        cur = seg
+        while True:                                    # CHKSEG1
+            flags = w(cur, 3)
+            mem[cur + 3] = flags | 0x80000000          # IN MEMORY NOW
+            if not flags & 0x40000000:                 # not in already: read it
+                for kind, index, lower in ((3, 5, jit.DLL), (5, 7, jit.PLL)):
+                    self._rdseg(u, dcb, cur, kind, w(cur, index), lower, ends.get(lower))
+                self.set_jword(u, jit.ASSIGN, self.jword(u, jit.ASSIGN) & ~0x20000000)
+            back = w(cur, 3) & 0xFFFF                  # SEGIN: the parent
+            if not back:
+                break                                  # the root: done
+            cur = tree + 1 + back                      # NXTSEG
+            segs -= 1                                  # MTW,-1 *TSTACK
+            if segs <= 0:
+                self._segld_abort(u, 2)                # CIRCSEG
+        self.s.UH_FLG[u] |= PPSWP                      # SET PPSWAP
+        text = name[1:].decode(EBCDIC, "replace")
+        self.trace(f"SEGLD user {u}: {text}")
+        return ("TRAPEXIT", None)
+
+    def _memset0(self, u, word, lower, code):
+        """MEMSET0/MEMSET  SEGLD.txt:379-:443 - the area's pages got from its lower limit
+        up to the end of the segment's section (``word``: size and bias, doublewords),
+        those above it released up to the upper limit. Returns the end page."""
+        end = (((word >> 16) + (word & 0xFFFF) - 1) >> 8) & 0xFFFFFF
+        lo, hi = self.jword(u, lower), self.jword(u, lower + 1)
+        if not lo <= end <= hi:
+            self._segld_abort(u, code)                 # BIG: BIGD 3, BIGP 4
+        cmap = self.cmap.setdefault(u, set())
+        for page in range(lo, end + 1):                # GET: T:GNVPI
+            if page not in cmap:
+                self._gvpi(u, page)
+        for page in range(end + 1, hi + 1):            # RELEASE: T:RVPI
+            self._rvpi(u, page)
+        return end
+
+    def _rdseg(self, u, dcb, entry, kind, word, lower, end_page):
+        """RDSEG  SEGLD.txt:242 - one section of a segment: its record (the key: the name
+        and the type byte, 3 data, 5 procedure) read to its address, which must be in its
+        area and not past the pages MEMSET got (BADBUF, code 5). A record longer than the
+        section is cut (X'07' ignored). No record: paged modules (RD4) aren't modeled, so
+        EREXIT. The debugger's replaced instructions (MODLOP) aren't modeled."""
+        size = (word >> 13) & 0x7FFF8                  # BYTE COUNT
+        if not size:
+            return
+        address = (word & 0xFFFF) << 1                 # BUF ADDR
+        if not self._limits(u, lower, address >> 9):
+            self._segld_abort(u, 5)                    # BADBUF
+        last = (address + ((size - 1) >> 2)) >> 9
+        if end_page is not None and last > end_page:
+            self._segld_abort(u, 5)
+        self.set_jword(u, jit.ASSIGN, self.jword(u, jit.ASSIGN) | 0x60000000)   # Y6
+        n = self.read_bytes(u, entry, 0, 1)[0]
+        key = self.read_bytes(u, entry, 1, n) + bytes([kind])
+        data = dcb.cfu.file.read(key)
+        if data is None:
+            self._segld_abort(u, 0)                    # X'43', then EREXIT
+        data = bytes(data[:size])
+        mem = self.s.umem[u]
+        for i in range(0, len(data), 4):
+            mem[address + i // 4] = int.from_bytes(data[i:i + 4].ljust(4, b"\0"), "big")
+        self.trace(f"SEGLD user {u}: {key[:-1].decode(EBCDIC, 'replace')} type {kind},"
+                   f" {len(data)} bytes at X'{address:X}'")
+
+    def t_associate(self, ctx):
+        """T:ASSOCIATE / T:DISASSOCIATE  UCAL.txt:644, :794 - M:ASSOC, M:DISASSOC of a
+        library or debugger by name. GETNAME (:767): a debugger in control may not (CC1);
+        the name (FPT words 1-2) is looked for in P:NAME, and not found is CC1SET. The
+        model has no shared processors, so no name is found: always CC1."""
+        u = ctx.u
+        name = self.read_bytes(u, ctx.r7, 0, 8).decode(EBCDIC, "replace").strip()
+        self.trace(f"GETNAME user {u}: {name!r} isn't a processor here (CC1)")
+        return ("CC", 8)                               # CC1SET
+        yield
 
     def t_gl(self, ctx):
         """T:GL  MMNR.txt:240 - M:GL: SR1 = the first word of the common pages got, SR2 =
@@ -863,9 +1045,31 @@ class CalProcessor:
             return ("CC", 8)                           # CC1SET
         flags = (ctx.r6 >> 16) & 0xFF                  # LH,7 6
         if not flags & 0x80 and flags & 0x40:
-            raise NotTranslated("T:CHTBL terminal status (T:TS)")
+            self.t_ts(ctx.u, flags & 0x20)
         return ("CC", 0)                               # CC1RST
         yield
+
+    # COCMINT  COC.txt:4403-:4421: a TTY line's MODE, MODE2, MODE3 after log-on
+    COC_MODES = (0x88, 0x20, 0x00)
+
+    def t_ts(self, u, extended):
+        """T:TS  UCAL.txt:530 - M:TS: the line's COC bytes into the user's R8-R9 (R10-R11
+        too, extended: X'20'), from ADRS (:566-:570): COCTERM, MODE, MODE2, MODE3; CPOS,
+        COCOC, BUFCNT, LB:UN; MODE4, CPI, the input flag (COCII); JB:PCW, JB:LPP. The
+        modes are COCMINT's (COC keeps no others); COCTERM, MODE4 (MODE4INIT, a SYSGEN
+        table) and CPI are 0 here, COCOC and BUFCNT 0 (output isn't queued), and the
+        table's dummy entries 0."""
+        coc, regs = self.s.coc, self.s.uregs[u]
+        number = coc.line_of(u) if coc is not None else None
+        line = coc.lines[number] if number is not None else None
+        col = line.col if line is not None else 0
+        b = [0, *self.COC_MODES, col & 0xFF, 0, 0, u & 0xFF]
+        if extended:
+            waiting = 1 if line is not None and (line.typed or line.done) else 0
+            lpp_word = self.jword(u, 70)               # JB:LPP, JB:LC, JB:PCW, JB:PROMPT
+            b += [0, 0, waiting, 0, 0, 0, (lpp_word >> 8) & 0xFF, lpp_word >> 24]
+        for i in range(0, len(b), 4):
+            regs[8 + i // 4] = int.from_bytes(bytes(b[i:i + 4]), "big")
 
     def setdcb(self, ctx, dcb):
         """SETDCB  IOD.txt:526 - M:SETDCB: the FPT's error and abnormal addresses into the
@@ -1288,11 +1492,27 @@ class CalProcessor:
             prompt = bytes([self.prompt[u]]).decode(EBCDIC) if self.prompt.get(u) else ""
             while (text := s.coc.read(line, prompt)) is None:
                 yield Report(E_CRD)                    # STCRD: blocked in terminal input
-            data = text.encode(EBCDIC, errors="replace")[:min(dcb.rws, 140)]   # TTYIN
+            # TTYIN; MUCRLFNL (:2770): the activation character ends the record, counted
+            # in the ARS. CR, LF and CR LF all end a line here: X'15', the NL (an assumption
+            # for CR and LF, which TEL's EOM in J:CCBUF agrees with)
+            data = (text.encode(EBCDIC, errors="replace") + b"\x15")[:min(dcb.rws, 140)]
             self.write_bytes(u, dcb.buf, dcb.btd, data)   # COCMU
             dcb.ars = len(data)
         dcb.tyc, dcb.last = 1, "write" if write else "read"
+        self._mirror(u, dcb)
         return self.pullallexit(ctx, 0, 0)
+
+    def _mirror(self, u, dcb):
+        """M:UC is in the JIT page, where a program reads its fields (EDIT: the ARS after
+        a read), but the monitor keeps it as a Dcb object: its ARS and TYC are written to
+        its words too, when the user has the page (a program from FETCH)."""
+        if isinstance(dcb, MemDcb) or dcb.address != M_UC or not self.jword(u, jit.M_UC):
+            return
+        mem = self.s.umem[u]
+        for name in ("ars", "tyc"):
+            w, sh, m = DCB_FIELDS[name]
+            a = dcb.address + w
+            mem[a] = (mem.get(a, 0) & ~(m << sh) & 0xFFFFFFFF) | ((getattr(dcb, name) & m) << sh)
 
     def msrwrt(self, ctx, dcb):
         """MSRWRT  WRTD.txt:140 - device write, by the device's attributes."""
@@ -1488,6 +1708,8 @@ class CalProcessor:
         who = Opener(self.account.get(u, ":SYS"), self.priv.get(u, 0), self.running.get(u))
         if not dcb.account:
             dcb.account = who.account                  # CHKFLACN: the user's own account
+            if isinstance(dcb, MemDcb):                # J:ACCN into the DCB's account VLP
+                dcb.put_vlp_words(0x02, jit.text_words(who.account.encode(EBCDIC), 2))
         dcb.usr = account_key(dcb.account) != account_key(who.account)   # USR X'4000'
         try:
             cfu = self.fs.open(dcb.fname, dcb.account, dcb.fun, dcb.keym,
@@ -1791,8 +2013,11 @@ CalProcessor.overlaid.update({"T:GDP": CalProcessor.get_pages(None, 1),
                               "T:FDP": CalProcessor.free_pages(None, -1),
                               "T:FCP": CalProcessor.free_pages(None, 1),
                               "T:FVP": CalProcessor.free_pages(None, 0),
-                              "T:GL": CalProcessor.t_gl})
+                              "T:GL": CalProcessor.t_gl,
+                              "T:ASSOCIATE": CalProcessor.t_associate,
+                              "T:DISASSOCIATE": CalProcessor.t_associate})
 CalProcessor.resident.update({"T:CLRERR": CalProcessor.t_clrerr, "MTRAP": CalProcessor.mtrap,
+                              "MSEGLD": CalProcessor.msegld,
                               "MSRTYPR": CalProcessor.msrtypr, "MSROCTY": CalProcessor.msrtypr})
 for _kind in ("T:EXIT", "T:ERROR", "T:ABORT"):
     CalProcessor.resident[_kind] = CalProcessor.exit_cal(None, _kind)

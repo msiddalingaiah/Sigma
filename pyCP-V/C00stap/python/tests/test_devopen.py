@@ -97,7 +97,8 @@ def test_text_in_memory_is_ebcdic():
     write_load_module(t.s.cal.fs, "ECHO", ":SYS", words, start, dcbs)
     t.type("ECHO\r")
     t.type("Hello, 42!\r")                               # typed in ASCII
-    assert t.text() == "ECHO\r\nHello, 42!\r\nGOT Hello, 42!          \r\n!"
+    # the record read ends with its NL (MUCRLFNL), so writing it back starts a new line
+    assert t.text() == "ECHO\r\nHello, 42!\r\nGOT Hello, 42!\r\n         \r\n!"
     out = next(a for a, w in words.items() if w == int.from_bytes("GOT ".encode("cp037"), "big"))
     buf = t.s.cal.read_bytes(t.s.LB_UN[0], out + 1, 0, 10)   # BUF follows OUT's one word
     assert buf == "Hello, 42!".encode("cp037")           # in memory: EBCDIC (TTYIN's role)

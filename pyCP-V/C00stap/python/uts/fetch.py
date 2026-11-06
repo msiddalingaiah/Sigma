@@ -3,9 +3,10 @@ the step, STPNR.txt: FETCH's checks of HEAD and TREE (:2959-:3101), the root's
 sections read to their addresses (FETCH1, :3102-:3123, :3398-:3475), and the start
 (XIT34-XIT39, :1443-:1519): J:START, the TCB in register 0, J:DCBLINK.
 
-The memory limits are set (LINKLIMS, OLAYLIM). Not translated: the access codes and
-page counts (T:SNAC), page allocation and cleaning, the DCB checker (DCBCHK), core libraries, debuggers and the runner, paged
-(X'85') and LINK-built (X'84') modules, and overlays (M:SEGLD).
+The memory limits are set (LINKLIMS, OLAYLIM). An overlaid module's root is loaded and
+M:SGLD set up; M:SEGLD (cal.py) loads the rest. Not translated: the access codes and
+page counts (T:SNAC), page allocation and cleaning, the DCB checker (DCBCHK), core
+libraries, debuggers and the runner, paged (X'85') and LINK-built (X'84') modules.
 """
 
 from dataclasses import dataclass, field
@@ -24,11 +25,11 @@ SMALLHEAD, SMALLTREE, NOTKEYED, BADTCB = 0x35, 0x36, 0x39, 0x3B
 
 
 class LoadModuleError(Exception):
-    """FETCH3: the user is aborted with A6 and this code."""
+    """FETCH3: the user is aborted with A6 (B6 from the DCB checks, ABN2) and this code."""
 
-    def __init__(self, code, why=""):
-        super().__init__(f"A6-{code:02X} {why}".rstrip())
-        self.code = code
+    def __init__(self, code, why="", abc=0xA6):
+        super().__init__(f"{abc:02X}-{code:02X} {why}".rstrip())
+        self.code, self.abc = code, abc
 
 
 @dataclass
@@ -71,12 +72,39 @@ def linklims(h):
     return lim
 
 
-def pages(limits):
-    """The pages of the program's areas: procedure, data, DCBs (JX:CMAP after FETCH)."""
+def pages(lm):
+    """The pages FETCH leaves mapped (JX:CMAP): the root's sections (TREE words 6, 8, 10),
+    the data from the area's lower limit (the module's bias: library data and blank
+    common). An overlay's pages are got when M:SEGLD loads it (SEGLD's MEMSET)."""
     out = set()
-    for lower in (jit.PLL, jit.DLL, jit.DCBLL):
-        out.update(range(limits[lower], limits[lower + 1] + 1))
+    for index, lower in ((6, jit.DLL), (8, None), (10, None)):
+        size, bias = lm.tree[index] >> 16, lm.tree[index] & 0xFFFF
+        if size:
+            first = lm.limits[lower] if lower else bias >> 8
+            out.update(range(first, ((bias + size - 1) >> 8) + 1))
     return out
+
+
+def overlaid(lm):
+    """A tree of more than the root's 12 words: M:SEGLD loads the rest (:1482-:1485)."""
+    return lm.tree[0] > 12
+
+
+VLP_WORDS = 10                           # M:XX's VLPs, from word 22 (STPNR.txt:1497-:1499)
+
+
+def init_sgld(lm, mem, xx):
+    """XIT38's M:SGLD (STPNR.txt:1480-:1499): an overlaid module must have the DCB (B6-00
+    otherwise, ABN2), and M:XX's 10 VLP words (the load module's name, account and
+    password) go to its word 22, where its FLP points. The room check (B6-0C: the DCB
+    and 10 words within the DCB area's buffer) isn't made."""
+    if not overlaid(lm):
+        return
+    a = lm.dcbs.get("M:SGLD")
+    if not a:
+        raise LoadModuleError(0x00, "no M:SGLD for an overlaid module", abc=0xB6)
+    for i in range(VLP_WORDS):
+        mem[a + 22 + i] = mem.get(xx + 22 + i, 0)
 
 
 def _words(data):
@@ -119,9 +147,7 @@ def read_load_module(fs, name, account):
         t = _words(tree or b"")
         if not t or len(tree) < 12 * 4:
             raise LoadModuleError(SMALLTREE, "TREE")                  # :3089-:3091
-        if t[0] != 12:
-            raise NotTranslated(f"an overlaid load module: TREE of {t[0]} words (M:SEGLD)")
-        lm = LoadModule(name, h, t)
+        lm = LoadModule(name, h, t)                            # overlaid: the root only
         root = bytes(tree[4:16])                               # LMKEY: TBUF+1..3
         seg = root[1:1 + root[0]]
         for kind, index in ((DATA, 6), (PROC, 8), (DCBS, 10)):  # FETCH1

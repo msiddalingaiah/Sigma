@@ -54,7 +54,8 @@ Word 0 is the tree's size in words (`:1482`). Then come the entries, 11 words ea
 A section word is the size in its left halfword and the address in its right, both in
 doublewords (`FETCH45`: `SLS,6 3` to bytes and `SLS,7 1` to a word address, `:3439`–`:3442`).
 FETCH reads the section's record to that address. A section of size 0 isn't read. A tree of
-12 words is the root alone: no overlays, so no `M:SEGLD` (`:1482`–`:1485`).
+12 words is the root alone: no overlays, so no `M:SEGLD` (`:1482`–`:1485`). A longer tree is an
+overlaid program: FETCH reads the root, and `M:SEGLD` the rest ([`overlays.md`](overlays.md)).
 
 ## 4. Starting the program
 

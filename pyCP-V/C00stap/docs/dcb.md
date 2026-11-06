@@ -70,8 +70,11 @@ The system DCB procedure reserves these codes (`UTS.txt:694`–`:727`):
 | 15 | The execute vehicle | 3 |
 
 OPEN finds them with `LOCCODEA` and `LOCCODEB` (`OBSE.txt:109`, `:118`), and CLOSE copies the
-protection ones into a new FIT ([`files.md`](files.md) §10). A DCB without a name (code 1) is a
-device DCB, such as `M:C` and `M:OC` (`UTS.txt:710`–`:711`).
+protection ones into a new FIT ([`files.md`](files.md) §10). A slot with 0 words used isn't
+given: a program's DCB may reserve slots for every code (EDIT's do) and use none, which is not an
+empty access list. With no account given, `CHKFLACN` stores `J:ACCN` into the account slot's two
+words, leaving its used count as it is (`OBSE.txt:284`–`:291`). A DCB without a name (code 1) is
+a device DCB, such as `M:C` and `M:OC` (`UTS.txt:710`–`:711`).
 
 ## In the translation
 
