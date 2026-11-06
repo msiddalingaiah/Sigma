@@ -27,6 +27,7 @@ of the source contains. Last updated 2026-11-05.
 | [`trapxcon.md`](trapxcon.md) | Trap and exit control: `M:TRAP`'s flags and masks in `J:USENT` and the PSD, `M:XCON` and `J:EXTENT`, and how the step exit runs the exit-control routine (`XCONSEE`, `XCONSETUP`, the environment pushed on the user's stack) |
 | [`pages.md`](pages.md) | Memory: the areas and their limits in the JIT, what FETCH sets (`LINKLIMS`, `OLAYLIM`), and the page calls `M:GP`, `M:GCP`, `M:GVP`, `M:FP`, `M:FCP`, `M:FVP`, `M:GL` (`MMNR`, `T:GVPI`, `T:RVPI`) |
 | [`overlays.md`](overlays.md) | Overlays: the tree's entries and links, FETCH's `M:SGLD`, and `M:SEGLD` (`MSEGLD`, `SEGLD`: the flags, the memory set for a segment, the path read to the root) |
+| [`design-notes.md`](design-notes.md) | CP-V's design (the table-driven monitor, the scheduler, swapping, the memory map and the overlays' real sizes, the file system, the DCB and the assign/merge record) compared with modern systems, and the lessons from running the tape's real programs |
 | [`interpreter.md`](interpreter.md) | A design for a user-mode instruction interpreter: the user's machine state, decoding and effective addresses, the instruction groups from simh's Sigma simulator, traps and the hand-off to the Python monitor, memory, and what programs to run |
 
 Every claim and line reference in them was checked against the `.txt` sources. Anything not
