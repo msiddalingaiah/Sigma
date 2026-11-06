@@ -42,6 +42,7 @@ M_XX = jit.XX_ADDRESS                        # M:XX: in the JIT, word 234 (jit.p
 KEYBUF = 0x8E40                              # M:KEYIN without a buffer: the reply goes here
 WAIT_UNIT = 600                 # clock units (2 ms) per M:WAIT unit: 1/50 minute (assumed)
 TMS = 0x00800000                # FPT word 0 flag for M:TIME's binary result (Y008)
+NOCR = (0x16, 0x20, 0x15, 0x0D)  # COC.txt:3183-:3184: a record ending so gets no CR LF
 SMPSD = 0x00C00000              # STPNR.txt:407: slave, mapped; no masks, CC 0
 PSD1 = 0x10000000               # a user's PSD word 1: the write key (JIT.txt's TSTACK)
 DMAM = 0x00300000               # PSD bits 10-11: the decimal and arithmetic masks (Y003)
@@ -170,7 +171,8 @@ CALEN = [0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
 P_ERR, P_ABN, P_BUF, P_SIZE = 0x80000000, 0x40000000, 0x20000000, 0x10000000
 P_KEY, P_BTD, P_ECB, P_BLK = 0x08000000, 0x04000000, 0x02000000, 0x01000000
 F_WAIT = 0x10
-F_NWK, F_ONWK = 0x08, 0x04                     # NEWKEY, ONEWKEY flags (positions assumed)
+F_NWK, F_ONWK = 0x20, 0x40                     # NEWKEY bit 26, ONEWKEY bit 25 (BPM.txt:600-:602)
+F_REV = 0x10                                   # M:PRECORD's REV, bit 27 (BPM.txt:612; POS.txt SETPOS)
 TYCOR = [0, 0, 0, 0, 1, 1, 1, 1]                   # IOQ.txt:763: typewriter read 0, write 1
 CODE = {2: 0x07, 3: 0x1D, 4: 0x04, 5: 0x1C, 6: 0x05, 7: 0x06, 8: 0x41, 9: 0x45,
         0xA: 0x57, 0xD: 0x33, 0xE: 0x5B, 0xF: 0x5C, 0x13: 0x4F}   # IORT.txt:1168
@@ -1480,14 +1482,19 @@ class CalProcessor:
         if write:
             data = self.read_bytes(u, dcb.buf, dcb.btd, dcb.rws)
             dcb.ars = len(data)
+            kept = data.rstrip(b"\x40")                # COCWR5: trailing blanks aren't sent,
+            if len(data) - len(kept) > 3:              # if more than 3 (COCWR8)
+                data = kept or b"\x40"                 # ALL BLANKS, SEND 1
             w0 = self.fetch(u, dcb.address) if isinstance(dcb, MemDcb) else 0
-            lines = 1
+            before = 0                                 # COCWR38: the spacing less 1 (single)
             if w0 & 0x10100 and data:                  # COCWR30: VFC (X'100') or TOF
                 if w0 & 0x10000:
                     self.s.umem[u][dcb.address] = w0 & ~0x10000   # TURN OFF TOF BIT
-                lines = data[0] - 0xC0 if 0xC1 <= data[0] <= 0xCF else 1   # X'C1'-X'CF'
+                before = data[0] - 0xC0 if 0xC1 <= data[0] <= 0xCF else 1   # X'C1'-X'CF', TOF
                 data = data[1:]                        # COCWR70: the control isn't sent
-            s.coc.write(line, data.decode(EBCDIC), lines)
+            after = dcb.address != M_UC and not (data and data[-1] in NOCR)   # COCWR80
+            if dcb.rws:                                # MSRWRT: a count of 0 is MSREXIT
+                s.coc.write(line, data.decode(EBCDIC), before, after)   # (WRTD.txt:148-:150)
         else:
             prompt = bytes([self.prompt[u]]).decode(EBCDIC) if self.prompt.get(u) else ""
             while (text := s.coc.read(line, prompt)) is None:
@@ -1876,11 +1883,14 @@ class CalProcessor:
             return self.seq_read(ctx, dcb)             # BAZ SEQ0: CONSECUTIVE
         if dcb.org == 0x10:
             return self.rwrand(ctx, dcb, write=False)  # BANZ RWRAND: IT'S RANDOM
+        trn, dcb.trn = getattr(dcb, "trn", False), False   # CLR TRN (RDF.txt:1917)
         if dcb.kad:
             key = self._key(u, dcb)
             data = kf.read(key)
             if data is None:
                 return self.msr012(ctx, dcb, 0x43)     # KEYER3: RETURN1--DIDNT FIND
+        elif trn and dcb.kbuf is not None and kf.read(dcb.kbuf) is not None:
+            key, data = dcb.kbuf, kf.read(dcb.kbuf)    # positioned before KBUF: read it
         else:
             nxt = kf.read_next(dcb.kbuf)
             if nxt is None:
@@ -1888,11 +1898,67 @@ class CalProcessor:
                 return self.msr012(ctx, dcb, CODE[7])
             key, data = nxt
         dcb.kbuf = key                                 # the key goes into KBUF
+        self._keytran(u, dcb, key)
         n = min(len(data), dcb.rws)
         self.write_bytes(u, dcb.buf, dcb.btd, data[:n])
         dcb.ars, dcb.tyc, dcb.last = len(data), 1, "read"
         self.trace(f"READ {dcb.name} key {key.decode(EBCDIC)!r}: {len(data)} bytes")
         return self.pullallexit(ctx, 0, 0)
+
+    def _keytran(self, u, dcb, key):
+        """KEYTRAN  RDF.txt:323-:331: the key, TEXTC, into the DCB's key buffer (the address
+        in its word 10), where a program reads it (EDIT: the line number just read)."""
+        if not isinstance(dcb, MemDcb):
+            return
+        a = self.fetch(u, dcb.address + 10) & 0x1FFFF
+        if a:
+            self.write_bytes(u, a, 0, bytes([len(key) & 0x1F]) + bytes(key))
+
+    def precord(self, ctx):
+        """PRECORD  POS.txt:467 - M:PRECORD: N records (FPT bit 0, default 1) forward, or
+        back with REV (bit 27, SETPOS); ABN (bit 1) into J:ABO. A keyed file is positioned
+        by PRDCRD11 (RDF.txt:239): N keys from the current position, the key reached into
+        KBUF with TRN set, i.e. positioned before it (RDF.txt:392). Running off the end:
+        TYC 7, X'06' forward, TYC 4, X'04' back, the ARS the records not skipped
+        (SETBOFEOF, POS.txt:598). Consecutive and tape files aren't translated."""
+        u, j = ctx.u, self.s.jit[ctx.u]
+        dcb = self.dcb_at(u, ctx.r6 & 0x1FFFF)
+        presence = self.fetch(u, ctx.r7)
+        take = self._params(u, (self.s.umem[u].get(ctx.r7 + 1 + i, 0) for i in range(2)))
+        n = take() & 0x1FFFF if presence & 0x80000000 else 1        # CHKBIT1: N, else K1
+        if presence & 0x40000000:
+            j.ABO = take() & 0x1FFFF                   # CHKBIT: STS,D1 ABO,R5
+        back = bool(presence & F_REV)                  # SETPOS: DIR
+        if not dcb.open:
+            raise NotTranslated("M:PRECORD of a DCB not open (TESTOPN)")
+        if dcb.asn != 1 or dcb.org != 0x20:
+            raise NotTranslated("M:PRECORD of a consecutive file or a tape (SEQ, JASN)")
+        import bisect
+        keys = [k.encode(EBCDIC) for k in dcb.cfu.file.keys()]    # in key (byte) order
+        if dcb.kbuf is None:
+            p = 0                                      # BOF
+        elif getattr(dcb, "trn", False):
+            p = bisect.bisect_left(keys, dcb.kbuf)     # before KBUF
+        else:
+            p = bisect.bisect_right(keys, dcb.kbuf)    # after KBUF, the last one read
+        q = p - n if back else p + n
+        short = -q if q < 0 else max(0, q - len(keys))
+        q = min(max(q, 0), len(keys))
+        if q < len(keys):
+            dcb.kbuf, dcb.trn = keys[q], True          # KEYTRANM: the key, TRN set
+        elif keys:
+            dcb.kbuf, dcb.trn = keys[-1], False        # after the last
+        if keys:
+            self._keytran(u, dcb, dcb.kbuf)
+        dcb.ars, dcb.last = short, "position"
+        self.trace(f"PRECORD {dcb.name} {'back' if back else 'forward'} {n}: position {q}"
+                   f" of {len(keys)}" + (f", {short} short" if short else ""))
+        if short or not keys:                          # SETBOFEOF
+            dcb.tyc = 4 if back else 7
+            return self.msr012(ctx, dcb, CODE[dcb.tyc])
+        dcb.tyc = 0
+        return self.pullallexit(ctx, 0, 0)
+        yield
 
     def iosfile(self, ctx, dcb):
         """IOSFILE / IOSEQUB  WRTF.txt:153, :236 - a keyed write; without a key, the key
@@ -2007,6 +2073,7 @@ CalProcessor.overlaid.update({"T:WAIT": CalProcessor.t_wait, "MTIME": CalProcess
                               "CLOSE entry 4": CalProcessor.cal_delrec,
                               "MSRKEY": CalProcessor.msrkey})
 CalProcessor.overlaid["MXCON"] = CalProcessor.mxcon
+CalProcessor.overlaid["PRECORD"] = CalProcessor.precord
 CalProcessor.overlaid.update({"T:GDP": CalProcessor.get_pages(None, 1),
                               "T:GCP": CalProcessor.get_pages(None, -1),
                               "T:GVP": CalProcessor.get_pages(None, 0),

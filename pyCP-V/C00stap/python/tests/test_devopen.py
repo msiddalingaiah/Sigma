@@ -97,8 +97,9 @@ def test_text_in_memory_is_ebcdic():
     write_load_module(t.s.cal.fs, "ECHO", ":SYS", words, start, dcbs)
     t.type("ECHO\r")
     t.type("Hello, 42!\r")                               # typed in ASCII
-    # the record read ends with its NL (MUCRLFNL), so writing it back starts a new line
-    assert t.text() == "ECHO\r\nHello, 42!\r\nGOT Hello, 42!\r\n         \r\n!"
+    # the record read ends with its NL (MUCRLFNL), so writing it back ends the line; the
+    # trailing blanks after it (more than 3) aren't sent (COCWR5)
+    assert t.text() == "ECHO\r\nHello, 42!\r\nGOT Hello, 42!\r\n!"
     out = next(a for a, w in words.items() if w == int.from_bytes("GOT ".encode("cp037"), "big"))
     buf = t.s.cal.read_bytes(t.s.LB_UN[0], out + 1, 0, 10)   # BUF follows OUT's one word
     assert buf == "Hello, 42!".encode("cp037")           # in memory: EBCDIC (TTYIN's role)
@@ -148,7 +149,9 @@ def test_vfc_corres_int_and_chtbl():
     words, start = assemble(SERVICES, dcbs)
     write_load_module(t.s.cal.fs, "SERVS", ":SYS", words, start, dcbs)
     t.type("SERVS\r")
-    assert t.text() == "SERVS\r\n\r\nABC\r\nXYZ\r\n!"     # X'C2': a blank line; '1': a new one
+    # X'C2': 2 new lines first; ABC's own CR LF after it (not M:UC, COCWR80); '1' (top of
+    # form): 1 new line first, here a blank line
+    assert t.text() == "SERVS\r\n\r\n\r\nABC\r\n\r\nXYZ\r\n!"
     u = t.s.LB_UN[0]
     assert t.s.uregs[u][9] == 1                           # M:LO and M:DO: the same, ME
     assert t.s.cal.intent[u] == 0x08000000 | start        # J:INTENT

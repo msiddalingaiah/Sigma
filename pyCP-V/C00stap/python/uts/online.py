@@ -15,7 +15,7 @@ T:ABORT and CALBAD's T:ABORTM):
 
 import re
 
-from . import fetch, interp, pyprog
+from . import fetch, interp, labtape, pyprog
 from .cal import M_UC, P_ABN, P_BTD, P_BUF, P_ERR, P_SIZE, Fpt
 from .files import EBCDIC, FileError
 from .sched import TIC, Cal1
@@ -28,9 +28,9 @@ TRIES = 3
 STEP_HOOKS = ("T:EXIT", "T:ERROR", "T:ABORT", "T:ABORTM")
 
 
-def _type(cal, u, text):
+def _type(cal, u, text, nl=True):
     """M:TYPE: on-line, it goes to M:UC."""
-    yield from pyprog._type(cal, u, text)
+    yield from pyprog._type(cal, u, text, nl)
 
 
 def _read(cal, u, size=SIZE):
@@ -144,6 +144,7 @@ class Online:
         self.acp = {}                  # UB:ACP per user: "LOGON" or "TEL"
         self.logged = {}               # the user has logged on
         self.accounts = {}             # the account the user logged on with
+        self.tapes = {}                # reel -> labtape.Tape, mounted for TAPE (not CP-V)
         cal = sched.cal
         self.prev = {name: cal.hooks.get(name) for name in STEP_HOOKS}
         for name in STEP_HOOKS:
@@ -202,7 +203,8 @@ class Online:
         e = s.not_translated.pop(u, None)
         line = s.coc.line_of(u) if s.coc is not None else None
         if line is not None:
-            s.coc.write(line, f"NOT TRANSLATED: {e}"[:140])
+            col = s.coc.lines[line].col
+            s.coc.write(line, f"NOT TRANSLATED: {e}"[:140], before=1 if col else 0, after=True)
         if not self.online(u):
             return s.t_delus(u)
         s.cal.running.pop(u, None)
@@ -225,7 +227,7 @@ class Online:
         yield from _type(cal, u, "XEROX CP-V AT YOUR SERVICE")       # :331-:353
         yield from _type(cal, u, "ON AT " + (yield from _time(cal, u)))
         for _ in range(TRIES):
-            yield from _type(cal, u, "LOGON PLEASE: ")
+            yield from _type(cal, u, "LOGON PLEASE: ", nl=False)
             reply = (yield from _read(cal, u)).strip().upper()
             parts = [p.strip() for p in reply.split(",")]
             if len(parts) < 2 or not parts[1] or len(parts[1]) > 12:
@@ -270,6 +272,9 @@ class Online:
             if verb in ("COPY", "C") and rest:         # PCL  TEL.txt:3889, :4567
                 yield from self.copy(u, rest)
                 continue
+            if verb == "TAPE":                         # not CP-V: the mounted tapes (--mount)
+                yield from self.tape(u, rest)
+                continue
             target = rest.split()[0] if verb in ("RUN", "START") and rest else verb
             fid = re.fullmatch(FID, target)     # a name and more: the more is the
             if fid is None:                     # program's, in J:CCBUF (CHKULM, TEL.txt:950)
@@ -287,6 +292,48 @@ class Online:
             self.s.UH_FLG[u] &= ~TIC                   # STEP04C: DRTEL1, TEL no longer in control
             yield from pyprog.program(self.s, u, name, account)
             return                                     # (it ends with a CAL1,9: the step)
+
+    # --- TAPE: not CP-V ----------------------------------------------------------------
+
+    def mount(self, tape):
+        """A labeled tape (labtape.Tape) the TAPE command can list and copy from. The
+        operator mounts it (--mount); a terminal user never names a host file."""
+        self.tapes[tape.reel] = tape
+
+    def tape(self, u, args):
+        """TAPE: the mounted reels. TAPE reel: its files. TAPE reel name...: each file
+        copied into the user's own account (labtape.restore; an existing one replaced),
+        where TEL finds a program before :SYS. NOT CP-V (there, PCL or FRES copy a tape):
+        a stand-in, in place of tape drives and the labeled-tape OPEN."""
+        cal = self.s.cal
+        words = args.split()
+        if not words:
+            if not self.tapes:
+                yield from _type(cal, u, "NO TAPES MOUNTED")
+            for reel, t in self.tapes.items():
+                yield from _type(cal, u, f"{reel:<8}{t.account:<10}{len(t.files)} FILES")
+            return
+        tape = self.tapes.get(words[0])
+        if tape is None:
+            yield from _type(cal, u, f"NO TAPE {words[0]} MOUNTED")
+            return
+        if len(words) == 1:
+            for f in tape.files:
+                yield from _type(cal, u, f"{f.name:<12}{len(f.records):>6} RECORDS")
+            return
+        account = cal.account.get(u, ":SYS")
+        for name in words[1:]:
+            f = next((f for f in tape.files if f.name == name), None)
+            if f is None:
+                yield from _type(cal, u, f"NO FILE {name} ON {tape.reel}")
+                continue
+            try:
+                labtape.restore(cal.fs, labtape.Tape(tape.reel, account, [f]), account=account)
+            except (FileError, ValueError) as e:
+                yield from _type(cal, u, f"{name}: NOT COPIED ({e})"[:100])
+                continue
+            cal.trace(f"TAPE user {u}: {name} from {tape.reel} to {account}")
+            yield from _type(cal, u, f"{name} COPIED TO {account}: {len(f.records)} RECORDS")
 
     def find(self, u, name, account=None):
         """The program's account: the one given, else the user's own, else :SYS."""
@@ -353,6 +400,7 @@ class Online:
                         text = edit_number(recnum, key) + text
                     lines = [text]
                 for text in lines:
+                    text += "\x85"                     # its NL: M:UC adds none (COCWR80)
                     cal.put_text(u, FBUF, text)
                     yield Cal1(1, Fpt(0x11, word0=M_UC, presence=P_BUF | P_SIZE | P_BTD,
                                       params=[FBUF, len(text), 0]))

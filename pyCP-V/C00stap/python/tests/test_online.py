@@ -104,7 +104,7 @@ def test_bad_ids_and_three_tries():
     assert t.text().endswith("ACCOUNT?\r\nLOGON PLEASE: ")
     u = t.user()
     t.type(",X\r")
-    assert t.text().endswith("SORRY, UNABLE TO LOG YOU ON")
+    assert t.text().endswith("SORRY, UNABLE TO LOG YOU ON\r\n")
     assert t.user() == 0 and u not in t.s.LB_UN
     assert any("STEP10" in line for line in t.s.log)
 
@@ -121,6 +121,29 @@ def test_tel_runs_programs_and_comes_back():
     assert t.text() == "RUN NOPE\r\nNOPE NOT FOUND\r\n!"
     t.type("WHAT IS THIS\r")
     assert t.text() == "WHAT IS THIS\r\nEH?\r\n!"
+
+
+def test_tape_lists_and_copies_a_mounted_tapes_files():
+    """TAPE (not CP-V): a mounted tape's files listed, one copied into the user's account
+    (as an EDIT-keyed file: a Python program), then run from there."""
+    from uts import labtape, pyprog
+    from uts.files import EBCDIC
+    lines = HELLO.strip("\n").splitlines()
+    records = [(pyprog.line_key(i), s.encode(EBCDIC)) for i, s in enumerate(lines, 1)]
+    t = logged_on()
+    t.type("TAPE\r")
+    assert t.text() == "TAPE\r\nNO TAPES MOUNTED\r\n!"
+    t.online.mount(labtape.Tape("REEL1", ":T", [labtape.TapeFile("HI", records)]))
+    t.type("TAPE\r")
+    assert t.text() == "TAPE\r\nREEL1   :T        1 FILES\r\n!"
+    t.type("TAPE REEL1\r")
+    assert t.text() == f"TAPE REEL1\r\nHI          {len(lines):>6} RECORDS\r\n!"
+    t.type("TAPE REEL1 HI NONE\r")
+    assert t.text() == (f"TAPE REEL1 HI NONE\r\nHI COPIED TO BOB: {len(lines)} RECORDS\r\n"
+                        "NO FILE NONE ON REEL1\r\n!")
+    assert "HI" in t.s.cal.fs.files("BOB")
+    t.type("HI\r")
+    assert "HELLO 13:45" in t.text()
 
 
 def test_tel_runs_machine_code():

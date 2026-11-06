@@ -121,8 +121,17 @@ A record is at most `C:140` bytes. **`COCRD`**:
 ## 5. Writing (`COCWR`, `:2851`–`:3226`)
 
 `COCWR` moves the user's record into the line's output buffers through `TTYOUT`:
-- **format control**: with vertical format control in the DCB, the first character is a control
-  (X'C1'–X'CF', a number of new lines); otherwise a new line comes first;
+- **trailing blanks** aren't sent if there are more than 3; an all-blank record sends one blank
+  (`COCWR5`–`COCWR8`, `:2913`–`:2926`);
+- **new lines before the record**: with vertical format control in the DCB, the first character
+  is a control (X'C1'–X'CF', that many new lines; X'F1' top of form, `COCWR30`–`COCWR36`).
+  Without, the DCB's spacing (`SVA`, word 19) less 1 (`COCWR38`, `:2960`–`:2966`): with single
+  spacing, **none**;
+- **the end of the record** (`COCWR80`, `:3144`–`:3167`): on **`M:UC`, nothing**: the record goes
+  out as it stands, and only its own NLs start new lines. On any other DCB a CR LF follows,
+  unless the record's last character is one of `NOCR` (X'16', X'20', X'15', X'0D', `:3183`). So a
+  program writing a line on `M:UC` ends it with X'15' itself, as EDIT and SHOW do. The carriage
+  stays where the record leaves it, so a read that follows takes its input on the same line;
 - **transparent writes** go out untranslated;
 - **pacing**: when the line's output count passes **`SL:TB`**, the user is blocked (`E:CBL`, state
   `STOB`). The output interrupt (`COCOP`, `:1899`) releases them (`E:CUB`) once the count is
@@ -158,12 +167,13 @@ the 16-byte buffer chains) and translates:
   `COCMINT` sets for a TTY (`MODE` X'88', `MODE2` X'20', `MODE3` 0, `COC.txt:4403`–`:4421`), since
   COC keeps no others here. `COCTERM`, `MODE4` (from the SYSGEN table `MODE4INIT`), `CPI`,
   `COCOC`, `BUFCNT` and the table's dummy entries are 0.
-- **§5:** writes. A record starts on a new line unless the carriage is at the left margin
-  (`CPOS`, kept per line). An EBCDIC NL (X'15') in a record is a new line. With vertical format
-  control (the DCB's X'100'), the first character is format control and isn't sent: X'C1'–X'CF'
-  that many new lines, X'F1' a top of form, here a new line (`COCWR30`–`COCWR70`,
-  `:2935`–`:3103`; [`devopen.md`](devopen.md) §5). The carriage stays at the record's end, so a read that follows takes
-  its input on the same line (`LOGON PLEASE: `).
+- **§5:** writes, as §5 says: the trailing blanks, the new lines before (format control under
+  VFC, the DCB's X'100'; X'F1' a top of form is here one new line; [`devopen.md`](devopen.md)
+  §5), the record, and the CR LF after it except on `M:UC` or after a `NOCR` character. An
+  EBCDIC NL (X'15') in a record is a new line. A write of 0 bytes sends nothing (`MSRWRT`,
+  `WRTD.txt:148`–`:150`). The column (`CPOS`) is kept per line. **The stand-ins' messages**
+  (LOGON, TEL, a Python program's `cpv.type`) end with an NL of their own, as a real program's
+  would; `LOGON PLEASE: ` doesn't, so the reply is typed on its line.
 - **§6:** a connection as a ready line, a disconnection as `E:OFF`. The user is removed at
   their next `T:PULLE` (`HANGUP`).
 
@@ -196,5 +206,7 @@ the codes, aren't translated: the conversion is code page 037.
 - **When a prompt is sent**: `COCRD` sends `JB:PROMPT` "IF REQUIRED". The condition wasn't traced.
   The translation sends it at the start of every read, on a new line unless the carriage is at
   the margin.
-- **The new line before a record**: §5's "otherwise a new line comes first" is read as "unless
-  the carriage is at the margin". `COCWR`'s use of `CPOS` there wasn't traced.
+- **The new line before a record** (resolved): an earlier version of this document had "a new
+  line comes first" for a record without VFC, and the translation started each record on a new
+  line. `COCWR38` and `COCWR80` say otherwise (§5). EDIT, which writes a line and then an NL as
+  a record of its own, showed it.

@@ -286,6 +286,9 @@ def main(argv=None):
     p.add_argument("--restore", nargs="*", default=[], metavar="TAPE.tap", dest="tapes",
                    help="labeled tapes (simh .tap) whose files are restored into the file system,"
                         " in the tape's account")
+    p.add_argument("--mount", nargs="*", default=[], metavar="TAPE.tap",
+                   help="labeled tapes mounted for the terminals' TAPE command (list and copy"
+                        " files into one's own account; not CP-V)")
     p.add_argument("--reader", metavar="DECK.txt",
                    help="a text file loaded into the card reader: a card a line (EBCDIC, 80 columns)")
     p.add_argument("--punch", metavar="FILE.txt",
@@ -401,7 +404,13 @@ def terminals(con, args):
     from .terminals import TerminalServer, realtime
     s = con.sched
     coc = Coc(s, lines=min(args.terminals, len(s.LB_UN)))
-    Online(s)
+    online = Online(s)
+    from . import labtape
+    for path in args.mount:                            # tapes for TEL's TAPE (not CP-V)
+        with open(path, "rb") as f:
+            tape = labtape.read_tape(f.read())
+        online.mount(tape)
+        print(f"(tape {path} mounted: reel {tape.reel}, {len(tape.files)} files)")
     try:
         server = TerminalServer(coc, args.port, args.bind, log=lambda msg: print(f"({msg})"))
     except OSError as e:

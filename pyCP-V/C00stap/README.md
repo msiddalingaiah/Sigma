@@ -127,6 +127,7 @@ python -m uts --tape --replies IP 06/15/76 13:45 YES -
 | `--trace` | Print a trace of the boot steps, and the LP output. | off |
 | `--file HOST=NAME[.ACCOUNT] …` | Import Python programs into the CP-V file system before the key-ins. Start one with the key-in `GJOB NAME`; see `docs/python-programs.md`. | none |
 | `--restore TAPE.tap …` | Restore the files of CP-V labeled tapes (simh `.tap` images) into the file system, in the tape's account. See `docs/labtape.md`. | none |
+| `--mount TAPE.tap …` | Mount labeled tapes for the terminals' `TAPE` command (not CP-V): `TAPE` lists the reels, `TAPE reel` its files, `TAPE reel name` copies a file into the user's own account. With `--terminals`. See `docs/online.md`. | none |
 | `--reader DECK.txt` | Load a deck into the card reader: each line is an 80-column card. A program opening `CR` reads it. See `docs/devopen.md`. | none |
 | `--punch FILE.txt` | The card punch's output, a card a line. | none |
 | `--terminals N` | After the boot comes up (and any `--keyins`), N terminal lines on a TCP port, in real time: connect with `telnet` to log on and use TEL. Ctrl-C ends. See `docs/online.md`. | off |

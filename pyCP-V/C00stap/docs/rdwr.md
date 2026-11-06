@@ -314,10 +314,13 @@ ghost's own copy of `M:OC`, the read through `FRONTEND`/`QUEUE` and `IOSPIN`, an
 
 ## Open questions
 
-- **Where WAIT is in the FPT.** `JHKBIT` and `SKIPBLK` shift word 1 left 16 places in all before
-  storing it into `WAT` under the mask X'00100400'. That would make WAIT word 1's bit 27 (X'10'),
-  and makes the mask's second bit come from beyond the word. The FPT layout (the `M:READ`/
-  `M:WRITE` procedures) isn't in this source.
+- **Where WAIT is in the FPT** (resolved): `JHKBIT` and `SKIPBLK` shift word 1 left 16 places
+  in all before storing it into `WAT` under the mask X'00100400', which makes WAIT word 1's bit
+  27 (X'10'). The `M:READ` and `M:WRITE` procedures are in `BPM.txt` (:591-:604) and agree: their
+  keys from bit 0 are ERR, ABN, BUF, SIZE, KEY, BTD, ECB, BLOCK, INT, WFPT; then `M:READ`'s AUTO
+  (24), REV (26), WAIT (27), ULBL (28), and `M:WRITE`'s ONEWKEY (25), NEWKEY (26), WAIT (27).
+  The translation had assumed NEWKEY X'08' and ONEWKEY X'04', so EDIT's new lines were refused
+  (X'13').
 - **A DCB's TYC is only ever raised.** `REQCOM` keeps the highest TYC (`:1679`), and the only
   store that resets it found so far is `SETTYC`, on the read paths. So after a write error, every
   later check of that DCB would report it again, unless something not read yet resets it.

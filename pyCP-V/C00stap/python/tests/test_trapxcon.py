@@ -29,11 +29,11 @@ EXIT     STW,8    RNST
          CAL1,1   W2
          CAL1,9   1                 M:EXIT again: in progress, so the end
 XCON     DATA     X'19000000'+EXIT
-W1       DATA     X'11008C2C',X'30000000',M1,4
-W2       DATA     X'11008C2C',X'30000000',M2,4
-M1       TEXT     'MAIN'
-M2       TEXT     'EXIT'
-OLD      DATA     -1
+W1       DATA     X'11008C2C',X'30000000',M1,5
+W2       DATA     X'11008C2C',X'30000000',M2,5
+M1       DATA     X'D4C1C9D5',X'15000000'   'MAIN', NL: M:UC adds no new line
+M2       DATA     X'C5E7C9E3',X'15000000'   'EXIT', NL
+OLD     DATA     -1
 RNST     DATA     -1
          END      START
 """

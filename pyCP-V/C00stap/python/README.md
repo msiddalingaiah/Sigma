@@ -155,12 +155,13 @@ the files outlive a recovery or reboot, and `--disc` keeps it between runs.
   CLOCK4's wake-up.
 - Read/write: devices only, and only the typewriter (`M:OC`). Not modeled: the buffer access
   check (X'4A'), monitor buffer pools, ECBs, FORTRAN conversion, long records in pieces. The ID
-  that `MSRTYPE` types is the user number, and the WAIT flag's position (word 1, X'10') is derived
-  from shift counts. Both are assumptions (see `docs/rdwr.md`).
+  that `MSRTYPE` types is the user number, and the WAIT flag's position (word 1, X'10', bit 27) is
+  confirmed by BPM.txt's `M:READ`/`M:WRITE` keys (:593-:602). The ID is an assumption (see
+  `docs/rdwr.md`).
 - File CALs: a file DCB's name, account, function (IN/OUT/INOUT/UPDATE) and key length are
   DCB fields (`add_dcb`), as an `!ASSIGN` or the program's DCB would set them; the M:OPEN FPT
-  carries only the error and abnormal addresses. The NEWKEY/ONEWKEY flag positions in FPT word 1
-  are assumed. No passwords, access accounts, synonyms, expiration, scratch or OPEN NEXT. A new
+  carries only the error and abnormal addresses. The NEWKEY/ONEWKEY flags are FPT word 1's bits
+  26 and 25 (X'20', X'40'; BPM.txt's `M:WRITE`, :600-:602). No passwords, access accounts, synonyms, expiration, scratch or OPEN NEXT. A new
   file is entered in its directory at close. Directory dual copies aren't kept (their words are
   reserved). On reopen, the next free byte of the records granule isn't known, so the next record
   starts a new data granule.

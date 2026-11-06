@@ -116,7 +116,12 @@ def _short(e):
     return f"{type(e).__name__}: {e}"[:100]
 
 
-def _type(cal, u, text):
+def _type(cal, u, text, nl=True):
+    """M:TYPE of a stand-in's message. On-line it is a write on M:UC, which COC sends as
+    it stands (COCWR80), so the message ends with its NL, as a real program's would; a
+    prompt answered on the same line (``nl`` False) doesn't."""
+    if nl and u in cal.s.LB_UN:
+        text = text[:119] + "\x85"                     # EBCDIC NL
     cal.put_text(u, Cpv.MSG, text[:120], textc=True)
     yield Cal1(2, Fpt(2, presence=P_ERR, params=[Cpv.MSG]))
 
@@ -206,8 +211,12 @@ class Cpv:
 
     # console and time
     def type(self, text):
-        """M:TYPE: a line on the operator's console (MSRTYPE puts the ID in front)."""
-        self.cal.put_text(self.u, self.MSG, str(text)[:120], textc=True)
+        """M:TYPE: a line on the operator's console (MSRTYPE puts the ID in front); for an
+        on-line user, on the terminal, ending with its NL (see _type)."""
+        text = str(text)
+        if self.u in self.s.LB_UN:
+            text = text[:119] + "\x85"
+        self.cal.put_text(self.u, self.MSG, text[:120], textc=True)
         self._call(Cal1(2, Fpt(2, presence=P_ERR, params=[self.MSG])))
 
     def message(self, text):
@@ -222,15 +231,16 @@ class Cpv:
         presence = 0xE0000000 | (0x10 if oc_only else 0)    # message, buffer, size
         self._call(Cal1(2, Fpt(4, presence=presence, params=[self.MSG, self.BUF, size])))
         n = self.cal.read_bytes(self.u, self.BUF, 0, 1)[0]    # the reply's count byte
-        return self.cal.read_text(self.u, self.BUF, 1, n)
+        return self.cal.read_text(self.u, self.BUF, 1, n).rstrip("\x85")   # less a terminal's NL
 
     def readline(self, size=80):
         """M:READ on M:UC: the next line typed at the user's terminal (on-line users
-        only; COCIO waits for it)."""
+        only; COCIO waits for it), without the NL that ends the record."""
         from .cal import M_UC
         self._call(Cal1(1, Fpt(0x10, word0=M_UC, presence=P_BUF | P_SIZE | P_BTD,
                                params=[self.BUF, int(size), 0])))
-        return self.cal.read_text(self.u, self.BUF, 0, self.cal.dcb_at(self.u, M_UC).ars)
+        text = self.cal.read_text(self.u, self.BUF, 0, self.cal.dcb_at(self.u, M_UC).ars)
+        return text.rstrip("\x85")
 
     def prompt(self, c=""):
         """M:PC: the character COC sends at the start of each terminal read ('' none)."""
