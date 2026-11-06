@@ -27,7 +27,7 @@ from dataclasses import dataclass, field, replace
 from . import jit
 from .files import EBCDIC
 from .monitor import NotTranslated
-from .sched import E_AP, E_CRD, E_IC, E_IIP, E_IP, E_SL, E_WU, RTR, TIC, Dcb, Report
+from .sched import E_AP, E_CRD, E_IC, E_IIP, E_IP, E_SL, E_WU, RTR, SJAC, TIC, Dcb, Report
 
 # --- Instruction and FPT layout -------------------------------------------------------
 
@@ -340,6 +340,7 @@ class CalProcessor:
         self.ccbuf = {}                                # J:CCBUF per user: the command line
         self.tcb = {}                                  # J:TCB per user, if M:INT set it
         self.upsd = {}                                 # the user's PSD at its last trap (TSTACK's)
+        self.cmap = {}                                 # JX:CMAP per user: the virtual pages mapped
         self.unit_record = None                        # cards.UnitRecord: the card devices
         self.monitor_dcbs = {M_OC: Dcb("M:OC", fcn=0, address=M_OC, dtype="TY"),
                              M_UC: Dcb("M:UC", fcn=0, address=M_UC, coc=True),
@@ -689,6 +690,169 @@ class CalProcessor:
             mem[p + 2 + i] = regs[i]
         mem[p + 18] = regs[0]                          # STM,8 with 9: R0 last, on top
         return p
+
+    # --- page calls (MMNR.txt, MM.txt; docs/pages.md) ----------------------------------
+
+    def jbyte(self, u, b):
+        """Byte ``b`` of the user's JIT page."""
+        return (self.jword(u, b // 4) >> (8 * (3 - b % 4))) & 0xFF
+
+    def set_jbyte(self, u, b, v):
+        k = 8 * (3 - b % 4)
+        self.set_jword(u, b // 4, (self.jword(u, b // 4) & ~(0xFF << k)) | ((v & 0xFF) << k))
+
+    def _limits(self, u, lower, page):
+        """CLM,7 J:xLL: the page within an area's lower and upper limits."""
+        return self.jword(u, lower) <= page <= self.jword(u, lower + 1)
+
+    def _area(self, u, page):
+        """GVP6/RVP6  MM.txt:780-:792, :963-:976: which page count (JB:PCP + index)."""
+        for i, lower in enumerate((jit.PLL, jit.DLL, jit.DDLL, jit.CLL, jit.DCBLL)):
+            if self._limits(u, lower, page):
+                return i
+        if page <= self.jword(u, jit.PUL) or page > self.jword(u, jit.EUP):
+            return 3                                   # ASSUME CONTEXT
+        return 2                                       # DYNAMIC DATA
+
+    def _count(self, u, page, delta):
+        b = jit.PCP_BYTE + self._area(u, page)
+        self.set_jbyte(u, b, self.jbyte(u, b) + delta)  # MTB,1 / MTB,-1 JB:PCP,1
+        self.s.UB_PCT[u] = max(0, self.s.UB_PCT[u] + delta)   # the user's page count
+
+    def _clean(self, u, page):
+        """PAGEZAP (MM.txt:427): the page's words zeroed (here: removed, read as 0)."""
+        mem = self.s.umem[u]
+        for a in range(page * 512, page * 512 + 512):
+            mem.pop(a, None)
+
+    def _gvpi(self, u, page):
+        """T:GVPI  MM.txt:540 - the page mapped, if it's free (GVPO otherwise). The size
+        limits (T:TOTESZ), the swap granules and the command list, the physical page and
+        its chain, and the access codes aren't modeled: a physical page is always there."""
+        cmap = self.cmap.setdefault(u, set())
+        if page in cmap:
+            return False                               # GVPO: not free
+        cmap.add(page)                                 # IV10  STORE,3 JX:CMAP,7
+        self._count(u, page, +1)
+        self._clean(u, page)
+        return True
+
+    def _gvpm(self, u, page, gvp):
+        """T:GVPM  MMNR.txt:315 - is the page one the call may get? M:GVP: between the
+        dynamic data's top and the common's bottom, above the procedure up to J:EUP, or in
+        the data. M:GP, M:GCP: in the dynamic data."""
+        if gvp:
+            if not (self.jbyte(u, jit.TDP_BYTE) <= page <= self.jbyte(u, jit.BCP_BYTE)):
+                if not self.jword(u, jit.PUL) < page <= self.jword(u, jit.EUP):
+                    if not self._limits(u, jit.DLL, page):
+                        if self.s.UH_FLG[u] & SJAC:    # GVP9: a processor's special buffers
+                            raise NotTranslated("M:GVP of a special buffer page (GVP9)")
+                        return False
+        elif not self._limits(u, jit.DDLL, page):      # GVP1
+            return False
+        return self._gvpi(u, page)
+
+    def _set_cc1(self, u, error):
+        """SAD3/SAD4  MMNR.txt:421-:424: CC1 = an error; the other CC bits as they were."""
+        s = self.s
+        s.psd_cc[u] = (s.psd_cc[u] & ~8) | (8 if error else 0)
+
+    def get_pages(self, step):
+        """T:GDP (step 1), T:GCP (-1), T:GVP (0)  MMNR.txt:64-:132 - M:GP, M:GCP: R6 pages
+        from JB:TDP up or JB:BCP down, the pointer moved past them; SR1 = the count, SR2 =
+        the lowest page's address. M:GVP: the one page of R6's address. CC1 if not all
+        were got. A real-time user locked in core (RTCHK) isn't modeled."""
+        def routine(self, ctx):
+            u = ctx.u
+            if step:
+                at = jit.TDP_BYTE if step > 0 else jit.BCP_BYTE
+                page, n = self.jbyte(u, at), ctx.r6 & 0x1FFFF
+            else:
+                page, n = (ctx.r6 >> 9) & 0xFF, 1      # SLS,7 -9 / AND,7 M8
+            first, got, error = page, 0, False
+            for _ in range(n):                         # GAP2
+                if not self._gvpm(u, page, step == 0):
+                    error = True                       # GAP4
+                    break
+                page, got = page + step, got + 1       # GAP3
+            if step:
+                self.set_jbyte(u, at, page)            # STB,7 0,5
+                low = first if step > 0 else first - got + 1
+                regs = self.s.uregs[u]
+                regs[8], regs[9] = got, (low << 9) & 0xFFFFFFFF   # GAP5: SR1, SR2
+            self._set_cc1(u, error)
+            self.trace(f"M:G{'P' if step > 0 else 'CP' if step else 'VP'} user {u}: {got} of"
+                       f" {n} page(s) from X'{first:02X}'")
+            return ("TRAPEXIT", None)
+            yield
+        return routine
+
+    def free_pages(self, step):
+        """T:FDP (step -1), T:FCP (1), T:FVP (0)  MMNR.txt:160-:235 - M:FP, M:FCP: R6 pages
+        released from the top of the dynamic data down, or the bottom of the common up;
+        SR1 = the count. M:FVP: the page of R6's address, not in the procedure or the DCBs
+        (SR1 too, through RAP5).
+        CC1 if not all were released. SAD and APWP pages (JB:LMAP) aren't modeled."""
+        def routine(self, ctx):
+            u = ctx.u
+            if step:
+                at = jit.TDP_BYTE if step < 0 else jit.BCP_BYTE
+                page, n = self.jbyte(u, at), ctx.r6 & 0x1FFFF
+            else:
+                page, n = (ctx.r6 >> 9) & 0x7FFFFF, 1
+            released, error = 0, False
+            if n:                                      # RAP1
+                page = (page + step) & 0xFF
+                first = page
+                for _ in range(n):                     # RAP2
+                    if not self._rvp(u, page, step == 0):
+                        error = True                   # RAP4
+                        break
+                    page, released = page + step, released + 1
+                if step:
+                    self.set_jbyte(u, at, page - step)  # SW,7 10 / STB,7 0,5
+                self.trace(f"M:F{'P' if step < 0 else 'CP' if step else 'VP'} user {u}:"
+                           f" {released} of {n} page(s) from X'{first:02X}'")
+            self.s.uregs[u][8] = released              # RAP5P1: SR1 (M:FVP's too)
+            self._set_cc1(u, error)
+            return ("TRAPEXIT", None)
+            yield
+        return routine
+
+    def _rvp(self, u, page, fvp):
+        """RVP0/RVP1 and T:RVPI  MMNR.txt:365-:379, MM.txt:855 - release the page if the
+        call may: M:FVP, a user page outside the procedure and the DCBs; M:FP, M:FCP, a
+        page in the dynamic data. It must be mapped (RVP3 otherwise)."""
+        if fvp:
+            if not self._limits(u, jit.BUP, page):
+                if self.s.UH_FLG[u] & SJAC:            # RAP9: a special buffer page
+                    raise NotTranslated("M:FVP of a special buffer page (RAP9)")
+                return False
+            if self._limits(u, jit.PLL, page) or self._limits(u, jit.DCBLL, page):
+                return False                           # DON'T RELEASE IT
+        elif not self._limits(u, jit.DDLL, page):      # RVP1
+            return False
+        cmap = self.cmap.setdefault(u, set())
+        if page not in cmap:
+            return False                               # RVP3: not in use
+        cmap.discard(page)                             # RVNP  STORE,12 JX:CMAP,7
+        self._count(u, page, -1)
+        self._clean(u, page)
+        return True
+
+    def t_gl(self, ctx):
+        """T:GL  MMNR.txt:240 - M:GL: SR1 = the first word of the common pages got, SR2 =
+        the last word of the dynamic data's upper page; with no common pages, both the
+        word below the common's bottom."""
+        u = ctx.u
+        r8 = self.jbyte(u, jit.BCP_BYTE) + 1           # LAST PG OBTAINED
+        r9 = (self.jword(u, jit.DDUL) << 9) + 0x1FF
+        r8 = (r8 << 9) - 1
+        if r8 != r9:
+            r8 += 1                                    # RESTORE BOTTOM TO 1ST WD OF PG
+        self.s.uregs[u][8], self.s.uregs[u][9] = r8 & 0xFFFFFFFF, r9 & 0xFFFFFFFF
+        return ("TRAPEXIT", None)
+        yield
 
     def t_chtbl(self, ctx):
         """T:CHTBL  UCAL.txt:436 - on-line users only (CC1 otherwise). Arming BREAK
@@ -1621,6 +1785,13 @@ CalProcessor.overlaid.update({"T:WAIT": CalProcessor.t_wait, "MTIME": CalProcess
                               "CLOSE entry 4": CalProcessor.cal_delrec,
                               "MSRKEY": CalProcessor.msrkey})
 CalProcessor.overlaid["MXCON"] = CalProcessor.mxcon
+CalProcessor.overlaid.update({"T:GDP": CalProcessor.get_pages(None, 1),
+                              "T:GCP": CalProcessor.get_pages(None, -1),
+                              "T:GVP": CalProcessor.get_pages(None, 0),
+                              "T:FDP": CalProcessor.free_pages(None, -1),
+                              "T:FCP": CalProcessor.free_pages(None, 1),
+                              "T:FVP": CalProcessor.free_pages(None, 0),
+                              "T:GL": CalProcessor.t_gl})
 CalProcessor.resident.update({"T:CLRERR": CalProcessor.t_clrerr, "MTRAP": CalProcessor.mtrap,
                               "MSRTYPR": CalProcessor.msrtypr, "MSROCTY": CalProcessor.msrtypr})
 for _kind in ("T:EXIT", "T:ERROR", "T:ABORT"):

@@ -125,7 +125,8 @@ A program started by name, from TEL (`SLIP.:UTIL`, `RUN SLIP.:UTIL`) or by `GJOB
 it is a load module, and runs on the interpreter ([`interpreter.md`](interpreter.md)).
 
 Not translated:
-- memory limits and access codes (`LINKLIMS`), page allocation and cleaning;
+- access codes and page counts (`T:SNAC`), page allocation and cleaning. The memory limits
+  (`LINKLIMS`, `OLAYLIM`) are set: see [`pages.md`](pages.md);
 - the DCB checker (`DCBCHK`), core libraries, debuggers and the runner;
 - LINK-built (X'84') and paged (X'85') modules, and overlays (`M:SEGLD`): they stop with
   `NotTranslated`.

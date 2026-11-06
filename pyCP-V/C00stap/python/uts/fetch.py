@@ -3,13 +3,14 @@ the step, STPNR.txt: FETCH's checks of HEAD and TREE (:2959-:3101), the root's
 sections read to their addresses (FETCH1, :3102-:3123, :3398-:3475), and the start
 (XIT34-XIT39, :1443-:1519): J:START, the TCB in register 0, J:DCBLINK.
 
-Not translated: the memory limits and access codes (LINKLIMS), page allocation and
-cleaning, the DCB checker (DCBCHK), core libraries, debuggers and the runner, paged
+The memory limits are set (LINKLIMS, OLAYLIM). Not translated: the access codes and
+page counts (T:SNAC), page allocation and cleaning, the DCB checker (DCBCHK), core libraries, debuggers and the runner, paged
 (X'85') and LINK-built (X'84') modules, and overlays (M:SEGLD).
 """
 
 from dataclasses import dataclass, field
 
+from . import jit
 from .files import EBCDIC, FileError, KeyedFile
 from .monitor import NotTranslated
 
@@ -41,6 +42,41 @@ class LoadModule:
     dcblink: int = 0                      # J:DCBLINK
     dcbs: dict = field(default_factory=dict)     # the DCB table: name -> address
     symbols: bytes = b""                  # the root's type-0 record (not read by FETCH)
+    limits: dict = field(default_factory=dict)   # JIT word -> page: the memory limits
+
+
+def linklims(h):
+    """XIT101 (STPNR.txt:1352-:1384) and OLAYLIM (:1419-:1430): the memory limits FETCH
+    sets from HEAD, as {JIT word: page number}. LINKLIMS (:1622-:1630) takes an area's
+    lower limit from the high byte of its bias (the data area: the module's bias, HEAD
+    word 2) and its upper from bias + size - 1; an area of size 0 keeps T:RSTLMS's
+    empty limits (:1145-:1156). The dynamic data starts above the procedure, else the
+    DCBs, else the data, and ends at J:EUP. The access codes and page counts (T:SNAC)
+    aren't set."""
+    lim = {jit.PLL: jit.JBUPVP, jit.PUL: jit.JBUPVP - 1, jit.DLL: jit.JBUPVP,
+           jit.DUL: jit.JBUPVP - 1, jit.DCBLL: jit.JBUPVP, jit.DCBUL: jit.JBUPVP - 1}
+    for lower, word, bias in ((jit.DCBLL, h[6], h[6]), (jit.DLL, h[3], h[2]),
+                              (jit.PLL, h[4], h[4])):
+        size = word >> 16                                      # LH,6 *2
+        if size:
+            lim[lower] = (bias & 0xFFFF) >> 8                  # LB,7 *2,6
+            lim[lower + 1] = (((word & 0xFFFF) + size - 1) >> 8) & 0xFF
+    if lim[jit.PUL] >= lim[jit.PLL]:                           # OLAYLIM
+        top = lim[jit.PUL]
+    elif lim[jit.DCBUL] >= lim[jit.DCBLL]:
+        top = lim[jit.DCBUL]
+    else:
+        top = lim[jit.DUL]
+    lim[jit.DDLL], lim[jit.DDUL] = top + 1, jit.JEUPVP         # J:DDUL = J:EUP (XIT9)
+    return lim
+
+
+def pages(limits):
+    """The pages of the program's areas: procedure, data, DCBs (JX:CMAP after FETCH)."""
+    out = set()
+    for lower in (jit.PLL, jit.DLL, jit.DCBLL):
+        out.update(range(limits[lower], limits[lower + 1] + 1))
+    return out
 
 
 def _words(data):
@@ -99,6 +135,7 @@ def read_load_module(fs, name, account):
         lm.symbols = kf.read(seg + bytes([0])) or b""
     finally:
         fs.close(cfu)
+    lm.limits = linklims(h)
     lm.start = h[1] & 0x1FFFF                                  # XIT39 :1504-:1506
     lm.tcb = (h[2] >> 16) * 2                                  # :1507-:1509
     if lm.tcb and h[6] >> 16:

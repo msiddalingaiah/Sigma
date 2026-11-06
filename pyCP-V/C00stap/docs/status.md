@@ -25,6 +25,7 @@ of the source contains. Last updated 2026-11-05.
 | [`devopen.md`](devopen.md) | Opening a device DCB: OPEN's device option, `OPENDEV`'s reading of word 1 (operational label or name), the assignment tables by kind of user and P2OPL's defaults, device allocation and its errors |
 | [`jit.md`](jit.md) | The JIT page in user memory: its layout from `JIT.txt`'s template (`M:UC` and `M:XX` inside it, `J:CCBUF`, the kind of user), and what the translation builds there |
 | [`trapxcon.md`](trapxcon.md) | Trap and exit control: `M:TRAP`'s flags and masks in `J:USENT` and the PSD, `M:XCON` and `J:EXTENT`, and how the step exit runs the exit-control routine (`XCONSEE`, `XCONSETUP`, the environment pushed on the user's stack) |
+| [`pages.md`](pages.md) | Memory: the areas and their limits in the JIT, what FETCH sets (`LINKLIMS`, `OLAYLIM`), and the page calls `M:GP`, `M:GCP`, `M:GVP`, `M:FP`, `M:FCP`, `M:FVP`, `M:GL` (`MMNR`, `T:GVPI`, `T:RVPI`) |
 | [`interpreter.md`](interpreter.md) | A design for a user-mode instruction interpreter: the user's machine state, decoding and effective addresses, the instruction groups from simh's Sigma simulator, traps and the hand-off to the Python monitor, memory, and what programs to run |
 
 Every claim and line reference in them was checked against the `.txt` sources. Anything not
@@ -33,7 +34,7 @@ settled is listed under each document's **Open questions**.
 ## Translated (`python/uts`)
 
 A hand translation on a small machine model with stubbed devices, not an instruction emulator.
-363 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
+365 tests, all passing (`python -m pytest`). `python/README.md` lists each module and every
 simplification; the top-level `README.md` has the commands.
 
 | Area | Module | Status |
@@ -60,6 +61,7 @@ simplification; the top-level `README.md` has the commands.
 | Card reader and punch (**not a translation**) | `cards.py` | `--reader DECK.txt`, `--punch FILE.txt`: card devices whose media are host files; allocated to one job at a time. Departure: `JB:MAX` isn't modeled, so on-line users may have them. SLIP reads its control card from the reader and runs into its own deck checks. See `devopen.md` |
 | The JIT page (JIT.txt) | `jit.py`, `pyprog.py` | Built in the user's memory at X'8C00' when a load module starts: the template plus the user's fields, the command line in `J:CCBUF`; `M:UC` at its real address X'8C2C'. Not kept in step afterwards. See `jit.md` |
 | Trap and exit control (ALTCP.txt `MTRAP`, TRAPC.txt `MXCON`, STPNR.txt `XCONSEE`/`XCONSETUP`, SCHED.txt `T:UTSXTS`) | `cal.py`, `interp.py`, `online.py` | `M:TRAP`'s flags in `J:USENT` and its masks in the PSD (PERMIT FX turns on overflow traps); `M:XCON`; every exit runs the exit-control routine, with the environment on the user's stack. TEL's `TIC` is reset while a program runs. Delivering a trap to the trap entry stops as not translated. BACKUP, RESTORE and GAC now end through their exit routines; LEMUR, STATS, JOURNAL and SYMCON prompt and read. See `trapxcon.md` |
+| The page calls (MMNR.txt; MM.txt `T:GVPI`/`T:RVPI` reduced; STPNR.txt `LINKLIMS`/`OLAYLIM`) | `cal.py`, `fetch.py`, `jit.py` | FETCH sets the memory limits in the JIT; `M:GP`, `M:GCP`, `M:GVP`, `M:FP`, `M:FCP`, `M:FVP`, `M:GL` with their checks, pointers, SR1/SR2 and CC1. Memory isn't paged: a page got is only recorded. No size limits or waits for core. `M:CVM` and `M:SMPRT` not translated. BATCH, LINK, LYNX, SPLIST, SPOOL and UNSPOOL now answer; PCL gets its pages and then ends without reading. See `pages.md` |
 | Labeled tapes (**not a translation**: the restore) | `labtape.py` | `--restore TAPE.tap`: a CP-V labeled tape image's files into the file system, in the tape's account; consecutive files for sequential keys, keyed otherwise. See `labtape.md` |
 | Read/write | `cal.py`, `io.py` | M:TYPE/M:MESSAGE/M:PRINT, M:WRITE and M:CHECK to `M:OC` through the console IOQ, with `FRONTEND`, `REQCOM`'s DCB branch, `E:IC`, the wait and the error codes |
 | CAL dispatch | `cal.py` | The trap, FPT decode, the CAL1,1–CAL1,9 tables, overlays through the scheduler (`E:AP`), and the returns. Translated: M:WAIT, M:TIME, M:PC, `T:CLRERR`, and the exits. GHOST1 leaves with M:EXIT to FILL |

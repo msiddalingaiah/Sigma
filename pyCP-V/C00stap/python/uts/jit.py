@@ -30,7 +30,15 @@ TSTACK = 74                             # the temporary stack, 123 words
 CCBUF, CCBUF_WORDS = 200, 13            # J:CCBUF: the command line
 LMN, START = 226, 229                   # J:LMN (3 words), J:START
 M_XX = 230                              # M:XX, the program's own load module's DCB
-SIZE = 270                              # the template's words
+# Memory management (JIT.txt:539-:617): page numbers, lower and upper limits of each area
+BUP, EUP = 270, 271                     # J:BUP, J:EUP: the user's pages
+PLL, PUL, DLL, DUL = 272, 273, 274, 275           # pure procedure; data
+DDLL, DDUL, CLL, CUL = 276, 277, 278, 279         # dynamic data; context
+DCBLL, DCBUL = 280, 281                           # DCBs
+PCP_BYTE = 4 * 282                      # JB:PCP, PCD, PCDD, PCC, PCDCB: page counts by area
+TDP_BYTE, BCP_BYTE = 4 * 285, 4 * 285 + 1   # JB:TDP, JB:BCP: the next dynamic, common page
+JBUPVP, JEUPVP = 0x50, 0xDF             # JIT.txt:282, :284
+SIZE = 286                              # the template's words
 UC_ADDRESS = J_JIT + M_UC               # X'8C2C'
 XX_ADDRESS = J_JIT + M_XX               # X'8CE6'
 
@@ -54,7 +62,13 @@ TEMPLATE = {ABC: 0x80700000,            # J:ABC  DATA X'80700000'
             M_XX + 10: J_JIT + 262,     # MXKB
             252: 0x01000003,            # MXFPL: the name VLP
             256: 0x02000002,            # the account VLP
-            259: 0x03010002}            # the password VLP, the last
+            259: 0x03010002,            # the password VLP, the last
+            BUP: JBUPVP, EUP: JEUPVP,   # an area's upper limit below its lower: no pages
+            PLL: JBUPVP, PUL: JBUPVP - 1, DLL: JBUPVP, DUL: JBUPVP - 1,
+            DDLL: JBUPVP, DDUL: JEUPVP, CLL: 0x46, CUL: JBUPVP - 1,
+            DCBLL: JBUPVP, DCBUL: JBUPVP - 1,
+            284: 0x00004000,            # JB:CBLL  DATA,1 JOVVP
+            285: (JBUPVP << 24) | (JEUPVP << 16)}   # JB:TDP, JB:BCP
 KIND_BATCH, KIND_GHOST, KIND_ONLINE = 0, 1, 2   # J:JIT byte 0 >> 6 (OPND.txt:268-:270)
 EOM = 0x15                              # the end of a command line (EBCDIC NL)
 
@@ -64,11 +78,16 @@ def text_words(data, n, fill=b"\x40"):
     return [int.from_bytes(data[i:i + 4], "big") for i in range(0, 4 * n, 4)]
 
 
-def build(sched, u, tcb=0, dcblink=0, tree=0, start=0, name=""):
-    """The JIT page for user ``u``: {word address: value}."""
+def build(sched, u, tcb=0, dcblink=0, tree=0, start=0, name="", limits=None):
+    """The JIT page for user ``u``: {word address: value}. ``limits``: FETCH's memory
+    limits by JIT word (fetch.linklims), with JB:TDP from the dynamic data's lower limit."""
     cal = sched.cal
     kind = KIND_ONLINE if u in sched.LB_UN else KIND_GHOST if u in sched.SB_GJOBUN else KIND_BATCH
     words = [TEMPLATE.get(i, 0) for i in range(SIZE)]
+    for i, v in (limits or {}).items():
+        words[i] = v
+    if limits and DDLL in limits:
+        words[TDP_BYTE // 4] = (words[TDP_BYTE // 4] & 0x00FFFFFF) | ((limits[DDLL] & 0xFF) << 24)
     words[SYSID] = (kind << 30) | (u & 0xFFFF)
     words[ACCN:ACCN + 2] = text_words(cal.account.get(u, ":SYS").encode(EBCDIC), 2)
     words[UNAME:UNAME + 3] = text_words(cal.uname.get(u, "").encode(EBCDIC), 3)

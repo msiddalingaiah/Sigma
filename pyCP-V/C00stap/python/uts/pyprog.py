@@ -82,7 +82,9 @@ def program(sched, u, name, account):
         sched.uregs[u][0] = lm.tcb                     # XIT38: TO USERS R0
         from . import jit
         proc = (lm.tree[8] & 0xFFFF) * 2 if len(lm.tree) > 8 and lm.tree[8] >> 16 else 0
-        lm.words.update(jit.build(sched, u, lm.tcb, lm.dcblink, proc, lm.start, name))
+        lm.words.update(jit.build(sched, u, lm.tcb, lm.dcblink, proc, lm.start, name,
+                                  lm.limits))
+        cal.cmap[u] = fetch.pages(lm.limits)           # JX:CMAP: the program's pages
         sched.trace(f"FETCH {name}.{account}: start X'{lm.start:X}', TCB X'{lm.tcb:X}',"
                     f" DCBs {', '.join(lm.dcbs)}")
         yield from interp.program(sched, u, lm.words, lm.start, lm.dcbs, name=name,

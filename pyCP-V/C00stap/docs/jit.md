@@ -47,7 +47,8 @@ DCBs `M:UC` and `M:XX`. A program's references to `M:UC` are to its address in t
 | 229 | `J:START` | The start address | |
 | **230–** | **`M:XX`** | **A DCB for the program's own load module**, with its VLPs (`MXFPL`, word 252) and key buffer (`MXKB`, word 262) | |
 
-The memory-management words (`J:BUP` on, `:542`) follow. The table was made by assembling the
+The memory-management words follow (`J:BUP` on, `:542`): words 270–285, the areas' limits,
+page counts and `JB:TDP`/`JB:BCP` ([`pages.md`](pages.md)). The table was made by assembling the
 template with a small one-off assembler for its `DATA`, `GEN`, `TEXT`, `RES`, `BOUND`, `DO` and
 `SET` statements. Its offsets agree with a count by hand. Two words are forward references, which a
 one-pass assembly leaves 0: `M:XX`'s FLP is `MXFPL` (X'8CFC') and its key buffer `MXKB` (X'8D06').
@@ -78,4 +79,5 @@ exit control). A program that reads, say, `J:ABC` after an error sees the value 
   number.
 - **The command line's form**: what CCI leaves for a batch job, and whether TEL's line keeps its
   NL in the count, weren't traced. SHOW still answers `COMMAND LINE MUST NOT EXCEED 50 CHARACTERS`.
-- **The words after `M:XX`** (memory management, `J:BUP` on) aren't built.
+- **The words after the memory limits** (word 286 on: `J:USER`, the physical page counts,
+  the command list, `J:JAC`, `JB:LMAP`, `JX:CMAP`) aren't built.
