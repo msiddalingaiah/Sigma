@@ -69,6 +69,19 @@ template with a small one-off assembler for its `DATA`, `GEN`, `TEXT`, `RES`, `B
 `SET` statements. Its offsets agree with a count by hand. Two words are forward references, which a
 one-pass assembly leaves 0: `M:XX`'s FLP is `MXFPL` (X'8CFC') and its key buffer `MXKB` (X'8D06').
 
+### More words the model fills
+
+- **CJOB, monitor word X'4F'**, holds J:JIT's address, X'8C00' (PASS3.txt:1329, DEF.txt:73).
+  Programs test whether they're on-line through it (`MTW,0 *X'4F'`). It isn't in the JIT
+  page, but the model puts it in the program's memory with the JIT. Before that, every
+  program saw 0 there and took itself for a batch job; AP asked for a batch control card.
+- **J:AMR** (word 351, [`assign.md`](assign.md) §6), when the user has an assign/merge record.
+- **J:OPT, JSTDOPT** (words 228, 229): TEL's options.
+- **JB:BCP across M:LDTRC.** FETCH keeps the context (common) pages and JB:BCP for a program
+  run through M:LDTRC (`OLAYLIM`, STPNR.txt:1415–:1431). LYNX leaves the LOCCT there for
+  LOADER, which finds it at page JB:BCP + 1 (IN1.txt:380–:398). The model keeps JB:BCP
+  (`cal.common`) for the next JIT build; the pages themselves stay in memory as they are.
+
 ## In the translation
 
 `python/uts/jit.py` holds the table. When FETCH starts a load module, `jit.build` writes the page

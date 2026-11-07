@@ -103,7 +103,7 @@ Not modeled:
 | AP | Assembles from the terminal or from files (`AP src OVER obj,list`, [`assign.md`](assign.md)). AP types ` TELEFILE ASSEMBLY PROGRAM` and asks ` OPTIONS` with `>`. Enter takes TEL's options; then comes the source until `END`, if it's the terminal. AP prints its listing, symbol table, external and undefined symbols, and error severity, and returns to TEL. This uses `M:GDDL`, `M:DEVICE` NLINES and MODE, `M:REW`, `M:PRECORD` on its consecutive scratch files, and `F:STD`'s own abnormal routine. |
 | FORT | `TELEFILE EXTENDED FORTRAN-IV`, then garbage |
 | BASIC | Stops at `M:RFILE` (`MSRTFILE`) |
-| LOADER | Stops at `M:STIMER` |
+| LYNX, LOADER | `LYNX rom ON lmn` links. LYNX checks the `ON` file doesn't exist, builds the LOCCT in a context page and calls M:LDTRC to `LOADER.:SYS`. LOADER reads the LOCCT, the assign/merge record (T:AMRDWT), and the ROM in pass 1. It searches `:LIB.:SYS` and prints its allocation summary from `ERRMSG.:SYS`, then writes the load module, which runs. Needs `ERRMSG` and `:LIB` in `:SYS` |
 
 EDIT's BUILD needed CP-V's JIT layout: before it, BUILD returned to command mode at once
 ([`jit.md`](jit.md) §1).

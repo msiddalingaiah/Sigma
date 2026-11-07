@@ -210,6 +210,13 @@ class Online:
             return s.t_delus(u)
         s.cal.trace(f"T:TELDELCCI user {u}: the step ends, TEL again")
         s.cal._close_all(u)                            # CLOSEDCBS
+        error = s.cal.step_error.pop(u, None)
+        line = s.coc.line_of(u) if s.coc is not None else None
+        if error and line is not None:                 # not CP-V's words: TEL's are in ERRMSG
+            code, sub, dcb = error
+            s.coc.write(line, f"I/O ERROR X'{code:02X}'" + (f"-{sub:02X}" if sub else "")
+                        + f" ON {dcb}, NO ERROR ROUTINE: THE STEP ENDS",
+                        before=1 if s.coc.lines[line].col else 0, after=True)
         return self._step("T:ABORTM")(s.cal, u)
 
     def _ldtrc(self, cal, u, name, account, password):
@@ -281,6 +288,9 @@ class Online:
             if cal.fs is not None:
                 cal.fs.add_account(account)
             self.logged[u] = True
+            cal.amr[u] = []                            # TEL's record (TEL.txt:363)
+            cal.amr_header.pop(u, None)
+            cal.stdopt.pop(u, None)
             cal.trace(f"LOGON user {u}: {account},{parts[1]}")
             yield from _exit()                         # the step ends: STEP041
             return

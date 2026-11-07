@@ -162,6 +162,27 @@ def restore_tapes(mon, paths):
         print(f"(tape {path}: reel {tape.reel}, {len(names)} files restored to {tape.account})")
 
 
+def install_files(mon, installs):
+    """--install TAPE NAME ...: named files of a labeled tape into :SYS, as the system's
+    own (not CP-V: there SYSGEN's PASS3 and the operator's PCL put them there). Host-side,
+    so a terminal user still can't write :SYS. Without names, the tape's processors that
+    assembling and linking need."""
+    from . import labtape
+    for spec in installs or ():
+        path, names = spec[0], spec[1:] or list(DEVELOPMENT)
+        with open(path, "rb") as f:
+            tape = labtape.read_tape(f.read())
+        files = [f for f in tape.files if f.name in names]
+        missing = [n for n in names if n not in {f.name for f in files}]
+        labtape.restore(mon.sched.cal.fs, labtape.Tape(tape.reel, ":SYS", files), account=":SYS")
+        print(f"(tape {path}: {', '.join(f.name for f in files)} installed in :SYS"
+              + (f"; not on the tape: {', '.join(missing)}" if missing else "") + ")")
+
+
+# What AP, LYNX and LOADER need from the C00 tape (docs/online.md)
+DEVELOPMENT = ("AP", "$:STDDEF", "LYNX", "LOADER", "ERRMSG", ":LIB", "EDIT")
+
+
 def load_cards(mon, reader=None, punch=None):
     """--reader DECK, --punch FILE: the card devices' media (cards.py, a stand-in)."""
     from .cards import CardPunch, CardReader, UnitRecord
@@ -176,13 +197,14 @@ def load_cards(mon, reader=None, punch=None):
 
 
 def operator(m, mon, sysgen=None, keyins=(), lp_faults=None, prints=(), files=(), tapes=(),
-             reader=None, punch=None):
+             reader=None, punch=None, installs=()):
     """Key-ins on a system that is up. ``lp_faults`` makes the line printer fail
     (see io.Unit); ``prints`` are lines queued to it first; ``files`` are --file
     imports, ``tapes`` --restore tapes, ``reader`` and ``punch`` the card devices'
     media. Returns the OperatorConsole."""
     sysgen = sysgen or Sysgen()
     restore_tapes(mon, tapes)
+    install_files(mon, installs)
     import_files(mon, files)
     load_cards(mon, reader, punch)
     con = keyin.OperatorConsole(m, mon, sysgen, lp_faults=lp_faults,
@@ -286,6 +308,10 @@ def main(argv=None):
     p.add_argument("--restore", nargs="*", default=[], metavar="TAPE.tap", dest="tapes",
                    help="labeled tapes (simh .tap) whose files are restored into the file system,"
                         " in the tape's account")
+    p.add_argument("--install", nargs="+", action="append", default=[],
+                   metavar=("TAPE.tap", "NAME"),
+                   help="files of a labeled tape installed in :SYS (not CP-V); with no names,"
+                        " AP, $:STDDEF, LYNX, LOADER, ERRMSG, :LIB and EDIT")
     p.add_argument("--mount", nargs="*", default=[], metavar="TAPE.tap",
                    help="labeled tapes mounted for the terminals' TAPE command (list and copy"
                         " files into one's own account; not CP-V)")
@@ -374,7 +400,7 @@ def run(args, sysgen, model, swap, public, machines):
             print(f"crash          RCVCODE=X'{crashed.RCVCODE:08X}'  recovery buffer@{crashed.TRCVRAD}"
                   f"  dump@{crashed.TRCVRAD + 4}..{crashed.RCVRAD - 1}  X'4000'@{crashed.SEEK4000}")
     if (args.keyins is not None or args.console or args.terminals or args.tapes
-            or args.reader or args.punch) and outcome == "up":
+            or args.install or args.reader or args.punch) and outcome == "up":
         m.console.transcript.clear()
         print("\n=== operator console ===")
         if args.console and args.interactive and not args.terminals:
@@ -383,7 +409,7 @@ def run(args, sysgen, model, swap, public, machines):
         if args.terminals:
             m.console.interactive = False              # the scripted key-ins first
         con = operator(m, mon, sysgen, keyins, parse_faults(args.lp_fault), args.prints,
-                       args.files, args.tapes, args.reader, args.punch)
+                       args.files, args.tapes, args.reader, args.punch, args.install)
         if not args.interactive or args.terminals:
             print(m.console.text())
         if args.terminals and con.shutdown is None and con.sched is not None:

@@ -127,6 +127,32 @@ from TEL's `J:OPT` bits. In H00 they also come from the line (`ASSEMBLE%FLAG`, `
 That this is the older AP's behavior and not the model's isn't proven, since the tape version's
 source isn't here.
 
+## 6. Reading and writing the record: `T:AMRDWT`
+
+CAL1,1 X'2D' reads the record and X'2E' writes it (`T:AMRDWT`, STPNR.txt:3628–:3700). The
+FPT's ERR and ABN go to the JIT, and its buffer and byte count are taken as for a read (the
+fast path, IORT.txt:345–:366). The record is a granule whose disc address is in **J:AMR**
+(JIT word 351: J:BUP + 77, counting the 11-word `DO` block at JIT.txt:710). Its layout:
+
+| Word | |
+|---|---|
+| 0 | The next free word (TEL's RESET: 22) |
+| 1 | The offset of the first set, 0 if none |
+| 3–5, 6–7 | The load module's name and password (LOADR.txt:403–:415) |
+| 13 | The user's number: a read checks it against J:JIT (STPNR.txt:3686–:3690, X'A9') |
+| 22 on | The sets: a link to the next (an offset, 0 for the last), the DCB name (TEXTC), the OPEN list |
+
+- **Read:** with J:AMR 0, end of file (X'06'). The byte count must be 1 to 2048 (`BUFCHK`,
+  X'4A').
+- **Write:** only for a command processor (TIC), the step or special JIT access (`FLAGCHK`),
+  else X'14'.
+- **Errors:** they leave through `MSR01EXIT`, which takes the DCB's own routines.
+
+LOADER reads the record to find `F:n` assignments, which become references (IN1.txt:756–:813).
+The tape's LOADER reads it whenever the LOCCT says assignments exist (LOCWD X'200'); the source's
+extra J:AMR test (`MTW,0 J:AMR`, :754) isn't in its code. The on-line user's record comes into
+being at LOGON, as TEL requires one (TEL.txt:363–:366).
+
 ## In the translation
 
 `python/uts/assign.py` translates §1–§4:
@@ -146,9 +172,10 @@ itself for a batch job there
 named with more on the line.
 
 **Departures:**
-- **Where the record is kept.** It's a Python list per user, not a record on disc that
-  `T:AMRDWT` reads and writes (CAL1,1 X'2D'/X'2E'). So `SHOW DCBS` (CAL1,1 X'2D') still isn't
-  translated.
+- **Where the record is kept.** The sets are a Python list per user (`cal.amr`), with the
+  header words as last written (`cal.amr_header`), not a granule on disc. `T:AMRDWT` (CAL1,1
+  X'2D' and X'2E', below) makes CP-V's layout from them and parses it back, so programs see the
+  real record. J:AMR (JIT word 351) is 1, not a disc address, when the user has a record.
 - **Not translated:** TEL's own verbs that take this syntax (`META`/`ASSEMBLE`, `LINK`, `RUN`,
   `START`, `SET`, `LIST`/`OUTPUT`/`COMMENT`) and `RESET`. Likewise passwords beyond the VLP,
   streams other than the ones `devopen.py` knows, and `UNDER DELTA`.

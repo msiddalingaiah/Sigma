@@ -377,8 +377,11 @@ class CalProcessor:
         self.uname = {}                                # J:UNAME per user (the log-on name)
         self.ccbuf = {}                                # J:CCBUF per user: the command line
         self.amr = {}                                  # the assign/merge record (assign.py)
+        self.amr_header = {}                           # its header words, as last written
         self.stdopt = {}                               # JSTDOPT: TEL's options, kept
         self.jopt = {}                                 # J:OPT: the options for the step
+        self.common = {}                               # JB:BCP kept across M:LDTRC (jit.build)
+        self.step_error = {}                           # the I/O error that ended the step
         self.tcb = {}                                  # J:TCB per user, if M:INT set it
         self.upsd = {}                                 # the user's PSD at its last trap (TSTACK's)
         self.cmap = {}                                 # JX:CMAP per user: the virtual pages mapped
@@ -499,8 +502,8 @@ class CalProcessor:
             return (yield from self.cal11n7(ctx, self.dcb_at(u, dcb), write=True))
         if code == 0x10:                               # READ: IORT CAL11N7
             return (yield from self.cal11n7(ctx, self.dcb_at(u, dcb), write=False))
-        if code in (0x2D, 0x2E):
-            raise NotTranslated(f"CAL1,1 code X'{code:02X}': assign/merge, IORT CAL11N7")
+        if code in (0x2D, 0x2E):                       # IORT.txt:366: OVERTO T:AMRDWT
+            return self.t_amrdwt(ctx, self.dcb_at(u, dcb), code)
         if code == 0x29:                               # CHECK: IORT IOCHEK
             return (yield from self.iochek(ctx, self.dcb_at(u, dcb)))
         for c, target in reversed(C11CDS):             # CHKCAL1, from NC11S down
@@ -615,6 +618,35 @@ class CalProcessor:
         from . import jit
         self.s.umem[u][jit.J_JIT + jit.INTENT] = self.intent[u]   # STW,6 J:INTENT
         self._tcb_from_r0(u)                           # INT10: USE USER R0 AS TCB
+        return ("TRAPEXIT", None)
+        yield
+
+    TIMER_UNITS = (500, 30000, 1)                      # MPLRS: seconds, minutes, ticks
+
+    def mstimer(self, ctx):
+        """MSTIMER  TRAPC.txt:173-:186 - M:STIMER: J:UTIMER the count (FPT word 1) in
+        clock ticks, by the unit in word 0's bits 12-14 (MPLRS: a second is 500); J:TIMENT
+        the exit address with X'08000000'. The clock counting it down and the exit taken
+        when it runs out aren't modeled (a departure, docs/trapxcon.md)."""
+        u = ctx.u
+        unit = (ctx.r6 >> 17) & 3                      # SLS,R6 -17; AND,R6 M2
+        ticks = (self.TIMER_UNITS[unit] if unit < 3 else 0) * self.fetch(u, ctx.r7)
+        self.set_jword(u, jit.UTIMER, ticks)           # STW,D2 UTIMER,R5
+        self.set_jword(u, jit.TIMENT, (ctx.r6 & 0x1FFFF) | 0x08000000)   # OR,R1 Y8
+        return ("TRAPEXIT", None)
+        yield
+
+    def mttimer(self, ctx):
+        """MTTIMER  TRAPC.txt:188-:202 - M:TTIMER: the time left, in the unit in word 0's
+        bits 30-31, into SR1 (R8); with X'100' (CANCEL), J:TIMENT cleared. Nothing left if
+        no exit was set (TIMENT without X'08000000')."""
+        u = ctx.u
+        entry = self.jword(u, jit.TIMENT)
+        if ctx.r6 & 0x100:
+            self.set_jword(u, jit.TIMENT, 0)           # XW,R1 TIMENT,R5
+        unit = ctx.r6 & 3
+        left = self.jword(u, jit.UTIMER) if entry & 0x08000000 else 0
+        self.s.uregs[u][8] = left // self.TIMER_UNITS[unit] if unit < 3 else 0   # DW; *TSTACK-7
         return ("TRAPEXIT", None)
         yield
 
@@ -780,10 +812,11 @@ class CalProcessor:
             at += 2
         password = self.read_bytes(u, at, 0, 8) if flags & 1 else b""
         yield from self.t_overlay(u, LDLNKSEG)         # OVERLAY LDLNKSEG
-        for i in (jit.INTENT, jit.TIMENT, 37, jit.USENT):   # J:INTENT, TIMENT, UTIMER, USENT
+        for i in (jit.INTENT, jit.TIMENT, jit.UTIMER, jit.USENT):
             self.set_jword(u, i, 0)
         self.intent[u] = 0
         self._close_all(u)                             # M:XX and the user's DCBs
+        self.common[u] = self.jbyte(u, jit.BCP_BYTE)   # the context pages stay (OLAYLIM)
         self.trace(f"M:LDTRC user {u}: {name}.{account}")
         hook = self.hooks.get("LDTRC")
         if hook is None:
@@ -1479,7 +1512,7 @@ class CalProcessor:
             if not w0:
                 return None                            # nothing there
             asn = w0 & 0xF
-            if asn not in (1, 3):
+            if asn not in (0, 1, 3):                   # 0: not assigned (yet: a merge, OPEN)
                 raise NotTranslated(f"DCB X'{a:X}' in user memory with ASN {asn} (files and devices only)")
             mem_dcbs[a] = MemDcb(self, u, a)
         return mem_dcbs[a]
@@ -1514,6 +1547,48 @@ class CalProcessor:
                 return self.s.uregs[u][a] if not a & 0x1FFF0 else self.s.umem[u].get(a, 0)
             return w
         return take
+
+    def t_amrdwt(self, ctx, dcb, code):
+        """T:AMRDWT  STPNR.txt:3628-:3700 - CAL1,1 X'2D' reads the user's assign/merge
+        record into the FPT's buffer, X'2E' writes it. The fast path first takes the
+        FPT's ERR and ABN into the JIT, its buffer and size (IORT.txt:345-:366); errors
+        leave through MSR01EXIT, with the DCB's own routines. The size must be 1 to 2048
+        bytes (BUFCHK, X'4A'). With no record (J:AMR 0) a read is the end of file, X'06'.
+        Only a command processor or the step may write (FLAGCHK; NOWRITE, X'14'). The
+        record is assign.py's, made from the user's sets, not a granule on disc."""
+        from . import assign
+        u, j = ctx.u, self.s.jit[ctx.u]
+        presence = self.fetch(u, ctx.r7)
+        take = self._params(u, (self.s.umem[u].get(ctx.r7 + 1 + i, 0) for i in range(4)))
+        given = {}
+        for bit, name in ((P_ERR, "ERR"), (P_ABN, "ABN"), (P_BUF, "BUF"), (P_SIZE, "SIZE")):
+            if presence & bit:
+                given[name] = take()
+        if "ERR" in given:
+            j.ERO = given["ERR"] & 0x1FFFF              # STS,2 ERO+J:JIT
+        if "ABN" in given:
+            j.ABO = given["ABN"] & 0x1FFFF
+        buf = given.get("BUF", dcb.buf) & 0x1FFFF
+        size = given.get("SIZE", 0) & 0xFFFF
+        if not 0 < size <= 2048:
+            return self.msr012(ctx, dcb, 0x4A, own=True)   # BUFERR
+        if u not in self.amr:
+            if code == 0x2D:
+                return self.msr012(ctx, dcb, 0x06, own=True)   # SEND EOF
+        if code == 0x2E:
+            if not self.s.UH_FLG[u] & TIC:
+                return self.msr012(ctx, dcb, 0x14, own=True)   # NOWRITE
+            mem = self.s.umem[u]
+            assign.store(self, u, [mem.get(buf + i, 0) & 0xFFFFFFFF for i in range(size // 4)])
+            self.trace(f"T:AMRDWT user {u}: the assign/merge record written")
+            return self.pullallexit(ctx, 0, 0)
+        words = assign.record(self, u)
+        n = min(len(words), size // 4)
+        for i in range(n):
+            self.s.umem[u][buf + i] = words[i]
+        dcb.ars = 4 * n
+        self.trace(f"T:AMRDWT user {u}: the assign/merge record read, {n} words")
+        return self.pullallexit(ctx, 0, 0)
 
     def cal11n7(self, ctx, dcb, write):
         """CAL11N7  IORT.txt:209 - the fast CAL path for READ and WRITE."""
@@ -1758,6 +1833,9 @@ class CalProcessor:
         if not routine and error:                      # MERC
             j.ABC = code
             j.RNST = 0x01 if code & 0x80 else 0x02     # I/O ERROR
+            name = next((n for n, a in self.dcbs.get(ctx.u, {}).items()
+                         if a == getattr(dcb, "address", None)), dcb.name)
+            self.step_error[ctx.u] = (code, sub, name)       # for TEL's report (online.py)
         return self.pullallexit(ctx, routine, sr3)
 
     def pullallexit(self, ctx, sr1, sr3):
@@ -1869,6 +1947,7 @@ class CalProcessor:
                                org={0x30: 3, 0x20: 2}.get(dcb.org & 0x30, 1), size=dcb.rstore,
                                who=who, password=dcb.prot.get(0x03), prot=dcb.prot)
         except FileError as e:
+            self.trace(f"OPEN {dcb.fname}.{dcb.account} {dcb.fun}: X'{e.code:02X}' ({e})")
             return e.code
         dcb.cfu, dcb.open, dcb.kbuf = cfu, True, None
         dcb.special = self.fs.access == "special"      # SEC97: X'100'
@@ -1893,6 +1972,8 @@ class CalProcessor:
             dcb.asn = fpt_asn                          # MSROPN09  OPN.txt:283-:289
         if dcb is not None and dcb.asn == 3:
             return (yield from self.device_open(ctx, dcb))
+        if dcb is not None and dcb.asn == 0:
+            return self.msr012(ctx, dcb, 0x01, own=True)   # OPENER01: BAD ASN, NOT SET
         if self.fs is None:
             raise NotTranslated("M:OPEN: no file system attached")
         params, j = self._open_params(ctx, dcb), self.s.jit[u]
@@ -2328,3 +2409,5 @@ CalProcessor.resident.update({"T:CLRERR": CalProcessor.t_clrerr, "MTRAP": CalPro
                               "MSRTYPR": CalProcessor.msrtypr, "MSROCTY": CalProcessor.msrtypr})
 for _kind in ("T:EXIT", "T:ERROR", "T:ABORT"):
     CalProcessor.resident[_kind] = CalProcessor.exit_cal(None, _kind)
+CalProcessor.overlaid["MSTIMER"] = CalProcessor.mstimer
+CalProcessor.overlaid["MTTIMER"] = CalProcessor.mttimer

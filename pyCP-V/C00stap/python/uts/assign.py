@@ -200,3 +200,50 @@ def merge(sched, u, dcbs):
             continue                                   # ASM5: NOT IN TABLE
         cal.step_merge(u, dcbs[name], plist)
         cal.trace(f"ASM8 user {u}: {name} merged")
+
+
+# --- the record itself (T:AMRDWT, STPNR.txt:3628) -----------------------------------------
+
+HEADER = 22                                            # TEL's RESET: NEW AVAIL SLOT 22
+SYSID_WORD = 13                                        # the user's number (STPNR.txt:3687)
+RECORD_WORDS = 512                                     # a granule: 2048 bytes at most
+
+
+def _name_words(name):
+    return text_words(_textc(name), (len(name) + 4) // 4, fill=b"\x40")
+
+
+def record(cal, u):
+    """The user's assign/merge record as CP-V keeps it: the header (word 0 the next free
+    word, word 1 the first set, word 13 the user's number; the others as last written),
+    then each set: a link to the next (0: the last), the DCB's name as a TEXTC, and the
+    OPEN parameter list (TEL.txt ASSIGN, :4783; STPNR.txt ASM4, :2688)."""
+    words = list(cal.amr_header.get(u, [0] * HEADER))
+    words[SYSID_WORD] = (words[SYSID_WORD] & 0xFFFF0000) | (u & 0xFFFF)
+    sets = cal.amr.get(u, [])
+    words[1] = HEADER if sets else 0
+    for i, (name, plist) in enumerate(sets):
+        start = len(words)
+        body = _name_words(name) + list(plist)
+        nxt = start + 1 + len(body) if i + 1 < len(sets) else 0
+        words += [nxt] + body
+    words[0] = len(words)                              # the free head
+    if len(words) > RECORD_WORDS:
+        raise ValueError("the assign/merge record is longer than a granule")
+    return words
+
+
+def store(cal, u, words):
+    """A record written back (CAL1,1 X'2E'): its header kept, its sets parsed again."""
+    words = list(words) + [0] * max(0, HEADER - len(words))
+    cal.amr_header[u] = words[:HEADER]
+    sets, at, end = [], words[1] & 0x1FFFF, words[0] & 0x1FFFF
+    while at and at < len(words):
+        nxt = words[at] & 0x1FFFF
+        n = (words[at + 1] >> 24) & 0xFF
+        data = b"".join(w.to_bytes(4, "big") for w in words[at + 1:at + 2 + n // 4])
+        name = data[1:1 + n].decode(EBCDIC)
+        first = at + 1 + (n + 4) // 4
+        sets.append((name, words[first:(nxt or min(end, len(words)))]))
+        at = nxt
+    cal.amr[u] = sets

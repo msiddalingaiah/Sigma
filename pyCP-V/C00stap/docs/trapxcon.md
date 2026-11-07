@@ -121,6 +121,15 @@ for limits exceeded. Then `XCONSEE` (`:583`):
 5. Bit 2 (in progress) is set. An `M:LINK` exit (bit 4) clears bit 4 and sets R12 bit 1.
 6. `J:INTENT` and `J:TIMENT` are cleared (`XCONENT`), and the program goes on (`SSEMDEST`).
 
+## 5. `M:STIMER` and `M:TTIMER`
+
+`MSTIMER` (TRAPC.txt:173–:186) sets **J:UTIMER** (JIT word 37) to the FPT's count (word 1) times
+its unit's multiplier (`MPLRS`: 500 a second, 30000 a minute, 1 a clock tick). The unit is in
+word 0's bits 12–14. **J:TIMENT** gets the exit address with X'08000000'. `MTTIMER` (:188–:202)
+returns the time left, in the unit of word 0's bits 30–31, in SR1. With X'100' (CANCEL) it
+clears J:TIMENT. The model sets the words, but **the clock doesn't count the timer down** and
+the exit is never taken (a departure). LOADER sets one when it starts.
+
 ## In the translation
 
 `python/uts/cal.py`: `mtrap`, `mxcon`, `exit_control` and `_push_environment`, on the user's

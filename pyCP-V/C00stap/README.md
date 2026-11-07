@@ -127,6 +127,7 @@ python -m uts --tape --replies IP 06/15/76 13:45 YES -
 | `--trace` | Print a trace of the boot steps, and the LP output. | off |
 | `--file HOST=NAME[.ACCOUNT] …` | Import Python programs into the CP-V file system before the key-ins. Start one with the key-in `GJOB NAME`; see `docs/python-programs.md`. | none |
 | `--restore TAPE.tap …` | Restore the files of CP-V labeled tapes (simh `.tap` images) into the file system, in the tape's account. See `docs/labtape.md`. | none |
+| `--install TAPE.tap [NAME …]` | Install files of a labeled tape in `:SYS` (not CP-V: SYSGEN and the operator's PCL do it). With no names: AP, `$:STDDEF`, LYNX, LOADER, ERRMSG, `:LIB` and EDIT, what assembling and linking need. LOADER looks for ERRMSG and `:LIB` in `:SYS`. With `--disc`, once is enough. | none |
 | `--mount TAPE.tap …` | Mount labeled tapes for the terminals' `TAPE` command (not CP-V): `TAPE` lists the reels, `TAPE reel` its files, `TAPE reel name` copies a file into the user's own account. With `--terminals`. See `docs/online.md`. | none |
 | `--share DIR` | A host folder for the terminals' `IMPORT` and `EXPORT` commands (not CP-V): `IMPORT` lists it, `IMPORT host [TO fid]` copies a text file in as an EDIT-style file, `EXPORT fid [TO host]` copies a file out. Bare names only, the user's own account only. With `--terminals`. See `docs/online.md`. | none |
 | `--reader DECK.txt` | Load a deck into the card reader: each line is an 80-column card. A program opening `CR` reads it. See `docs/devopen.md`. | none |
@@ -203,9 +204,10 @@ python -m uts --disc book.json.gz --replies 06/15/76 13:45 N --file examples/gue
 python -m uts --replies 06/15/76 13:45 N --file examples/hello.py=HELLO --terminals 2
 
 # AP, the real assembler from the C00 tape, on examples/hello.asm. Telnet in, log on, then:
-#   TAPE CPCO AP $:STDDEF   IMPORT hello.asm   AP HELLO OVER HELLOBO,HELLOLS
+#   IMPORT hello.asm        AP HELLO OVER HELLOBO,HELLOLS
 #   (Enter at OPTIONS >)    EXPORT HELLOLS TO hello.lst     (the listing lands in examples)
-python -m uts --replies 06/15/76 13:45 N --terminals 1 --mount ../c00si/cpcp.tap --share examples
+#   LYNX HELLOBO ON HELLOLM   HELLOLM                         (link, then run it)
+python -m uts --replies 06/15/76 13:45 N --terminals 1 --install ../c00si/cpcp.tap --share examples
 ```
 
 ```powershell

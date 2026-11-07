@@ -109,3 +109,41 @@ def test_ap_reads_a_file_and_writes_its_object_and_listing():
     finally:
         fs.close(obj)
     assert b"" + "START".encode(EBCDIC) in record   # the DEF's name, a TEXTC
+
+
+def test_the_record_round_trips():
+    t = logged_on()
+    u, cal = t.user(), t.s.cal
+    assign.parse(cal, u, "SRC OVER OBJ,ME", "BOB")
+    words = assign.record(cal, u)
+    assert words[1] == assign.HEADER and words[13] & 0xFFFF == u     # first set; SYSID
+    first = words[assign.HEADER:]
+    assert first[1] >> 24 == 4 and words[0] == len(words)             # 'M:SI', a TEXTC; free
+    sets = list(cal.amr[u])
+    words[3] = 0x12345678                                             # LOADR: the LM name
+    assign.store(cal, u, words)
+    assert cal.amr[u] == sets and assign.record(cal, u)[3] == 0x12345678
+
+
+@pytest.mark.skipif(not os.path.exists(C00_TAPE), reason="the C00 boot tape image isn't here")
+def test_lynx_links_aps_object_and_it_runs():
+    from uts import labtape
+    t = logged_on()
+    with open(C00_TAPE, "rb") as f:
+        tape = labtape.read_tape(f.read())
+    pick = lambda *names: [f for f in tape.files if f.name in names]
+    labtape.restore(t.s.cal.fs, labtape.Tape(tape.reel, ":SYS",
+                                             pick("AP", "$:STDDEF", "LYNX", "LOADER", "ERRMSG", ":LIB")))
+    with open(os.path.join(os.path.dirname(__file__), "..", "examples", "hello.asm")) as f:
+        pyprog.store_source(t.s.cal.fs, "HELLO", "BOB", f.read())
+    for line in ("AP HELLO OVER HELLOBO", "", "LYNX HELLOBO ON HELLOLM"):
+        t.type(line + "\r")
+        t.run(8000)
+    assert "* * ALLOCATION SUMMARY * *" in t.text()
+    log = "\n".join(t.s.log)
+    assert "M:LDTRC user 7: LOADER.:SYS" in log                       # LYNX hands over
+    assert "T:AMRDWT user 7: the assign/merge record read" in log
+    t.type("HELLOLM\r")
+    t.run(8000)
+    assert t.text().splitlines()[1:] == ["HELLO FROM AP", "COUNT 3", "COUNT 2", "COUNT 1",
+                                         "GOODBYE", "!"]

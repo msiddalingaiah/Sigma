@@ -19,6 +19,7 @@ ACCN, UNAME = 1, 3                      # J:ACCN (2 words), J:UNAME (3 words)
 ABC, RNST, ASSIGN = 17, 18, 20          # J:ABC, J:RNST, J:ASSIGN
 ERO, ABO = 21, 22                       # the error and abnormal addresses
 TELFLGS, INTENT, TIMENT = 33, 35, 36    # J:TELFLGS, J:INTENT, J:TIMENT
+UTIMER = 37                             # J:UTIMER: the timer count, in clock ticks
 USENT = 38                              # J:USENT: USRENT and TRPFLAGS, one word (:438-:439)
 TCB, TREE, DCBLINK = 39, 40, 43         # J:TCB, J:TREE, J:DCBLINK
 EXTENT = 72                             # J:EXTENT: exit control (:487; STPNR.txt:335)
@@ -42,6 +43,8 @@ BUP, EUP = M_XX + 40, M_XX + 41         # J:BUP, J:EUP: the user's pages
 PLL, PUL, DLL, DUL = BUP + 2, BUP + 3, BUP + 4, BUP + 5       # pure procedure; data
 DDLL, DDUL, CLL, CUL = BUP + 6, BUP + 7, BUP + 8, BUP + 9     # dynamic data; context
 DCBLL, DCBUL = BUP + 10, BUP + 11                             # DCBs
+AMR = BUP + 77                          # J:AMR: the assign/merge record's disc address
+                                        # (JIT.txt:719; J:BUP's DO block, :710, is 11 words)
 PCP_BYTE = 4 * (BUP + 12)               # JB:PCP, PCD, PCDD, PCC, PCDCB: page counts by area
 TDP_BYTE, BCP_BYTE = 4 * (BUP + 15), 4 * (BUP + 15) + 1   # JB:TDP, JB:BCP
 JBUPVP, JEUPVP = 0x50, 0xDF             # JIT.txt:282, :284
@@ -99,6 +102,9 @@ def build(sched, u, tcb=0, dcblink=0, tree=0, start=0, name="", limits=None, acc
         words[i] = v
     if limits and DDLL in limits:
         words[TDP_BYTE // 4] = (words[TDP_BYTE // 4] & 0x00FFFFFF) | ((limits[DDLL] & 0xFF) << 24)
+    bcp = cal.common.pop(u, None)                      # after M:LDTRC: the context pages stay,
+    if bcp is not None:                                # JB:BCP with them (STPNR OLAYLIM, :1431)
+        words[BCP_BYTE // 4] = (words[BCP_BYTE // 4] & 0xFF00FFFF) | ((bcp & 0xFF) << 16)
     words[SYSID] = (kind << 30) | (u & 0xFFFF)
     words[ACCN:ACCN + 2] = text_words(cal.account.get(u, ":SYS").encode(EBCDIC), 2)
     words[UNAME:UNAME + 3] = text_words(cal.uname.get(u, "").encode(EBCDIC), 3)
@@ -125,4 +131,6 @@ def build(sched, u, tcb=0, dcblink=0, tree=0, start=0, name="", limits=None, acc
     words[w] = (words[w] & 0xFFFFFF00) | (cal.prompt.get(u, 0) & 0xFF)
     out = {J_JIT + i: v & 0xFFFFFFFF for i, v in enumerate(words)}
     out[CJOB] = J_JIT                                  # ADDRESS IN MONITOR TO FIND JIT
+    if u in cal.amr:                                   # the user has a record: here not on
+        out[J_JIT + AMR] = 1                           # disc, so any address that isn't 0
     return out

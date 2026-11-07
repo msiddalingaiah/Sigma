@@ -9,7 +9,14 @@
 *     !AP HELLO OVER HELLOBO,HELLOLS  (source, object, listing)
 *     >                               (AP asks OPTIONS: just Enter)
 *     !EXPORT HELLOLS TO hello.lst    (the listing, back to the host)
+*     !LYNX HELLOBO OVER HELLOLM        (link: LYNX hands over to LOADER)
+*     !HELLOLM                        (run it)
 *
+*  LOADER needs ERRMSG and :LIB in :SYS: start with --install ../c00si/cpcp.tap,
+*  which also puts AP, LYNX and LOADER there (then TAPE isn't needed).
+*
+*  On-line, M:TYPE writes on M:UC, and COC adds no new line after a
+*  record there: the program sends its own, NL (X'15'), as TYPENL does.
 *  Columns as on a card: label 1, operation 10, operands 19. Tabs work
 *  too: IMPORT puts them at those columns.
 *
@@ -17,6 +24,7 @@
 COUNT    EQU      3                 how far to count
 *
 START    CAL1,2   TYPEHI            M:TYPE: the greeting
+         CAL1,2   TYPENL
          LI,5     COUNT
 LOOP     LW,7     5                 the count as an EBCDIC digit ...
          AI,7     X'F0'
@@ -25,8 +33,10 @@ LOOP     LW,7     5                 the count as an EBCDIC digit ...
          OR,6     7
          STW,6    MSGN+1
          CAL1,2   TYPEN
+         CAL1,2   TYPENL
          BDR,5    LOOP              3, 2, 1
          CAL1,2   TYPEBYE
+         CAL1,2   TYPENL
          CAL1,9   1                 M:EXIT
 *
 *  M:TYPE FPTs: the code, the presence bit, the message (a TEXTC)
@@ -34,8 +44,10 @@ LOOP     LW,7     5                 the count as an EBCDIC digit ...
 TYPEHI   DATA     X'02000000',X'80000000',HI
 TYPEN    DATA     X'02000000',X'80000000',MSGN
 TYPEBYE  DATA     X'02000000',X'80000000',BYE
+TYPENL   DATA     X'02000000',X'80000000',NL
 MASK     DATA     X'FFFFFF00'
 HI       TEXTC    'HELLO FROM AP'
 MSGN     TEXTC    'COUNT X'         the X is replaced by the digit
 BYE      TEXTC    'GOODBYE'
+NL       DATA     X'01150000'       a TEXTC of one character: NL
          END      START

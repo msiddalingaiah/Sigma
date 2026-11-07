@@ -39,7 +39,8 @@ def program(sched, u, words, start, dcbs=None, name="", type_line=None, before=N
     CAL) or ('ROUTINE', address, SR3), the user's error or abnormal address."""
     mem = sched.umem[u]
     mem.update(words)
-    sched.cal.dcbs.setdefault(u, {}).update(dcbs or {})   # J:DCBLINK, from the DCB table
+    sched.cal.dcbs[u] = dict(dcbs or {})               # J:DCBLINK: this program's DCB table
+    sched.cal.mem_dcbs[u] = {}                         # (none of the last program's DCBs)
     if before is not None:
         before()                                       # the step's work with memory in place
     cpu = Cpu(sched.uregs[u], mem, pc=start, cc=sched.psd_cc[u], model=MODEL)
