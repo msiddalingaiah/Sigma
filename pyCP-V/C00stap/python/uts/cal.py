@@ -491,7 +491,7 @@ class CalProcessor:
                 return (yield from self.invoke(ctx, target))
         if code == 0x06:                               # M:SETDCB: IOSDEV always does it
             return self.setdcb(ctx, self.dcb_at(u, dcb))
-        if code in (0x04, 0x05, 0x2B):                 # M:DEVICE PAGE, VFC; M:CORRES
+        if code in (0x04, 0x05, 0x22, 0x2A, 0x2B):     # M:DEVICE PAGE, VFC, MODE, NLINES; M:CORRES
             return (yield from self.iosdev(ctx, dcb, code))
         if code in DEVCDS:
             return (yield from self.invoke(ctx, Res("IOSDEV")))
@@ -505,6 +505,10 @@ class CalProcessor:
         if address == M_OC:
             return ("CC", 0)                           # IOSDEVX: CLEAR
         dcb = self.dcb_at(u, address)
+        if code == 0x2A:                               # IONLINES  :471
+            return self.ionlines(u, dcb)
+        if code == 0x22:                               # IOMODE  :290
+            return self.iomode(u, ctx.r7, dcb)
         if code == 0x04:                               # IOPAGE  :310
             if isinstance(dcb, MemDcb) and not dcb.open:   # TESTOPN: OPEN it first
                 yield from self.t_overlay(u, OPNSEG)
@@ -531,6 +535,41 @@ class CalProcessor:
         self.s.uregs[u][8] = 1 if same else 0          # SR1 into the user's R8 (NL1)
         return ("CC", 0)
         yield
+
+    def iomode(self, u, fpt, dcb):
+        """IOMODE  IOD.txt:290 - M:DEVICE (MODE), for a device or unassigned DCB only
+        (TSTDEV, :552): FPT word 1's X'10' into MOD X'20000', X'20' into FCON X'4000',
+        and X'40' clear into PCK X'200' (packed is the default); then the record size,
+        if the first presence bit is set (JHKBIT1, IORT.txt:396; SAVRSZ)."""
+        if dcb.asn & 7 not in (0, 3) or not isinstance(dcb, MemDcb):
+            return ("CC", 0)                           # IOSDEVX
+        w1 = self.fetch(u, fpt + 1)
+        w0 = self.fetch(u, dcb.address) & ~(0x20000 | 0x4000 | 0x200)
+        w0 |= (0x20000 if w1 & 0x10 else 0) | (0x4000 if w1 & 0x20 else 0)
+        w0 |= 0 if w1 & 0x40 else 0x200
+        self.s.umem[u][dcb.address] = w0
+        if w1 & 0x80000000:
+            take = self._params(u, iter([self.fetch(u, fpt + 2)]))
+            dcb.rsz = take() & 0x7FFF
+        return ("CC", 0)
+
+    def ionlines(self, u, dcb):
+        """IONLINES  IOD.txt:471-:500 - M:DEVICE (NLINES): SR1 = the lines left on the page,
+        the DCB's lines per page (LVA, word 10 bits 0-14) less its count (word 12's left
+        half, CLK); 0 for a DCB not assigned to a device. A symbiont stream's context
+        (CNTXTCHK, SCLINES) isn't modeled."""
+        regs = self.s.uregs[u]
+        regs[8] = 0                                    # LI,SR1 0
+        if dcb.asn != 3 or not isinstance(dcb, MemDcb):
+            return ("CC", 0)                           # NOT APPLICABLE IF NOT DEVICE
+        w12 = self.fetch(u, dcb.address + 12)
+        if w12 & 0xFF:
+            raise NotTranslated("M:DEVICE (NLINES) for a symbiont stream (CNTXTCHK)")
+        lva = (self.fetch(u, dcb.address + 10) >> 17) & 0x7FFF
+        used = w12 >> 16
+        used = used - 0x10000 if used & 0x8000 else used   # SH: a signed halfword
+        regs[8] = (lva - used) & 0xFFFFFFFF
+        return ("CC", 0)
 
     def _assignment(self, u, dcb):
         """GETDEV's answer, for comparing two DCBs: what the DCB is assigned to."""
@@ -1083,6 +1122,22 @@ class CalProcessor:
         return ("CC", 8)                               # CC1SET
         yield
 
+    def t_gddl(self, ctx):
+        """T:GDDL  UCAL.txt:182-:375 - M:GDDL: SR1 the dynamic data area's first word
+        (J:DDLL*512), SR2 its last (J:DDUL*512+511), SR3 the pages the user could still
+        get: the least of several limits. Only the one the page calls model is taken
+        (GPL257: the area's pages less those got, JB:PCDD); SL:CORE, JB:MNPA/SB:ROMX/
+        SB:RBMX, S:PCORE, the FPOOL and COOP reserve and the AJIT page (GPL20-GPL256,
+        GPL90) aren't modeled, as the page calls' size limits aren't."""
+        u, regs = ctx.u, self.s.uregs[ctx.u]
+        lo, hi = self.jword(u, jit.DDLL), self.jword(u, jit.DDUL)
+        used = self.jbyte(u, jit.PCP_BYTE + 2)            # JB:PCDD
+        regs[8] = (lo << 9) & 0xFFFFFFFF
+        regs[9] = ((hi << 9) + 0x1FF) & 0xFFFFFFFF
+        regs[10] = max(0, hi - lo + 1 - used)
+        return ("TRAPEXIT", None)
+        yield
+
     def t_gl(self, ctx):
         """T:GL  MMNR.txt:240 - M:GL: SR1 = the first word of the common pages got, SR2 =
         the last word of the dynamic data's upper page; with no common pages, both the
@@ -1549,7 +1604,9 @@ class CalProcessor:
             if w0 & 0x10100 and data:                  # COCWR30: VFC (X'100') or TOF
                 if w0 & 0x10000:
                     self.s.umem[u][dcb.address] = w0 & ~0x10000   # TURN OFF TOF BIT
-                before = data[0] - 0xC0 if 0xC1 <= data[0] <= 0xCF else 1   # X'C1'-X'CF', TOF
+                # X'C1'-X'CF': that many new lines; X'F1', top of form: here one; any
+                # other first character: none, and it's still not sent (COCWR30, COCWR70)
+                before = data[0] - 0xC0 if 0xC1 <= data[0] <= 0xCF else 1 if data[0] == 0xF1 else 0
                 data = data[1:]                        # COCWR70: the control isn't sent
             after = dcb.address != M_UC and not (data and data[-1] in NOCR)   # COCWR80
             if dcb.rws:                                # MSRWRT: a count of 0 is MSREXIT
@@ -1659,12 +1716,17 @@ class CalProcessor:
             return self.pullallexit(ctx, 0, 0)
         return self.msr012(ctx, dcb, code)
 
-    def msr012(self, ctx, dcb, code, sub=0):
-        """MSR012 / MERC  IORT.txt:896, :1557 - to the user's routine, or the run status."""
+    def msr012(self, ctx, dcb, code, sub=0, own=False):
+        """MSR012 / MERC  IORT.txt:896, :1557 - to the user's routine, or the run status.
+        The routine is the JIT's ERO or ABO (IOCHEK3, :893); own=True takes the DCB's
+        own ERA or ABA instead, as MSR01EXIT does (:598-:603) for OPEN (OBSE.txt:87)."""
         j = self.s.jit[ctx.u]
         error = bool(code & 0xC0)
         sr3 = (code << 24) | (dcb.address & 0x1FFFF)
-        routine = (j.ERO if error else j.ABO) & 0x1FFFF
+        if own:
+            routine = getattr(dcb, "era" if error else "aba", 0) & 0x1FFFF
+        else:
+            routine = (j.ERO if error else j.ABO) & 0x1FFFF
         self.trace(f"{'error' if error else 'abnormal'} X'{code:02X}'"
                    + (f"-{sub:02X}" if sub else "") + f" on {dcb.name}"
                    + (f": routine X'{routine:X}'" if routine else ""))
@@ -1812,7 +1874,7 @@ class CalProcessor:
         if not dcb.open:
             code = self._open(u, dcb)
             if code:
-                return self.msr012(ctx, dcb, code)     # X'03': no such file (abnormal)
+                return self.msr012(ctx, dcb, code, own=True)  # X'03': no such file (abnormal)
         return self.pullallexit(ctx, 0, 0)
         yield
 
@@ -1870,7 +1932,7 @@ class CalProcessor:
         then OPENDEV (devopen.py). A DCB that is open already: X'2E' (OPN.txt:91-:94)."""
         u, params = ctx.u, self._open_params(ctx, dcb)
         if dcb.open:
-            return self.msr012(ctx, dcb, 0x2E)             # OPEN AN OPEN DCB
+            return self.msr012(ctx, dcb, 0x2E, own=True)   # OPEN AN OPEN DCB
         if "BUF" in params:
             dcb.buf = params["BUF"] & 0x1FFFF
         if "RSZ" in params:
@@ -1879,7 +1941,7 @@ class CalProcessor:
             dcb.btd = params["BTD"] & 3
         code = self._open_device(u, dcb, params.get("DEVOPT"))
         if code:
-            return self.msr012(ctx, dcb, *code)
+            return self.msr012(ctx, dcb, *code, own=True)
         return self.pullallexit(ctx, 0, 0)
         yield
 
@@ -1964,6 +2026,35 @@ class CalProcessor:
         self.trace(f"READ {dcb.name} key {key.decode(EBCDIC)!r}: {len(data)} bytes")
         return self.pullallexit(ctx, 0, 0)
 
+    def rew(self, ctx):
+        """REW  POS.txt:351-:384 - M:REW. A DCB that isn't open and isn't a device: nothing
+        (REW3: JASN, DESTRUCT). An open file: to its beginning (REW5 with PTL, PFIL1,
+        PFILB :257-:267): a keyed file's position cleared (SETCMD1 0), a consecutive file
+        back to record 0 (SEQ3), TYC 0. A device: a magnetic tape is rewound (REWTP),
+        which isn't modeled; others have nothing to do here. Labeled and ANS tapes
+        (CHKANS1, PFIL4) aren't translated."""
+        from .files import Position
+        u = ctx.u
+        dcb = self.dcb_at(u, ctx.r6 & 0x1FFFF)
+        if dcb.asn == 2:
+            raise NotTranslated("M:REW of a labeled tape (PFIL4)")
+        if dcb.asn == 3:
+            if getattr(dcb, "dtype", "") == "MT":
+                raise NotTranslated("M:REW of a magnetic tape (REWTP)")
+            return self.pullallexit(ctx, 0, 0)
+        if not dcb.open:
+            return ("TRAPEXIT", None)                  # REW3: DESTRUCT
+        if dcb.org == 0x20:
+            dcb.kbuf, dcb.trn = None, False            # SETCMD1: CMD = 0
+        elif dcb.org == 0x10:
+            dcb.rgran = 0
+        else:
+            dcb.cpos = Position()                      # SEQ3: back to record 0
+        dcb.tyc, dcb.last = 0, "position"              # PFILB2: SETTYC 0
+        self.trace(f"REW {dcb.name}")
+        return self.pullallexit(ctx, 0, 0)
+        yield
+
     def _keytran(self, u, dcb, key):
         """KEYTRAN  RDF.txt:323-:331: the key, TEXTC, into the DCB's key buffer (the address
         in its word 10), where a program reads it (EDIT: the line number just read)."""
@@ -1990,8 +2081,10 @@ class CalProcessor:
         back = bool(presence & F_REV)                  # SETPOS: DIR
         if not dcb.open:
             raise NotTranslated("M:PRECORD of a DCB not open (TESTOPN)")
+        if dcb.asn == 1 and dcb.org == 0:
+            return self.precord_seq(ctx, dcb, n, back)
         if dcb.asn != 1 or dcb.org != 0x20:
-            raise NotTranslated("M:PRECORD of a consecutive file or a tape (SEQ, JASN)")
+            raise NotTranslated(f"M:PRECORD of {dcb.name}: ASN {dcb.asn}, ORG X'{getattr(dcb, 'org', 0):02X}' (JASN)")
         import bisect
         keys = [k.encode(EBCDIC) for k in dcb.cfu.file.keys()]    # in key (byte) order
         if dcb.kbuf is None:
@@ -2018,6 +2111,25 @@ class CalProcessor:
         dcb.tyc = 0
         return self.pullallexit(ctx, 0, 0)
         yield
+
+    def precord_seq(self, ctx, dcb, n, back):
+        """PRECORD2 / SEQ2-SEQ9  POS.txt:516-:546 - a consecutive file: the record W14
+        +-N, kept within 0..TDA; the records not skipped into CDA and the ARS, then
+        SETBOFEOF (:590): TYC 7 forward, 4 back, if any weren't."""
+        f = dcb.cfu.file
+        p = dcb.cpos.rec
+        q = p - n if back else p + n
+        short = -q if q < 0 else max(0, q - f.TDA)
+        q = min(max(q, 0), f.TDA)
+        dcb.cpos = f.seek_record(q)
+        dcb.ars, dcb.last = short, "position"
+        self.trace(f"PRECORD {dcb.name} {'back' if back else 'forward'} {n}: record {q}"
+                   f" of {f.TDA}" + (f", {short} short" if short else ""))
+        if short:
+            dcb.tyc = 4 if back else 7
+            return self.msr012(ctx, dcb, CODE[dcb.tyc])
+        dcb.tyc = 0
+        return self.pullallexit(ctx, 0, 0)
 
     def iosfile(self, ctx, dcb):
         """IOSFILE / IOSEQUB  WRTF.txt:153, :236 - a keyed write; without a key, the key
@@ -2133,13 +2245,14 @@ CalProcessor.overlaid.update({"T:WAIT": CalProcessor.t_wait, "MTIME": CalProcess
                               "MSRKEY": CalProcessor.msrkey})
 CalProcessor.overlaid["MXCON"] = CalProcessor.mxcon
 CalProcessor.overlaid["PRECORD"] = CalProcessor.precord
+CalProcessor.overlaid["REW"] = CalProcessor.rew
 CalProcessor.overlaid.update({"T:GDP": CalProcessor.get_pages(None, 1),
                               "T:GCP": CalProcessor.get_pages(None, -1),
                               "T:GVP": CalProcessor.get_pages(None, 0),
                               "T:FDP": CalProcessor.free_pages(None, -1),
                               "T:FCP": CalProcessor.free_pages(None, 1),
                               "T:FVP": CalProcessor.free_pages(None, 0),
-                              "T:GL": CalProcessor.t_gl,
+                              "T:GL": CalProcessor.t_gl, "T:GDDL": CalProcessor.t_gddl,
                               "T:ASSOCIATE": CalProcessor.t_associate,
                               "T:DISASSOCIATE": CalProcessor.t_associate})
 CalProcessor.resident.update({"T:CLRERR": CalProcessor.t_clrerr, "MTRAP": CalProcessor.mtrap,

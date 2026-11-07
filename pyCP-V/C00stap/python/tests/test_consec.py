@@ -102,6 +102,18 @@ def test_writing_before_the_end_cuts_the_file_there():
     assert len(d.g) < used and f.check() == []         # later granules released
 
 
+def test_seek_record_positions_before_a_record():
+    d, f = new(200)
+    write_all(f, [b"1" * 10, b"2" * 3000, b"3" * 9])
+    p = f.seek_record(1)                               # M:PRECORD: before record 1
+    assert p.rec == 1 and p.start is None and f.read(p) == b"2" * 3000
+    p = f.seek_record(3)
+    assert f.read(p) is None                           # at the end
+    p = f.seek_record(0)
+    f.write(p, b"NEW")                                 # back to the start: a rewrite
+    assert f.records() == [b"NEW"]
+
+
 def test_a_zero_length_write_writes_nothing():
     d, f = new()
     write_all(f, [b"A", b"", b"B"])

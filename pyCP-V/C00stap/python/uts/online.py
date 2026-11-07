@@ -152,6 +152,7 @@ class Online:
             cal.hooks[name] = self._step(name)
         sched.on_logon = self._new_user
         cal.hooks["LDTRC"] = self._ldtrc
+        sched.hooks["T:TELDELCCI"] = self._teldelcci
         sched.hooks["BREAK"] = self._break
         sched.hooks["NOT TRANSLATED"] = self._not_translated
 
@@ -179,6 +180,7 @@ class Online:
                 pass
         s.stacks[u] = [program]
         s.programs[u] = program
+        s._send.pop(u, None)                           # nothing pending for the old program
         s.UH_FLG[u] |= TIC                             # ISTEL: the command processor in control
         return ("RUN", u)
 
@@ -197,6 +199,15 @@ class Online:
                 self.acp[u] = "TEL"
             return self._start(u, self.tel(u))
         return hook
+
+    def _teldelcci(self, s, u):
+        """T:TELDELCCI  STPNR.txt:553 - the step's end with the run status set (an I/O
+        error with no error routine, an X key-in): for an on-line user, the same step end
+        as an abort, so TEL has the terminal again. Others: the scheduler's default."""
+        if not self.online(u):
+            return s.t_delus(u)
+        s.cal.trace(f"T:TELDELCCI user {u}: the step ends, TEL again")
+        return self._step("T:ABORTM")(s.cal, u)
 
     def _ldtrc(self, cal, u, name, account, password):
         """T:ASP after M:LDTRC (LNKTRC.txt L10LNK, :738-:796): the named processor in the

@@ -236,8 +236,10 @@ the I/O completes later. With one:
    | X'13' | write error after end of tape | X'4F' |
 
 3. **A non-zero code** (`MSR012`, `:896`). Codes with X'C0' set are **errors**, and the rest are
-   abnormal. The code goes into byte 0 of `SR3` with the DCB address. If the user gave an error
-   (or abnormal) address, `SR1` gets it, and `IOSPRTN` sends the user there with SR3 in R10
+   abnormal. The code goes into byte 0 of `SR3` with the DCB address. The address comes from
+   `*D2,R4`. From `IOCHEK3` (`:893`), R4 is the JIT, so this is `ERO` or `ABO`. From `MSR01EXIT`
+   (`:598`), R4 is the DCB, so this is its `ERA` or `ABA` (see [`devopen.md`](devopen.md) §4).
+   If the user gave an error (or abnormal) address, `SR1` gets it, and `IOSPRTN` sends the user there with SR3 in R10
    ([`cal.md`](cal.md) §5). If not, **`MERC`** (`:1557`) handles it. An abnormal code is
    ignored, and the CAL ends normally (`BCR,KC MERC1`). An error records the abort code and `ERO`,
    and sets run status X'02' (X'01' if the code's top bit is set). The job then ends at the exit

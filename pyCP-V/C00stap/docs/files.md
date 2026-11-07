@@ -786,8 +786,13 @@ Digits come after letters, and specials such as `:` before them.
 
   Either the reading of `CHKCON` (the X'1' flag and backspace words) or of the writer and `DLT`
   is wrong somewhere. The translation follows the source as read on both sides.
-- **Positioning CALs** (`M:PFIL`, `M:PRECORD`) set `W19` and the direction. They are in an overlay
-  (`MISOVSEG`) not read, so how a file is rewound or skipped through is only known from `SEQPOS`.
+- **Positioning CALs** (`M:PFIL`, `M:PRECORD`) set `W19` and the direction. `M:PRECORD` on a
+  consecutive file is translated (POS.txt `PRECORD2`, `SEQ2`–`SEQ9`, `:516`–`:546`). The new
+  record number is `W14` ± N, kept between 0 and `TDA`. Records not skipped go into `CDA` and the
+  ARS, and `SETBOFEOF` (`:590`) sets TYC 7 (forward) or 4 (back). CP-V leaves the skip in `W19`
+  until the next read's `SEQPOS`. The model reads from the start of the file up to the record
+  (`ConsecutiveFile.seek_record`). AP uses this to go back over its scratch files. `M:PFIL` isn't
+  translated.
 - **Half-granule index blocks** (resolved for C00): the modules that build and read them assemble
   with full granules. Half granules are an older format FIX1 still accepts.
 - **The spare bytes** (resolved): `COMPLEN` keeps them free in every index block on insert. How

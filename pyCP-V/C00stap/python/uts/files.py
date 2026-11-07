@@ -1180,6 +1180,16 @@ class ConsecutiveFile:
         pos.da, pos.w, pos.rec, pos.start = da, after, pos.rec + 1, start
         return data
 
+    def seek_record(self, q):
+        """PRECORD2 / SEQPOS  POS.txt:516, RDF.txt:3017 - a position before record ``q``
+        (0 to TDA). CP-V keeps the skip in W19 and makes it at the next read; here
+        the file is read from the beginning to it."""
+        pos = Position()
+        while pos.rec < q and self.read(pos) is not None:
+            pass
+        pos.start = None
+        return pos
+
     # -- write -----------------------------------------------------------------------
 
     def write(self, pos, data):

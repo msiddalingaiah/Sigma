@@ -72,6 +72,7 @@ at `JIT.txt:269`–`:287`:
 | X'46' | X'08C00'–X'08DFF' | The user's JIT (`JJITVP`), with `M:UC` and `M:XX` in it |
 | X'47' | X'08E00' | The additional JIT (`JAJITVP`) |
 | X'48', X'49' | X'09000', X'09200' | Special buffers 1 and 2 (`JSBUF1VP`, `JSBUF2VP`) |
+| X'4A', X'4B' | X'09400', X'09600' | The file buffer windows, mapped per CAL (`MAPBUFS`): the blocking buffer `BUFF1` and the index buffer `BUFF2` ([`files.md`](files.md) §7) |
 | X'4E', X'4F' | X'09C00', X'09E00' | `JCOVP`, `JCO2VP` (not traced) |
 | X'50'–X'DF' | X'0A000'–X'1BFFF' | **The user's program** (`JBUPVP`–`JEUPVP`): 144 pages |
 | X'E0'–X'FF' | X'1C000'–X'1FFFF' | The special processor area: Delta and debuggers (`JSPVP`) |
@@ -139,6 +140,27 @@ whole file came almost for free.
 
 Protection is by account, password and read/write/execute account lists, kept in VLPs in the file's
 FIT: closer to access lists than to Unix's owner/group/other bits.
+
+### I/O data flow: monitor buffers or direct
+
+CP-V copies when it must reformat or share, and transfers directly when a request is large and
+aligned ([`files.md`](files.md), [`rdwr.md`](rdwr.md), [`coc.md`](coc.md)):
+
+| What | Path |
+|---|---|
+| Keyed file | Index blocks into `BUFF2`, the data granule into the blocking buffer `BUFF1`, the record moved to the user. The buffers stay with the DCB between CALs, a cache; `AGER` picks the oldest, `TRUNC` flushes them |
+| Consecutive file | A blocked segment copied from the granule buffer; an unblocked one (a record with its own granule) read and written straight from the user's buffer (`PVREADTP`, `IMAGE2`) |
+| Random file | Straight between disc and the user's buffer, at most 32 sectors a transfer (`RWRAND`) |
+| Typewriter output | A monitor buffer: NL, the user's ID, tabs, the record, 136 bytes at most (`MSRTYPE`); returned at completion (`MPOOL`) |
+| Printer | A monitor buffer, or a symbiont stream (`MSRLP`) |
+| Other device reads | Queued straight into the user's buffer (`MSROTHR`) |
+| Control cards | Into `J:CCBUF`, then moved (`MSRRED`) |
+| Terminal | COC's line buffer chains; `COCMU` moves the line to the user at completion, `COCWR` into the output buffers |
+
+A direct transfer needs the user's pages to stay in core; the DCB's function count and the user's
+(`T:RVPI` sleeps on it before releasing a page) are part of how, though not traced through the
+swapper. It is today's page cache and `O_DIRECT`. The translation models none of it: reads and
+writes copy straight between the file model and the user's memory.
 
 ### The DCB
 

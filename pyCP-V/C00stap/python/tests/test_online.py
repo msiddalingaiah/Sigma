@@ -474,3 +474,28 @@ def test_tel_runs_slip_to_its_error_routine():
     assert "OPEN DCB X'A9E4' user 7: ASN 3 -> 1" in log   # F:3: ERRMSG.:SYS, the FPT's file
     assert "abnormal X'03' on DCB X'A9E4'" in log         # ... which isn't here
     assert "OPEN DCB X'A8BA' user 7: device ME" in log    # M:LL, a default open: M:PRINT
+
+
+C00_TAPE = os.path.join(os.path.dirname(__file__), "..", "..", "c00si", "cpcp.tap")
+
+
+@pytest.mark.skipif(not os.path.exists(C00_TAPE), reason="the C00 boot tape image isn't here")
+def test_ap_assembles_from_the_terminal():
+    from uts import labtape
+    t = logged_on()
+    with open(C00_TAPE, "rb") as f:
+        tape = labtape.read_tape(f.read())
+    labtape.restore(t.s.cal.fs, labtape.Tape(tape.reel, ":SYS",
+                                             [f for f in tape.files if f.name in ("AP", "$:STDDEF")]))
+    for line in ("AP", "AP SI,LO.", "START    LI,1     5", "         LW,2     UNDEF",
+                 "         END      START"):
+        t.type(line + "\r")
+    t.run(20000)
+    lines = t.text().splitlines()
+    assert "       1   01 00000    22100005 A   START    LI,1     5" in lines
+    assert any(l.startswith("U      2   01 00001    32200000 A") for l in lines)
+    assert " *    ERROR SEVERITY LEVEL: 3" in lines and lines[-1] == "!"
+    log = "\n".join(t.s.log)
+    assert "abnormal X'03' on DCB X'AC00': routine X'B7B7'" in log   # F:STD's own ABA
+    assert "OPEN $:STDDEF.:SYS IN" in log                 # ... which opens it in :SYS
+    assert "PRECORD" in log                               # a scratch file, consecutive

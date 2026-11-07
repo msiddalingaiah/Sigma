@@ -124,6 +124,16 @@ The FPT can change the DCB before anything is opened, for a file as for a device
 `:526`–`:531`). An exit through the DCB (`MSR01EXIT`, `IORT.txt:598`–`:603`) uses them. An exit
 after a read or write uses the JIT's (`IOCHEK`, `:890`–`:895`), which come from that CAL's FPT.
 
+OPEN's failures go through `MSR01EXIT` (`OPER` → `OERX`, `OBSE.txt:87`–`:89`), so they use the
+DCB's own `ERA`/`ABA`, assembled in or set by an earlier OPEN or SETDCB. The model does this
+for a file that isn't there, a device error, and an open DCB (`msr012(..., own=True)`). AP needs
+it: `F:STD` has ABA X'B7B7' assembled in. That routine opens `$:STDDEF` again in `:SYS` when it
+isn't in the user's account.
+
+**Departure:** read and write errors that CP-V also takes through `MSR01EXIT` (`READERR`,
+`IORT.txt:597`, and others in RDF.txt and WRTF.txt) still use the JIT's `ERO`/`ABO` in the model.
+For each of those exits, which word CP-V uses hasn't been traced.
+
 ## 5. Device options and two small services
 
 **Device options** (`M:DEVICE`, CAL1,1 with a device code, `IOSDEV`, `IOD.txt:99`). The code is
@@ -140,6 +150,13 @@ CORRES go straight to their routines (`TSTDEV1`, `:547`–`:549`).
   (`1A1`). With the bit set, COC takes a record's first character as format control (`COCWR30`,
   `COC.txt:2935`): X'F1' a top of form, X'C1'–X'CF' that many new lines. The character itself
   isn't sent, whatever it is (`COCWR70`, `:3103`).
+- **MODE** (`IOMODE`, `:290`): this works on a device DCB or an unassigned one (ASN 0). It sets
+  three bits in the DCB's word 0 from the FPT's second word: X'10' → `MOD` X'20000', X'20' →
+  `FCON` X'4000', and X'40' clear → `PCK` X'200' (packed is the default, `EOR` with the `LI`
+  word). If the first presence bit is set, the record size follows (`JHKBIT1`, `SAVRSZ`). AP
+  sends it to `M:GO`.
+- **NLINES** (`IONLINES`, `:471`): the lines left on the page, into register 8, for a device DCB.
+  It's 0 for anything else. A symbiont stream (`CNTXTCHK`) isn't translated.
 - **CORRES** (`IOCORRES`, `:507`): are two DCBs assigned alike? `GETDEV` (`IORT.txt:1288`) gives
   each one's assignment, for a DCB never opened too (`GETDEV1`). The answer, 1 or 0, goes into the
   user's register 8 (`NL1`).
@@ -160,8 +177,9 @@ translation table changes.
 - the FPT's assignment (`CHKASN`, `MSROPN09`), then `device_open` or the file open;
 - MSROPN's parameters and the FPT's VLPs, merged into a DCB in memory (`_merge_open`,
   `MemDcb.set_vlp`);
-- `M:SETDCB`, and the device options PAGE, VFC and CORRES (`iosdev`). PAGE on a terminal starts
-  a new line, VFC sets the bit COC then honours, and CORRES compares two DCBs' assignments.
+- `M:SETDCB`, and the device options PAGE, VFC, MODE, NLINES and CORRES (`iosdev`). PAGE on a
+  terminal starts a new line, VFC sets the bit COC then honours, MODE sets its three bits, NLINES
+  gives the lines left, and CORRES compares two DCBs' assignments.
   The other options stop with `NotTranslated`;
 - `M:INT`, which records the BREAK address. A BREAK still ends the program and returns to TEL:
   delivering it to the address isn't translated;
