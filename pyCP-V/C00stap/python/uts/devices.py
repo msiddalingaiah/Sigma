@@ -22,18 +22,50 @@ class DeviceError(Exception):
 class Console:
     """Operator console (OC). ``replies`` is a script; ``interactive`` reads stdin."""
 
+    KEYIN_PROMPT = "\n!"                    # KEYIN's TP25: NL, '!'
+
     def __init__(self, replies=(), interactive=False, echo=False):
         self.replies = deque(replies)
         self.interactive = interactive
         self.echo = echo
         self.transcript = []
         self.eof = False
+        # live: key-ins typed on the host while the system runs (--terminals with -i
+        # --console). The operator types after a '!' the console shows when it is ready,
+        # so KEYIN's own prompt and the echo of the line are left out on the host.
+        self.live = False
+        self.prompt_shown = False
+        self.at_line_start = True
+        self.just_typed = False
+
+    def show_prompt(self):
+        """Live: '!' when the console is ready for a key-in, on a line of its own."""
+        if self.live and not self.prompt_shown:
+            print(("" if self.at_line_start else "\n") + "!", end="", flush=True)
+            self.prompt_shown, self.at_line_start = True, False
+
+    def typed(self):
+        """Live: the operator ended a line with Enter (the host has echoed it)."""
+        self.prompt_shown, self.at_line_start, self.just_typed = False, True, True
 
     def write(self, text):
         # The source uses X'15' (EBCDIC NL) inside messages; we use '\n'.
         self.transcript.append(text)
-        if self.echo or self.interactive:
-            print(text, end="", flush=True)
+        if not (self.echo or self.interactive):
+            return
+        if self.live:
+            if text == self.KEYIN_PROMPT:
+                return                              # the operator typed after our '!'
+            if self.just_typed and text.startswith("\n"):
+                text = text[1:]                     # the host's Enter was that new line
+            if text:
+                self.just_typed = False
+            if self.prompt_shown and not text.startswith("\n"):
+                text = "\n" + text                  # output while '!' waits: a new line
+            self.prompt_shown = False
+            if text:
+                self.at_line_start = text.endswith("\n")
+        print(text, end="", flush=True)
 
     def read(self):
         """Read one reply. '' means no input before the timeout."""
@@ -51,7 +83,7 @@ class Console:
             raise ConsoleExhausted("console script has no more replies")
         if not self.interactive:
             self.transcript.append(reply + "\n")
-            if self.echo:
+            if self.echo and not self.live:             # live: the host showed it as typed
                 print(reply)
         return reply
 

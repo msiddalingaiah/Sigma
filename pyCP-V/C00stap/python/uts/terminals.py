@@ -190,6 +190,7 @@ def operator_line(con, text):
     from .devices import ConsoleExhausted
     from .monitor import NotTranslated
     console = con.m.console
+    console.typed()
     console.replies.append(text)
     try:
         con.interrupt()
@@ -213,6 +214,8 @@ def realtime(con, server, keyins=None, stop=None, poll=0.02):
     try:
         while con.shutdown is None and not (stop and stop()):
             server.poll(poll)
+            if keyins is not None:
+                con.m.console.show_prompt()            # live: ready for a key-in
             while keyins is not None:
                 try:
                     text = keyins.get_nowait()

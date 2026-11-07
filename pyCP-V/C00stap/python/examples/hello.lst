@@ -1,0 +1,79 @@
+1* AP * 08:00 JUN 16,'76                                                                          PAGE    1
+A       1                            *                                                                          1.000
+        2                            *  HELLO - a first AP program. Types a greeting, counts down from 3,       2.000
+        3                            *  and exits. To assemble it at a terminal (docs/online.md, docs/assign.   3.000
+        4                            *                                                                          4.000
+        5                            *     python -m uts --disc sys.json.gz --replies 06/16/76 08:00 N -i --c   5.000
+        6                            *                                                                          6.000
+        7                            *     !TAPE CPCO AP $:STDDEF          (once: AP into your account)         7.000
+        8                            *     !IMPORT hello.asm               (this file, as HELLO)                8.000
+        9                            *     !AP HELLO OVER HELLOBO,HELLOLS  (source, object, listing)            9.000
+       10                            *     >                               (AP asks OPTIONS: just Enter)       10.000
+       11                            *     !EXPORT HELLOLS TO hello.lst    (the listing, back to the host)     11.000
+       12                            *     !LYNX HELLOBO OVER HELLOLM        (link: LYNX hands over to LOADER  12.000
+       13                            *     !HELLOLM                        (run it)                            13.000
+       14                            *                                                                         14.000
+       15                            *  LOADER needs ERRMSG and :LIB in :SYS: start with --install ../c00si/c  15.000
+       16                            *  which also puts AP, LYNX and LOADER there (then TAPE isn't needed).    16.000
+       17                            *                                                                         17.000
+       18                            *  On-line, M:TYPE writes on M:UC, and COC adds no new line after a       18.000
+       19                            *  record there: the program sends its own, NL (X'15'), as TYPENL does.   19.000
+       20                            *  Columns as on a card: label 1, operation 10, operands 19. Tabs work    20.000
+       21                            *  too: IMPORT puts them at those columns.                                21.000
+       22                            *                                                                         22.000
+       23                                     DEF      START                                                   23.000
+       24         00000003           COUNT    EQU      3                 how far to count                      24.000
+       25                            *                                                                         25.000
+       26   01 00000    0420000F     START    CAL1,2   TYPEHI            M:TYPE: the greeting                  26.000
+       27   01 00001    04200018              CAL1,2   TYPENL                                                  27.000
+       28   01 00002    22500003 A            LI,5     COUNT                                                   28.000
+       29   01 00003    32700005 A   LOOP     LW,7     5                 the count as an EBCDIC digit ...      29.000
+       30   01 00004    207000F0 A            AI,7     X'F0'                                                   30.000
+       31   01 00005    32600021              LW,6     MSGN+1            ... into the message's last byte      31.000
+       32   01 00006    4B60001B              AND,6    MASK                                                    32.000
+       33   01 00007    49600007 A            OR,6     7                                                       33.000
+       34   01 00008    35600021              STW,6    MSGN+1                                                  34.000
+       35   01 00009    04200012              CAL1,2   TYPEN                                                   35.000
+       36   01 0000A    04200018              CAL1,2   TYPENL                                                  36.000
+       37   01 0000B    64500003              BDR,5    LOOP              3, 2, 1                               37.000
+       38   01 0000C    04200015              CAL1,2   TYPEBYE                                                 38.000
+       39   01 0000D    04200018              CAL1,2   TYPENL                                                  39.000
+       40   01 0000E    04900001 A            CAL1,9   1                 M:EXIT                                40.000
+       41                            *                                                                         41.000
+       42                            *  M:TYPE FPTs: the code, the presence bit, the message (a TEXTC)         42.000
+       43                            *                                                                         43.000
+       44   01 0000F    02000000 A   TYPEHI   DATA     X'02000000',X'80000000',HI                              44.000
+            01 00010    80000000 A
+            01 00011    0000001C
+       45   01 00012    02000000 A   TYPEN    DATA     X'02000000',X'80000000',MSGN                            45.000
+            01 00013    80000000 A
+            01 00014    00000020
+       46   01 00015    02000000 A   TYPEBYE  DATA     X'02000000',X'80000000',BYE                             46.000
+            01 00016    80000000 A
+            01 00017    00000022
+       47   01 00018    02000000 A   TYPENL   DATA     X'02000000',X'80000000',NL                              47.000
+            01 00019    80000000 A
+            01 0001A    00000024
+       48   01 0001B    FFFFFF00 A   MASK     DATA     X'FFFFFF00'                                             48.000
+       49   01 0001C    0DC8C5D3 A   HI       TEXTC    'HELLO FROM AP'                                         49.000
+            01 0001D    D3D640C6 A
+            01 0001E    D9D6D440 A
+            01 0001F    C1D74040 A
+       50   01 00020    07C3D6E4 A   MSGN     TEXTC    'COUNT X'         the X is replaced by the digit        50.000
+            01 00021    D5E340E7 A
+       51   01 00022    07C7D6D6 A   BYE      TEXTC    'GOODBYE'                                               51.000
+            01 00023    C4C2E8C5 A
+       52   01 00024    01150000 A   NL       DATA     X'01150000'       a TEXTC of one character: NL          52.000
+       53         01 00000                    END      START                                                   53.000
+
+  CONTROL SECTION SUMMARY: 01 00025   PT 0     02 00000   PT 0     03 00000   PT 1
+1* AP * 08:00 JUN 16,'76                                                                          PAGE    2
+A *    SYMBOL VALUES
+          BYE/01 00022             COUNT/00000003           HI/01 0001C              LOOP/01 00003
+          MASK/01 0001B            MSGN/01 00020            NL/01 00024              START-01 00000
+          TYPEBYE/01 00015         TYPEHI/01 0000F          TYPEN/01 00012           TYPENL/01 00018
+  *    EXTERNAL SYMBOLS
+          START*DEF
+  * NO UNDEFINED SYMBOLS
+  *    ERROR SEVERITY LEVEL: 0
+  * NO ERROR LINES

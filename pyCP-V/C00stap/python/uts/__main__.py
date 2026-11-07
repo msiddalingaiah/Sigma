@@ -411,7 +411,10 @@ def run(args, sysgen, model, swap, public, machines):
         con = operator(m, mon, sysgen, keyins, parse_faults(args.lp_fault), args.prints,
                        args.files, args.tapes, args.reader, args.punch, args.install)
         if not args.interactive or args.terminals:
-            print(m.console.text())
+            text = m.console.text()
+            if args.terminals and args.interactive and args.console:
+                text = text.removesuffix(m.console.KEYIN_PROMPT)   # the live '!' comes later
+            print(text)
         if args.terminals and con.shutdown is None and con.sched is not None:
             terminals(con, args)
         print(operator_report(con))
@@ -459,6 +462,7 @@ def terminals(con, args):
     console.echo = True                                # the console's output, as it happens
     if args.interactive and args.console:
         print("(type key-ins here; they go to the operator's KEYIN)")
+        console.live = True
         keyins = queue.Queue()
 
         def read_stdin():
