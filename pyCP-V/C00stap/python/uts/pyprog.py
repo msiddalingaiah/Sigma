@@ -88,8 +88,10 @@ def program(sched, u, name, account):
         cal.cmap[u] = fetch.pages(lm)                  # JX:CMAP: the program's pages
         sched.trace(f"FETCH {name}.{account}: start X'{lm.start:X}', TCB X'{lm.tcb:X}',"
                     f" DCBs {', '.join(lm.dcbs)}")
+        from . import assign
         yield from interp.program(sched, u, lm.words, lm.start, lm.dcbs, name=name,
-                                  type_line=lambda text: _type(cal, u, text))
+                                  type_line=lambda text: _type(cal, u, text),
+                                  before=lambda: assign.merge(sched, u, lm.dcbs))
         return
     try:
         source = read_source(cal.fs, name, account)   # the step's load (a stand-in)
@@ -276,12 +278,13 @@ class Cpv:
         dcb = self.cal.add_dcb(self.u, f"F:{self._dcbs}", address, asn=1, fname=name,
                                account=account, fun=fun, keym=keym, rstore=size,
                                prot=protection(password, read, write, execute, vehicle),
-                               org={"keyed": 0x20, "consec": 0, "random": 0x10}[org])
+                               org={"keyed": 0x20, "consec": 0, "random": 0x30}[org])
         self._call(Cal1(1, Fpt(0x14, word0=address, presence=P_ERR | P_ABN,
                                params=[self.ERRR, self.ABNR])))
-        if dcb.org == 0:
+        from .cal import consecutive, random
+        if consecutive(dcb):
             return ConsecFile(self, dcb)
-        return RandomFile(self, dcb) if dcb.org == 0x10 else File(self, dcb, binary_keys)
+        return RandomFile(self, dcb) if random(dcb) else File(self, dcb, binary_keys)
 
 
 class Record(bytes):

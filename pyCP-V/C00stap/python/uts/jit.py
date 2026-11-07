@@ -34,6 +34,7 @@ CPV_EXTRA = 4
 TSTACK = 74 + CPV_EXTRA                 # the temporary stack, 123 words (JTSTACKSZ 121 + 2)
 CCBUF, CCBUF_WORDS = 200 + CPV_EXTRA, 13   # J:CCBUF: the command line
 LMN, START = 226 + CPV_EXTRA, 229 + CPV_EXTRA   # J:LMN (3 words), J:START
+OPT, STDOPT = LMN - 2, LMN - 1          # J:OPT, JSTDOPT: TEL's options (JIT.txt:520-:523)
 M_XX = 230 + CPV_EXTRA                  # M:XX, the program's own load module's DCB
 MXFPL, MXKB = M_XX + 22, M_XX + 32      # its VLPs (name, account, password), key buffer
 # Memory management (JIT.txt:539-:617): page numbers, lower and upper limits of each area
@@ -46,6 +47,8 @@ TDP_BYTE, BCP_BYTE = 4 * (BUP + 15), 4 * (BUP + 15) + 1   # JB:TDP, JB:BCP
 JBUPVP, JEUPVP = 0x50, 0xDF             # JIT.txt:282, :284
 SIZE = BUP + 16                         # the template's words
 UC_ADDRESS = J_JIT + M_UC               # X'8C2C'
+CJOB = 0x4F                             # the monitor's word holding J:JIT's address: programs
+                                        # find the JIT through it (PASS3.txt:1329, DEF.txt:73)
 XX_ADDRESS = J_JIT + M_XX               # X'8CEA'
 
 TEMPLATE = {ABC: 0x80700000,            # J:ABC  DATA X'80700000'
@@ -101,6 +104,7 @@ def build(sched, u, tcb=0, dcblink=0, tree=0, start=0, name="", limits=None, acc
     words[UNAME:UNAME + 3] = text_words(cal.uname.get(u, "").encode(EBCDIC), 3)
     words[TCB], words[DCBLINK], words[TREE], words[START] = tcb, dcblink, tree, start
     words[INTENT] = cal.intent.get(u, 0)
+    words[OPT], words[STDOPT] = cal.jopt.get(u, 0), cal.stdopt.get(u, 0)
     line = sched.coc.line_of(u) if getattr(sched, "coc", None) is not None else None
     if line is not None:                               # LINE#: M:UC+COCLN's low byte
         words[M_UC + 1] = (words[M_UC + 1] & ~0xFF) | (line & 0xFF)   # (UCAL.txt:418, :439)
@@ -119,4 +123,6 @@ def build(sched, u, tcb=0, dcblink=0, tree=0, start=0, name="", limits=None, acc
     words[w] = (words[w] & 0x00FFFFFF) | ((cal.priv.get(u, 0) & 0xFF) << 24)
     w = PROMPT_BYTE // 4
     words[w] = (words[w] & 0xFFFFFF00) | (cal.prompt.get(u, 0) & 0xFF)
-    return {J_JIT + i: v & 0xFFFFFFFF for i, v in enumerate(words)}
+    out = {J_JIT + i: v & 0xFFFFFFFF for i, v in enumerate(words)}
+    out[CJOB] = J_JIT                                  # ADDRESS IN MONITOR TO FIND JIT
+    return out

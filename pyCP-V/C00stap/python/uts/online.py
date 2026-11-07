@@ -13,10 +13,11 @@ T:ABORT and CALBAD's T:ABORTM):
   user is removed, T:DELUS.
 """
 
+import os
 import re
 
-from . import fetch, interp, labtape, pyprog
-from .cal import M_UC, P_ABN, P_BTD, P_BUF, P_ERR, P_SIZE, Fpt
+from . import assign, fetch, hostfiles, interp, labtape, pyprog
+from .cal import M_UC, P_ABN, P_BTD, P_BUF, P_ERR, P_SIZE, Fpt, keyed, random
 from .files import EBCDIC, FileError
 from .monitor import NotTranslated
 from .sched import TIC, Cal1
@@ -146,6 +147,7 @@ class Online:
         self.logged = {}               # the user has logged on
         self.accounts = {}             # the account the user logged on with
         self.tapes = {}                # reel -> labtape.Tape, mounted for TAPE (not CP-V)
+        self.share = None              # the host folder for IMPORT and EXPORT (not CP-V)
         cal = sched.cal
         self.prev = {name: cal.hooks.get(name) for name in STEP_HOOKS}
         for name in STEP_HOOKS:
@@ -207,6 +209,7 @@ class Online:
         if not self.online(u):
             return s.t_delus(u)
         s.cal.trace(f"T:TELDELCCI user {u}: the step ends, TEL again")
+        s.cal._close_all(u)                            # CLOSEDCBS
         return self._step("T:ABORTM")(s.cal, u)
 
     def _ldtrc(self, cal, u, name, account, password):
@@ -309,6 +312,10 @@ class Online:
             if verb == "TAPE":                         # not CP-V: the mounted tapes (--mount)
                 yield from self.tape(u, rest)
                 continue
+            if verb in ("IMPORT", "EXPORT"):           # not CP-V: the shared folder (--share)
+                args = typed.strip()[len(verb):].strip()   # host names keep their case
+                yield from (self.import_ if verb == "IMPORT" else self.export)(u, args)
+                continue
             target = rest.split()[0] if verb in ("RUN", "START") and rest else verb
             fid = re.fullmatch(FID, target)     # a name and more: the more is the
             if fid is None:                     # program's, in J:CCBUF (CHKULM, TEL.txt:950)
@@ -320,6 +327,14 @@ class Online:
                 yield from _type(cal, u, "EH?" if verb not in ("RUN", "START")
                                  else f"{name} NOT FOUND")
                 continue
+            logon = self.accounts.get(u, ":SYS")
+            given = False
+            if verb not in ("RUN", "START") and rest:  # PARSER  TEL.txt:609: the rest
+                message, given = assign.parse(cal, u, rest, logon)
+                if message:
+                    yield from _type(cal, u, message)  # ONERR: the command is dropped
+                    continue
+            assign.step(cal, u, given, logon)          # GROUP2C  :483-:510
             yield from _prompt("")                     # the program's own reads
             cal.trace(f"TEL user {u}: run {name}.{account}")
             cal.ccbuf[u] = typed                       # TELCCBUF: the line, into J:CCBUF
@@ -369,6 +384,74 @@ class Online:
             cal.trace(f"TAPE user {u}: {name} from {tape.reel} to {account}")
             yield from _type(cal, u, f"{name} COPIED TO {account}: {len(f.records)} RECORDS")
 
+    # --- IMPORT and EXPORT: not CP-V (hostfiles.py) --------------------------------------
+
+    def _own_fid(self, u, text):
+        """A fid NAME[.ACCOUNT] in the user's own account: (name, account) or a message."""
+        m = re.fullmatch(FID, text.upper())
+        own = self.s.cal.account.get(u, ":SYS")
+        if m is None:
+            return None, f"{text}: NOT A FILE NAME"
+        name, account = m.groups()
+        if account and account != own:
+            return None, "ONLY YOUR OWN ACCOUNT"
+        return (name, own), None
+
+    def import_(self, u, args):
+        """IMPORT: the shared folder's files. IMPORT host [TO fid]: the host file into
+        the user's account as an EDIT-style keyed file (by default named after the host
+        file, its extension dropped), an old one replaced."""
+        cal = self.s.cal
+        words = args.split()
+        try:
+            if not words:
+                files = hostfiles.listing(self.share)
+                if not files:
+                    yield from _type(cal, u, "NO HOST FILES")
+                for name, size, when in files:
+                    yield from _type(cal, u, f"{name:<24}{size:>8}  {when}")
+                return
+            if len(words) not in (1, 3) or (len(words) == 3 and words[1].upper() != "TO"):
+                yield from _type(cal, u, "IMPORT host [TO fid]")
+                return
+            host = words[0]
+            hostfiles.resolve(self.share, host)        # the host name first
+            target = words[2] if len(words) == 3 else os.path.splitext(host)[0]
+            fid, message = self._own_fid(u, target)
+            if message:
+                yield from _type(cal, u, message)
+                return
+            n, long = hostfiles.import_file(cal.fs, self.share, host, *fid)
+        except (hostfiles.HostError, OSError, FileError) as e:
+            yield from _type(cal, u, str(e)[:100] if isinstance(e, hostfiles.HostError)
+                             else f"{words[0]}: NOT IMPORTED ({e})"[:100])
+            return
+        cal.trace(f"IMPORT user {u}: {host} to {fid[0]}.{fid[1]}, {n} records")
+        yield from _type(cal, u, f"{fid[0]}: {n} RECORDS"
+                         + (f", {long} LONGER THAN {hostfiles.CARD}" if long else ""))
+
+    def export(self, u, args):
+        """EXPORT fid [TO host]: a file of the user's account into the shared folder, a
+        line a record (by default named FID.txt), an old one replaced."""
+        cal = self.s.cal
+        words = args.split()
+        if len(words) not in (1, 3) or (len(words) == 3 and words[1].upper() != "TO"):
+            yield from _type(cal, u, "EXPORT fid [TO host]")
+            return
+        fid, message = self._own_fid(u, words[0])
+        if message:
+            yield from _type(cal, u, message)
+            return
+        host = words[2] if len(words) == 3 else fid[0] + ".txt"
+        try:
+            n = hostfiles.export_file(cal.fs, self.share, *fid, host)
+        except (hostfiles.HostError, OSError) as e:
+            yield from _type(cal, u, str(e)[:100] if isinstance(e, hostfiles.HostError)
+                             else f"{host}: NOT EXPORTED ({e})"[:100])
+            return
+        cal.trace(f"EXPORT user {u}: {fid[0]}.{fid[1]} to {host}, {n} records")
+        yield from _type(cal, u, f"{host}: {n} RECORDS")
+
     def find(self, u, name, account=None):
         """The program's account: the one given, else the user's own, else :SYS."""
         fs = self.s.cal.fs
@@ -410,7 +493,7 @@ class Online:
             yield from _type(cal, u, f"COPY: CAN'T OPEN {args.split()[0]}: CODE"
                                      f" {_code(result):02X}")
             return
-        if cal.dcb_at(u, COPYDCB).org == 0x10:
+        if random(cal.dcb_at(u, COPYDCB)):
             yield from _type(cal, u, "COPY: A RANDOM FILE")
         else:
             recnum = 0
@@ -425,7 +508,7 @@ class Online:
                 recnum += 1                            # READ27: MTW,1 RECNUM
                 dcb = cal.dcb_at(u, COPYDCB)
                 data = cal.read_bytes(u, FBUF, 0, min(dcb.ars, FSIZE))
-                key = dcb.kbuf if dcb.org == 0x20 else None
+                key = dcb.kbuf if keyed(dcb) else None
                 if "X" in options:
                     lines = hexdump(recnum, key, data)
                 else:

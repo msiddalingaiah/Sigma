@@ -13,6 +13,31 @@ from .sched import E_CBK, E_CEC, E_CIC, E_OFF
 
 BS, CAN, EM, ESC, CR, LF, DEL = 0x08, 0x18, 0x19, 0x1B, 0x0D, 0x0A, 0x7F
 CRLF = b"\r\n"
+# TTYOUT  COC.txt:4655 - the output table's first four rows, EBCDIC X'00'-X'3F': an
+# ASCII control, or (X'80' up) a COC function. X'82' is *CR and *NL (X'0D', X'15'): a
+# new line. The rest of the table is EBCDIC's graphics, which code page 037 gives.
+TTYOUT_CONTROLS = bytes.fromhex(
+    "00010203EA810607" "8B05150B80820E0F" "1011121314821617" "18E58E1BE1E2E3E4"
+    "8D1C1D1E1F192F5E" "3D0D040829090A23" "848685D6D2C3CBD3" "D5D7D78CCEC68788")
+NEW_LINE = 0x82
+
+
+def ttyout(data):
+    """A record's bytes as the terminal gets them (TTYOUT): graphics through code page
+    037, a new line for *CR and *NL (as EBCDIC NL, U+0085, which write() expands), an
+    ASCII control as itself. COC's other functions (tabs, ESC sequences, *FF, *LF) and
+    TTYOUT's '+' controls aren't translated: dropped."""
+    out = []
+    for c in data:
+        if c >= 0x40:
+            out.append(bytes([c]).decode("cp037"))
+            continue
+        t = TTYOUT_CONTROLS[c]
+        if t == NEW_LINE:
+            out.append("\x85")
+        elif t < 0x80:
+            out.append(chr(t))
+    return "".join(out)
 
 
 class Line:

@@ -25,6 +25,7 @@ but delivering a trap or a bad CAL to the trap entry isn't translated (docs/trap
 from dataclasses import dataclass, field, replace
 
 from . import jit
+from .coc import ttyout
 from .files import EBCDIC
 from .monitor import NotTranslated
 from .sched import (E_AP, E_CRD, E_IC, E_IIP, E_IP, E_SL, E_WU, PPSWP, RTR, SJAC, TIC, Dcb,
@@ -39,6 +40,7 @@ FPT_ADDR, CAL_ADDR = 0xA000, 0xA100   # where a stand-in's FPT and CAL1 go (inve
 M_OC = 0x8E00                                # M:OC, the monitor's (invented: outside the JIT)
 M_UC = 0x8C2C                                # M:UC: in the JIT, word 44 (jit.py, JIT.txt:460)
 M_XX = jit.XX_ADDRESS                        # M:XX: in the JIT, word 234 (jit.py, JIT.txt:527)
+AMBUF = 0x49 * 512                           # SBUF2VPA: the assign/merge window (TEL.txt:95)
 KEYBUF = 0x8E40                              # M:KEYIN without a buffer: the reply goes here
 WAIT_UNIT = 600                 # clock units (2 ms) per M:WAIT unit: 1/50 minute (assumed)
 TMS = 0x00800000                # FPT word 0 flag for M:TIME's binary result (Y008)
@@ -209,6 +211,20 @@ DCB_FIELDS = {
 PROT_CODES = (0x03, 0x05, 0x06, 0x14, 0x15)
 
 
+# The organization, ORG's X'30' (OPNF.txt:1015-:1038, :550-:558): X'20' clear is
+# consecutive (0, or X'10' "explicit consec"), X'20' keyed, X'30' random.
+def consecutive(dcb):
+    return not dcb.org & 0x20
+
+
+def keyed(dcb):
+    return dcb.org & 0x30 == 0x20
+
+
+def random(dcb):
+    return dcb.org & 0x30 == 0x30
+
+
 def vlps_at(mem, a):
     """A VLP list at word ``a`` (a DCB's FLP, or after an FPT's parameters): {code:
     [data words]}: the words used (0: the parameter is not given). Each starts with a control
@@ -360,6 +376,9 @@ class CalProcessor:
         self.intent = {}                               # J:INTENT per user: M:INT's address
         self.uname = {}                                # J:UNAME per user (the log-on name)
         self.ccbuf = {}                                # J:CCBUF per user: the command line
+        self.amr = {}                                  # the assign/merge record (assign.py)
+        self.stdopt = {}                               # JSTDOPT: TEL's options, kept
+        self.jopt = {}                                 # J:OPT: the options for the step
         self.tcb = {}                                  # J:TCB per user, if M:INT set it
         self.upsd = {}                                 # the user's PSD at its last trap (TSTACK's)
         self.cmap = {}                                 # JX:CMAP per user: the virtual pages mapped
@@ -772,8 +791,12 @@ class CalProcessor:
         return ("SE", hook(self, u, name, account, password))
 
     def _close_all(self, u):
-        """LDT0's CLOSE: each open DCB of the program closed, files saved; M:XX too."""
+        """LDT0's CLOSE, and CLSDCBS at the step's end (STPNR.txt:1164-:1242): each open
+        DCB of the program closed, files saved; M:XX too."""
+        mem = self.s.umem[u]
         for address in list(self.dcbs.get(u, {}).values()) + [M_XX]:
+            if address in mem and not mem[address] & 0x00200000:
+                continue                               # CW,15 Y002: NOT OPEN
             dcb = self.dcb_at(u, address)
             if dcb is not None and dcb.open:
                 if getattr(dcb, "cfu", None) is not None and self.fs is not None:
@@ -1347,6 +1370,8 @@ class CalProcessor:
         raise ValueError(result)
 
     def _hook(self, name, u, *args):
+        """The step's end: CLOSEDCBS (STPNR.txt:873-:892, CLSDCBS :1164), then the hook."""
+        self._close_all(u)
         fn = self.hooks.get(name)
         if fn is not None:
             return fn(self, u, *args)
@@ -1610,7 +1635,7 @@ class CalProcessor:
                 data = data[1:]                        # COCWR70: the control isn't sent
             after = dcb.address != M_UC and not (data and data[-1] in NOCR)   # COCWR80
             if dcb.rws:                                # MSRWRT: a count of 0 is MSREXIT
-                s.coc.write(line, data.decode(EBCDIC), before, after)   # (WRTD.txt:148-:150)
+                s.coc.write(line, ttyout(data), before, after)   # TTYOUT (WRTD.txt:148-:150)
         else:
             prompt = bytes([self.prompt[u]]).decode(EBCDIC) if self.prompt.get(u) else ""
             while (text := s.coc.read(line, prompt)) is None:
@@ -1841,7 +1866,7 @@ class CalProcessor:
         dcb.usr = account_key(dcb.account) != account_key(who.account)   # USR X'4000'
         try:
             cfu = self.fs.open(dcb.fname, dcb.account, dcb.fun, dcb.keym,
-                               org={0: 1, 0x10: 3}.get(dcb.org, 2), size=dcb.rstore,
+                               org={0x30: 3, 0x20: 2}.get(dcb.org & 0x30, 1), size=dcb.rstore,
                                who=who, password=dcb.prot.get(0x03), prot=dcb.prot)
         except FileError as e:
             return e.code
@@ -1850,9 +1875,11 @@ class CalProcessor:
         # An existing file keeps its organization (OPNF reads the X'09' VLP); the DCB
         # follows it. Whether OPEN overrides the DCB's ORG this way wasn't traced.
         if isinstance(cfu.file, ConsecutiveFile):
-            dcb.org, dcb.cpos = 0, Position()
+            dcb.cpos = Position()
+            if dcb.org & 0x20:
+                dcb.org = 0
         elif isinstance(cfu.file, RandomFile):
-            dcb.org, dcb.rgran = 0x10, 0
+            dcb.org, dcb.rgran = 0x30, 0
         else:
             dcb.org = 0x20
         return 0
@@ -1882,12 +1909,24 @@ class CalProcessor:
     OPEN_PARAMS = ("ERR", "ABN", "BUF", "RSZ", "NRA", "ORG", "ACS", "FUN", "GEN", "FOPT",
                    "USELB", "TLB", "KEYM", "DEVOPT", "BTD")
 
+    def _fpt_layout(self, u, r7):
+        """MSROPN  OPN.txt:107-:114, :258-:270 - an OPEN FPT's flags word (word 1), the
+        address of its presence bits, and whether VLPs follow the parameters. The "A"
+        form (X'2000', as TEL's assign/merge sets are built) has the presence bits in
+        the next word and VLPs if X'4000' is set; the standard form has them in word 1
+        and VLPs if its low 10 bits aren't 0."""
+        flags = self.fetch(u, r7)
+        if flags & 0x2000:                             # CI,4 X'22000' / AI,7 1: NON-STANDARD
+            return flags, r7 + 1, bool(flags & 0x4000)
+        return flags, r7, bool(flags & 0x3FF)
+
     def _open_params(self, ctx, dcb):
         """MSROPN's FPT parameters, by presence bit (OPN.txt:109-:146): {name: value}.
         The error and abnormal addresses go into the JIT and the DCB (ERA, ABA)."""
         u, j = ctx.u, self.s.jit[ctx.u]
-        presence = self.fetch(u, ctx.r7)
-        take = self._params(u, (self.s.umem[u].get(ctx.r7 + 1 + i, 0) for i in range(22)))
+        _, at, _ = self._fpt_layout(u, ctx.r7)
+        presence = self.fetch(u, at)
+        take = self._params(u, (self.s.umem[u].get(at + 1 + i, 0) for i in range(22)))
         params = {}
         for i, name in enumerate(self.OPEN_PARAMS):
             if presence & (0x80000000 >> i):
@@ -1910,7 +1949,7 @@ class CalProcessor:
         (MSROPN10-MSROPN98B, :300-:351); a code with no slot is skipped (MSROPN99A)."""
         u = ctx.u
         if "ORG" in params:
-            dcb.org = (params["ORG"] << 4) & 0x30      # 0 consecutive, 1 random, 2 keyed
+            dcb.org = (params["ORG"] << 4) & 0x30      # 1 consecutive, 2 keyed, 3 random
         if "FUN" in params and params["FUN"] & 0xF in FUNCTIONS:
             dcb.fun = FUNCTIONS[params["FUN"] & 0xF]
         if "KEYM" in params:
@@ -1919,12 +1958,41 @@ class CalProcessor:
             dcb.buf = params["BUF"] & 0x1FFFF
         if "RSZ" in params:
             dcb.rsz = params["RSZ"] & 0x7FFF
-        presence = self.fetch(u, ctx.r7)
-        if not presence & 0x3FF or not dcb.flp:
+        _, at, vlps = self._fpt_layout(u, ctx.r7)
+        if not vlps or not dcb.flp:
             return
-        a = ctx.r7 + 1 + bin(presence >> 10).count("1")   # the VLPs follow the parameters
+        presence = self.fetch(u, at)
+        a = at + 1 + bin(presence >> 10).count("1")    # the VLPs follow the parameters
         for code, words in vlps_at(self.s.umem[u], a).items():
             dcb.set_vlp(code, words)
+
+    def step_merge(self, u, address, plist):
+        """ASM8  STPNR.txt:2719-:2737 - an assign/merge set's OPEN parameter list merged
+        into the program's DCB at ``address`` through MSROPN. The list goes in the
+        assign/merge window (J:ABUF, SBUF2VPA) with the DCB in word 0. It is in the "A"
+        form without X'1000', so MSROPN merges and returns without opening (MSROPN7,
+        MSROPN7P: OPNPXIT, OPN.txt:388-:403): the program's own M:OPEN opens the DCB.
+        A device option (MSROPN5, :689) puts the operational label in the DSI as a name."""
+        from types import SimpleNamespace
+        mem = self.s.umem[u]
+        for i, w in enumerate(plist):
+            mem[AMBUF + i] = w & 0xFFFFFFFF
+        mem[AMBUF] = (mem[AMBUF] & 0xFF000000) | address   # STS,12 0,6: DCB ADR INTO PLIST
+        ctx = SimpleNamespace(u=u, r6=address, r7=AMBUF + 1, sr1=0)
+        dcb = self.dcb_at(u, address)
+        if dcb.open or not isinstance(dcb, MemDcb):
+            return
+        fpt_asn = self.fetch(u, ctx.r7) & 7            # CHKASN
+        if fpt_asn:
+            dcb.asn = fpt_asn                          # MSROPN09
+        params = self._open_params(ctx, dcb)
+        if "DEVOPT" in params:                         # MSROPN5: AI,D1 X'10000', a name
+            label = params["DEVOPT"] & 0xFFFF
+            w1 = self.fetch(u, address + 1)
+            mem[address + 1] = (w1 & ~0x1FFFF) | 0x10000 | label
+            dcb.asn = 3
+            return
+        self._merge_open(ctx, dcb, params)
 
     def device_open(self, ctx, dcb):
         """M:OPEN of a device DCB: MSROPN's parameters into the DCB (the error and
@@ -2000,9 +2068,9 @@ class CalProcessor:
         """ISEQUB  RDF.txt:2443 - a keyed read (KAD) or the next record (after KBUF)."""
         from .files import EBCDIC
         kf, u = dcb.cfu.file, ctx.u
-        if dcb.org == 0:
+        if consecutive(dcb):
             return self.seq_read(ctx, dcb)             # BAZ SEQ0: CONSECUTIVE
-        if dcb.org == 0x10:
+        if random(dcb):
             return self.rwrand(ctx, dcb, write=False)  # BANZ RWRAND: IT'S RANDOM
         trn, dcb.trn = getattr(dcb, "trn", False), False   # CLR TRN (RDF.txt:1917)
         if dcb.kad:
@@ -2044,9 +2112,9 @@ class CalProcessor:
             return self.pullallexit(ctx, 0, 0)
         if not dcb.open:
             return ("TRAPEXIT", None)                  # REW3: DESTRUCT
-        if dcb.org == 0x20:
+        if keyed(dcb):
             dcb.kbuf, dcb.trn = None, False            # SETCMD1: CMD = 0
-        elif dcb.org == 0x10:
+        elif random(dcb):
             dcb.rgran = 0
         else:
             dcb.cpos = Position()                      # SEQ3: back to record 0
@@ -2081,9 +2149,9 @@ class CalProcessor:
         back = bool(presence & F_REV)                  # SETPOS: DIR
         if not dcb.open:
             raise NotTranslated("M:PRECORD of a DCB not open (TESTOPN)")
-        if dcb.asn == 1 and dcb.org == 0:
+        if dcb.asn == 1 and consecutive(dcb):
             return self.precord_seq(ctx, dcb, n, back)
-        if dcb.asn != 1 or dcb.org != 0x20:
+        if dcb.asn != 1 or not keyed(dcb):
             raise NotTranslated(f"M:PRECORD of {dcb.name}: ASN {dcb.asn}, ORG X'{getattr(dcb, 'org', 0):02X}' (JASN)")
         import bisect
         keys = [k.encode(EBCDIC) for k in dcb.cfu.file.keys()]    # in key (byte) order
@@ -2138,9 +2206,9 @@ class CalProcessor:
         kf, u = dcb.cfu.file, ctx.u
         if dcb.fun == "IN":
             return self.msr012(ctx, dcb, 0x15)         # (writing a file opened IN)
-        if dcb.org == 0:
+        if consecutive(dcb):
             return self.seq_write(ctx, dcb)            # BAZ SEQ0: IT'S CONSEC
-        if dcb.org == 0x10:
+        if random(dcb):
             return self.rwrand(ctx, dcb, write=True)   # B RWRAND: IT'S A RANDOM
         if dcb.kad:
             key = self._key(u, dcb)
@@ -2159,7 +2227,7 @@ class CalProcessor:
 
     def delrec(self, ctx, dcb):
         from .files import EBCDIC
-        if dcb.org == 0:                               # DELSET: BAZ SEQ0 CONSECUTIVE
+        if consecutive(dcb):                               # DELSET: BAZ SEQ0 CONSECUTIVE
             if dcb.last != "read" or not dcb.cfu.file.delete_record(dcb.cpos):
                 return self.msr012(ctx, dcb, 0x15)     # DELER: K15
             dcb.last = "delete"

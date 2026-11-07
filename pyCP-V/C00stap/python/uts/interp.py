@@ -33,13 +33,15 @@ def load_psd(sched, u, cpu):
     cpu.DM, cpu.AM = bool(w0 & 0x00200000), bool(w0 & 0x00100000)
 
 
-def program(sched, u, words, start, dcbs=None, name="", type_line=None):
+def program(sched, u, words, start, dcbs=None, name="", type_line=None, before=None):
     """The ghost: the image into the user's memory, then slices of instructions. A CAL1
     goes to the monitor (CalAt) and its answer comes back: the CC (resume after the
     CAL) or ('ROUTINE', address, SR3), the user's error or abnormal address."""
     mem = sched.umem[u]
     mem.update(words)
     sched.cal.dcbs.setdefault(u, {}).update(dcbs or {})   # J:DCBLINK, from the DCB table
+    if before is not None:
+        before()                                       # the step's work with memory in place
     cpu = Cpu(sched.uregs[u], mem, pc=start, cc=sched.psd_cc[u], model=MODEL)
     sched.trace(f"LOAD {name}: {len(words)} words, start X'{start:X}' (interpreted)")
     done = 0

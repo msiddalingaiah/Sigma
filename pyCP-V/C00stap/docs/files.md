@@ -121,8 +121,11 @@ Read is `SEQ0` in `RDF.txt` (`:3136`–`:3268`), with the positioning routines `
 `SEQFRD` (forward one segment, `:2896`), `SEQBCK` (backward, `:2958`) and `SEQREAD` (read a granule,
 `:2845`). Deleting records and cutting the file short are in `DLT.txt` (`:169`, `:477`–`:640`).
 FIX1 checks every granule with `CHKCON` (`FIX1.txt:1944`). The DCB's `ORG` field tells the read
-and write entries which code to use: X'20' is keyed, X'10' random, and neither consecutive
-(`RDF.txt:2419`–`:2422`, `WRTF.txt:194`–`:196`).
+and write entries which code to use. X'20' clear is consecutive; with X'20' set, X'10' makes
+it random (X'30') and its absence keyed (`RDF.txt:2418`–`:2422`, `WRTF.txt:194`–`:196`;
+`OPNF.txt:1015`–`:1038`). A write takes "random" from the CFU's X'4000' flag (`SETUPWR`,
+`WRTF.txt:160`–`:166`). The model first read X'10' alone as random. That made AP's `M:LO`,
+which is assembled with ORG X'10' ("explicit consec", `OPNF.txt:556`), a random file.
 
 ### Granules
 

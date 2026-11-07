@@ -31,7 +31,7 @@ do file I/O with its own DCBs.
 | 3 | `ERA` | bits 15–31 | An error address | `UTS.txt:554` |
 | 4 | `ARS` | bits 0–14 | The actual record size of the last transfer | `SAVARS`, `IORT.txt:195` |
 | 4 | `ABA` | bits 15–31 | An abnormal address | `UTS.txt:556` |
-| 5 | `ORG` | X'30' | The organization: 0 consecutive, X'10' random, X'20' keyed | `IORT.txt:413`–`:415`, [`files.md`](files.md) §4 |
+| 5 | `ORG` | X'30' | The organization: X'20' clear is consecutive (0, or X'10', "explicit consec"), X'20' keyed, X'30' random. OPEN stores the FPT's ORG (1 consecutive, 2 keyed, 3 random) shifted 4 (`MSROPN51`, OPN.txt:671). Corrected: the model first had random at X'10' | `OPNF.txt:1015`–`:1038`, `:550`–`:558`; [`files.md`](files.md) §4 |
 | 6 | `FLP` | bits 15–31 | The word address of the VLP list | `UTS.txt:741`–`:755`; `OBSE.txt:118` |
 | 10 | `KBUF` | bits 15–31 | The key buffer's word address | `UTS.txt:746`, `:775`–`:780` |
 | 12 | `KEYM` | byte 0 | The maximum key length (keyed files) | `BAKEYM`, `UTS.txt:643` |

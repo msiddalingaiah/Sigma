@@ -487,9 +487,11 @@ def test_ap_assembles_from_the_terminal():
         tape = labtape.read_tape(f.read())
     labtape.restore(t.s.cal.fs, labtape.Tape(tape.reel, ":SYS",
                                              [f for f in tape.files if f.name in ("AP", "$:STDDEF")]))
-    for line in ("AP", "AP SI,LO.", "START    LI,1     5", "         LW,2     UNDEF",
-                 "         END      START"):
-        t.type(line + "\r")
+    t.type("AP ME OVER OBJ,ME\r")                       # source and listing: the terminal
+    t.run(2000)
+    assert t.text().endswith(" TELEFILE ASSEMBLY PROGRAM  \r\n OPTIONS \r\n>")   # on-line
+    for line in ("", "START    LI,1     5", "         LW,2     UNDEF", "         END      START"):
+        t.type(line + "\r")                            # no options: TEL's, in J:OPT
     t.run(20000)
     lines = t.text().splitlines()
     assert "       1   01 00000    22100005 A   START    LI,1     5" in lines

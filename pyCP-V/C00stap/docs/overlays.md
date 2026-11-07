@@ -100,7 +100,7 @@ Not modeled:
 |---|---|
 | EDIT | Works for a session: `BUILD fid` takes lines until an empty one; `EDIT fid` opens the file (reading to its end and back with `M:PRECORD` for the last line number); `TY m-n` types lines, `IN n` inserts between them; `END` returns to TEL |
 | SORT | `M:SEGLD` reads `BO:RTPRE`. `TELEFILE SORT`, then its parameter errors, then the debugger CAL (CAL1,3) |
-| AP | Assembles from the terminal. After `AP`, the control card (`AP SI,LO.`; `GO` is accepted), then the source until `END`. AP prints its listing, symbol table, external and undefined symbols, and error severity, and returns to TEL. This uses `M:GDDL`, `M:DEVICE` NLINES and MODE, `M:REW`, `M:PRECORD` on its consecutive scratch files, and `F:STD`'s own abnormal routine. Without an assign/merge record, `M:GO` is the null device, so no object file is written |
+| AP | Assembles from the terminal or from files (`AP src OVER obj,list`, [`assign.md`](assign.md)). AP types ` TELEFILE ASSEMBLY PROGRAM` and asks ` OPTIONS` with `>`. Enter takes TEL's options; then comes the source until `END`, if it's the terminal. AP prints its listing, symbol table, external and undefined symbols, and error severity, and returns to TEL. This uses `M:GDDL`, `M:DEVICE` NLINES and MODE, `M:REW`, `M:PRECORD` on its consecutive scratch files, and `F:STD`'s own abnormal routine. |
 | FORT | `TELEFILE EXTENDED FORTRAN-IV`, then garbage |
 | BASIC | Stops at `M:RFILE` (`MSRTFILE`) |
 | LOADER | Stops at `M:STIMER` |

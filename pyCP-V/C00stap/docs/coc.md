@@ -140,6 +140,15 @@ A record is at most `C:140` bytes. **`COCRD`**:
 `COCIO` sets TYC 1 for a write, stores the ARS in the DCB, and decrements its function count
 (`:3885`–`:3902`).
 
+
+**Output translation** (`TTYOUT`, `COC.txt:4655`): EBCDIC to ASCII. Graphics map as code page 037
+maps them. The control range X'00'–X'3F' maps to ASCII controls or to COC functions (X'80' up).
+X'82' is both `*CR` (EBCDIC X'0D') and `*NL` (X'15'): a new line. So AP's greeting, which has an
+X'0D' between ` TELEFILE ASSEMBLY PROGRAM` and ` OPTIONS`, prints on two lines. `cal.py` uses
+`coc.ttyout`. The other functions (`*HT`, `*FF`, `*LF`, the ESC sequences, TTYOUT's `+` controls)
+aren't translated and are dropped. Before this, the model decoded output with code page 037
+alone, which sent X'0D' as a bare CR (overprinting) and X'16' as a backspace.
+
 ## 6. Lines coming and going (`T:COCHC`, `:4182`–`:4422`)
 
 CLOCK4 calls `T:COCHC` every 1.2 seconds. It times out users with reads pending (`SL:OITO`,

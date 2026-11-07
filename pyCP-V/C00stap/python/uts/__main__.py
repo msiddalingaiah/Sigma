@@ -289,6 +289,9 @@ def main(argv=None):
     p.add_argument("--mount", nargs="*", default=[], metavar="TAPE.tap",
                    help="labeled tapes mounted for the terminals' TAPE command (list and copy"
                         " files into one's own account; not CP-V)")
+    p.add_argument("--share", metavar="DIR",
+                   help="a host folder for the terminals' IMPORT and EXPORT commands (copy text"
+                        " files in and out of one's own account by bare name; not CP-V)")
     p.add_argument("--reader", metavar="DECK.txt",
                    help="a text file loaded into the card reader: a card a line (EBCDIC, 80 columns)")
     p.add_argument("--punch", metavar="FILE.txt",
@@ -411,6 +414,13 @@ def terminals(con, args):
             tape = labtape.read_tape(f.read())
         online.mount(tape)
         print(f"(tape {path} mounted: reel {tape.reel}, {len(tape.files)} files)")
+    if args.share:                                     # the folder for IMPORT/EXPORT (not CP-V)
+        import os
+        if not os.path.isdir(args.share):
+            print(f"(--share {args.share}: not a folder)")
+            return
+        online.share = args.share
+        print(f"(host folder {os.path.realpath(args.share)} shared for IMPORT and EXPORT)")
     try:
         server = TerminalServer(coc, args.port, args.bind, log=lambda msg: print(f"({msg})"))
     except OSError as e:

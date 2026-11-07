@@ -3,3 +3,6 @@ py/__pycache__/
 .ipynb_checkpoints/
 
 vcd/
+
+# Editor settings
+.vscode/
