@@ -78,3 +78,33 @@ class ReadTerminal:
 class WriteTerminal:
     """Write ``text`` to the user's terminal."""
     text: str
+
+
+@modelOnly("Stands for an M:OPEN of a file (OPNF)")
+@dataclass
+class Open:
+    """Open a file. ``mode`` is a ``FileMode``; ``account`` is the user's own by default.
+    The handle is sent back into the program: ``handle = yield Open("DATA", FileMode.IN)``."""
+    name: str
+    mode: object
+    account: str = None
+
+
+@modelOnly("Stands for an M:READ on a file DCB (RDF)")
+@dataclass
+class ReadRecord:
+    """Read the next record; None is sent back at the end of the file."""
+    handle: object
+
+
+@modelOnly("Stands for an M:WRITE on a file DCB (WRTF)")
+@dataclass
+class WriteRecord:
+    handle: object
+    text: str
+
+
+@modelOnly("Stands for an M:CLOSE (CLS)")
+@dataclass
+class Close:
+    handle: object

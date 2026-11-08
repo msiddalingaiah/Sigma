@@ -12,6 +12,7 @@ counterpart. Source paths are in `c00co/`.
 | `User` | class | `UB:US`, `UH:FLG`, `UB:PCT` | [SSDAT.txt:314–381](../../c00co/SSDAT.txt#L314-L381) | A user is a number that indexes the per-user tables (UB:*, UH:*, U:*) |
 | `User.number` | attribute | `S:CUN` | [TCATCH.txt:173](../../c00co/TCATCH.txt#L173) | User numbers start at 1; 0 is the null link in the queues |
 | `User.name` | attribute | *model only* |  | For traces; CP-V knows the account and name from the JIT |
+| `User.account` | attribute | `J:ACCN` | [JIT.txt:308–310](../../c00co/JIT.txt#L308-L310) | The user's account |
 | `User.state` | attribute | `UB:US` | [SSDAT.txt:336](../../c00co/SSDAT.txt#L336) |  |
 | `User.priority` | attribute | `UB:PRIO` | [SCHED.txt:1156–1160](../../c00co/SCHED.txt#L1156-L1160) | Current priority; events lower it below the base |
 | `User.basePriority` | attribute | `UB:PRIOB` | [SCHED.txt:1924](../../c00co/SCHED.txt#L1924) |  |
@@ -29,7 +30,8 @@ counterpart. Source paths are in `c00co/`.
 | `User.program` | attribute | *model only* |  | A generator standing in for the user's code |
 | `User.computeLeft` | attribute | *model only* |  | Ticks left in the program's current Compute step |
 | `User.pendingRequest` | attribute | *model only* |  | The step a program yielded from its break routine, or a step to try again after a wait |
-| `User.readResult` | attribute | *model only* |  | A terminal line for the program's next step to receive |
+| `User.stepResult` | attribute | *model only* |  | What the program's last step returns, as a 1-tuple, sent back into the program: a terminal line, a file handle, a record |
+| `User.stepError` | attribute | *model only* |  | An error the last step raises, thrown into the program |
 | `User.isMoreUrgentThan` | method | `UB:PRIO`, `UB:PRIOB` | [SCHED.txt:1156–1160](../../c00co/SCHED.txt#L1156-L1160) | Lower values are more urgent |
 
 ## UserState
@@ -55,6 +57,12 @@ counterpart. Source paths are in `c00co/`.
 |---|---|---|---|---|
 | `Break` | class | *model only* |  | Entering the user's break routine (M:INT) after a break key |
 
+## Close
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Close` | class | *model only* |  | Stands for an M:CLOSE (CLS) |
+
 ## Compute
 
 | Model name | Kind | CP-V | Source | Notes |
@@ -67,6 +75,12 @@ counterpart. Source paths are in `c00co/`.
 |---|---|---|---|---|
 | `DoIo` | class | *model only* |  | Stands for a read or write CAL: IOQ starts the I/O (UB:MF + 1), the monitor reports E:IIP, and the device's completion reports E:IC |
 
+## Open
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Open` | class | *model only* |  | Stands for an M:OPEN of a file (OPNF) |
+
 ## OpenClose
 
 | Model name | Kind | CP-V | Source | Notes |
@@ -78,6 +92,12 @@ counterpart. Source paths are in `c00co/`.
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
 | `OpenCloseDone` | class | *model only* |  | The end of an OpenClose: give up being the open/close user |
+
+## ReadRecord
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `ReadRecord` | class | *model only* |  | Stands for an M:READ on a file DCB (RDF) |
 
 ## ReadTerminal
 
@@ -102,6 +122,12 @@ counterpart. Source paths are in `c00co/`.
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
 | `WaitFor` | class | *model only* |  | Stands for a CAL that reports a resource's block event through T:REG |
+
+## WriteRecord
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `WriteRecord` | class | *model only* |  | Stands for an M:WRITE on a file DCB (WRTF) |
 
 ## WriteTerminal
 
@@ -154,6 +180,7 @@ counterpart. Source paths are in `c00co/`.
 | `System.memory` | attribute | `M:FPPH`, `S:PCORE` | [SCHED.txt:2255–2271](../../c00co/SCHED.txt#L2255-L2271), [TABLES.txt:725](../../c00co/TABLES.txt#L725) |  |
 | `System.scheduler` | attribute | `SCHED` | [SCHED.txt:1–20](../../c00co/SCHED.txt#L1-L20) |  |
 | `System.terminals` | attribute | `COC`, `T:RCE` | [SCHED.txt:1846–1868](../../c00co/SCHED.txt#L1846-L1868) |  |
+| `System.files` | attribute | `OPNFIL`, `CLSFIL` | [OPNF.txt:115](../../c00co/OPNF.txt#L115), [CLS.txt:1443](../../c00co/CLS.txt#L1443) |  |
 | `System.futureEvents` | attribute | *model only* |  | What the clock and devices will do later |
 | `System.runUntil` | attribute | *model only* |  | The tick limit of the current run; a compute stops there |
 | `System.trace` | attribute | *model only* |  | What happened, for tests and for reading |
@@ -164,6 +191,10 @@ counterpart. Source paths are in `c00co/`.
 | `System.nextRequest` | method | *model only* |  | The program's next step, or None when the program has ended |
 | `System.compute` | method | *model only* |  | The user computes until the step is done, the quantum is used up, or an interrupt comes |
 | `System.call` | method | `TRAPEXIT` | [SCHED.txt:877–889](../../c00co/SCHED.txt#L877-L889) | A CAL enters the monitor; the user comes back through TRAPEXIT |
+| `System.openOrClose` | method | `OPNCLSUS`, `E:OCR` | [OPNF.txt:1479–1487](../../c00co/OPNF.txt#L1479-L1487) | OPEN and CLOSE run as the open/close user, one user at a time |
+| `System.fileStep` | method | *model only* |  | A file read or write: do it, then wait for the disc |
+| `System.fileWork` | method | *model only* |  | Runs a file operation: its result goes back to the program, or its error is thrown in. A failed lookup still read two directories |
+| `System.waitForDisc` | method | `E:IIP`, `UB:MF` | [SCHED.txt:513](../../c00co/SCHED.txt#L513), [SCHED.txt:1553–1572](../../c00co/SCHED.txt#L1553-L1572) | The file code queues its disc I/O and the user waits (T:IOREG, E:IIP) |
 | `System.runDueEvents` | method | *model only* |  | Interrupts: everything due by now happens |
 | `System.advanceClock` | method | *model only* |  | Time passes; what comes due on the way happens at its own time |
 | `System.idleUntil` | method | `C:IDLE`, `WAIT` | [SCHED.txt:1085–1126](../../c00co/SCHED.txt#L1085-L1126) | T:SE's idle loop: CP-V waits for an interrupt, then tries T:SE again |
@@ -458,3 +489,148 @@ counterpart. Source paths are in `c00co/`.
 | `TerminalSettings.onlineUsersAllowed` | attribute | `S:OUAIS` | [CONMAIN.txt:1041](../../c00co/CONMAIN.txt#L1041) | The OUM key-in |
 | `TerminalSettings.onlinePriority` | attribute | `SL:OPRIO` | [CONMAIN.txt:1087](../../c00co/CONMAIN.txt#L1087) | 192-255 |
 | `TerminalSettings.onlinePages` | attribute | *model only* |  | Pages a logged-on user needs; CP-V's come from TEL and the JIT |
+
+## Disc
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Disc` | class | `GETDGRAN`, `RELRBG` | [WRTF.txt:1176](../../c00co/WRTF.txt#L1176), [DLT.txt:915](../../c00co/DLT.txt#L915) | CP-V takes granules from a stack per device type, refilled by ALLOCAT from bit maps (iteration 3); here they come from a plain free list |
+| `Disc.granuleCount` | attribute | *model only* |  | The size of the file area |
+| `Disc.freeAddresses` | attribute | `GBG`, `RBG` | [GRAN.txt:10–11](../../c00co/GRAN.txt#L10-L11) | Stands for the stacks and bit maps of free granules |
+| `Disc.granules` | attribute | *model only* |  | The granules in use, by address |
+| `Disc.getGranule` | method | `GETDGRAN`, `GBG` | [WRTF.txt:1176–1180](../../c00co/WRTF.txt#L1176-L1180), [GRAN.txt:95–117](../../c00co/GRAN.txt#L95-L117) |  |
+| `Disc.releaseGranule` | method | `RELRBG`, `RBG` | [DLT.txt:915–990](../../c00co/DLT.txt#L915-L990), [GRAN.txt:95–117](../../c00co/GRAN.txt#L95-L117) |  |
+| `Disc.freeCount` | method | *model only* |  | How many granules are free |
+
+## DiscFull
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `DiscFull` | class | *model only* |  | CP-V gives an error when no granule is left; which code wasn't traced |
+
+## Granule
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Granule` | class | `BUFSIZ`, `BLINK`, `FLINK` | [UTS.txt:479–486](../../c00co/UTS.txt#L479-L486) | 512 words. A chained block starts with its back link, forward link and control word |
+| `Granule.address` | attribute | `LSECTA` | [DLT.txt:930](../../c00co/DLT.txt#L930) | A 24-bit disc address: device and relative sector |
+| `Granule.capacity` | attribute | `BUFSIZ` | [UTS.txt:479](../../c00co/UTS.txt#L479) |  |
+| `Granule.segments` | attribute | *model only* |  | The records, or pieces of them, in this granule |
+| `Granule.bytesUsed` | method | *model only* |  | Bytes in use: each segment's text and its 4-byte control word |
+| `Granule.bytesFree` | method | *model only* |  | Bytes still free |
+
+## Segment
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Segment` | class | *model only* |  | A piece of a record in a granule; CP-V's segment has a control word in front |
+
+## Directory
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Directory` | class | `ACNCFU`, `FDA` | [UTS.txt:455–464](../../c00co/UTS.txt#L455-L464) | Both directories are chains of index blocks with entries in key order, written twice (the dual copy) |
+| `Directory.keys` | attribute | `SCR`, `MIDIS` | [UTS.txt:487](../../c00co/UTS.txt#L487), [UTS.txt:602](../../c00co/UTS.txt#L602) | The entries' keys, in order |
+| `Directory.values` | attribute | *model only* |  | What each key points at: a file directory, or a file |
+| `Directory.find` | method | `FNDKEY` | [FIX1.txt:2194](../../c00co/FIX1.txt#L2194) | A search like a keyed file's level 0 |
+| `Directory.insert` | method | `INST` | [WRTF.txt:608](../../c00co/WRTF.txt#L608) | Inserted in key order |
+| `Directory.remove` | method | `DELF`, `DEL1` | [DLT.txt:314–378](../../c00co/DLT.txt#L314-L378) | DEL1 slides the following entries up over the deleted one |
+| `Directory.names` | method | *model only* |  | The keys in order |
+
+## ConsecutiveFile
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `ConsecutiveFile` | class | `SEQ0`, `SEQPOS` | [WRTF.txt:273–276](../../c00co/WRTF.txt#L273-L276), [RDF.txt:3136–3138](../../c00co/RDF.txt#L3136-L3138) | CP-V writes control words between the segments, with back pointers, flags for blocked and unblocked segments, and the FIT as a dummy first segment |
+| `ConsecutiveFile.header` | attribute | `FITSIZE` | [WRTF.txt:44–46](../../c00co/WRTF.txt#L44-L46) |  |
+| `ConsecutiveFile.disc` | attribute | *model only* |  | Where the granules come from |
+| `ConsecutiveFile.granules` | attribute | `FDA`, `LDA`, `FLINK` | [UTS.txt:448–486](../../c00co/UTS.txt#L448-L486) | CP-V chains them on the disc, from FDA (first) to LDA (last) |
+| `ConsecutiveFile.recordCount` | attribute | `TDA` | [UTS.txt:462](../../c00co/UTS.txt#L462) | A consecutive file's CFU keeps the record count in TDA |
+| `ConsecutiveFile.append` | method | `SEQ0`, `GETDGRAN` | [WRTF.txt:273–505](../../c00co/WRTF.txt#L273-L505) | Returns the number of granules written |
+| `ConsecutiveFile.newGranule` | method | `GETDGRAN` | [WRTF.txt:1176–1180](../../c00co/WRTF.txt#L1176-L1180) |  |
+| `ConsecutiveFile.read` | method | `SEQ0`, `SEQFRD` | [RDF.txt:3136–3268](../../c00co/RDF.txt#L3136-L3268), [RDF.txt:2896](../../c00co/RDF.txt#L2896) | Returns the record (None at the end of the file), the next position, and the granules read |
+| `ConsecutiveFile.release` | method | `SEQ3`, `REL` | [DLT.txt:488](../../c00co/DLT.txt#L488), [DLT.txt:665–674](../../c00co/DLT.txt#L665-L674) | The whole-file delete: every granule goes back |
+
+## FileHeader
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `FileHeader` | class | `FITSIZE`, `NWFITST` | [WRTF.txt:44–46](../../c00co/WRTF.txt#L44-L46) | The FIT: name, VLPs (organization, key size, disc addresses, protection) |
+| `FileHeader.name` | attribute | `FITCHK` | [FIX1.txt:1758–1789](../../c00co/FIX1.txt#L1758-L1789) | TEXTC, compared with the directory's entry |
+| `FileHeader.account` | attribute | `J:ACCN` | [JIT.txt:308–310](../../c00co/JIT.txt#L308-L310) | The owner's account |
+| `FileHeader.organization` | attribute | `FITCHK` | [FIX1.txt:1758–1789](../../c00co/FIX1.txt#L1758-L1789) |  |
+
+## Organization
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Organization` | class | `ORG`, `FITCHK` | [FIX1.txt:1758–1789](../../c00co/FIX1.txt#L1758-L1789), [FIX1.txt:1848–1850](../../c00co/FIX1.txt#L1848-L1850) | Byte 0 of the FIT's X'09' entry: 0 or 1 consecutive, 2 keyed, 3 random |
+| `Organization.CONSECUTIVE` | member | `SEQ0` | [WRTF.txt:273](../../c00co/WRTF.txt#L273) | Records one after another |
+| `Organization.KEYED` | member | `SETUPUB` | [RDF.txt:1575](../../c00co/RDF.txt#L1575) | Records found by key (iteration 2) |
+| `Organization.RANDOM` | member | `RWRAND` | [WRTF.txt:1928](../../c00co/WRTF.txt#L1928) | Granules by number (iteration 4) |
+
+## FileError
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `FileError` | class | *model only* |  | CP-V reports file errors with a code in the DCB and goes to the program's error address, or aborts it; the model throws this into the program |
+
+## FileHandle
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `FileHandle` | class | `DCB` | [UTS.txt:448–530](../../c00co/UTS.txt#L448-L530) | The data control block: the program's own record of an open file |
+| `FileHandle.user` | attribute | *model only* |  | The user whose program holds the handle |
+| `FileHandle.openFile` | attribute | `CFU` | [UTS.txt:446–452](../../c00co/UTS.txt#L446-L452) | DCB word 1 has the CFU |
+| `FileHandle.mode` | attribute | `FUNCTION` | [UTS.txt:448–460](../../c00co/UTS.txt#L448-L460) |  |
+| `FileHandle.position` | attribute | `SEQPOS` | [RDF.txt:3136–3138](../../c00co/RDF.txt#L3136-L3138) | CP-V keeps the record number and the disc address |
+| `FileHandle.discAccesses` | attribute | *model only* |  | Disc accesses not yet charged to the user |
+| `FileHandle.isOpen` | attribute | *model only* |  | False once closed |
+| `FileHandle.takeDiscAccesses` | method | *model only* |  | The disc accesses since last asked, for the system to charge as I/O time |
+
+## FileMode
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `FileMode` | class | `FUNCTION`, `BAFUNM` | [UTS.txt:448–460](../../c00co/UTS.txt#L448-L460) | CP-V also has INOUT, OUTIN and UPDATE |
+| `FileMode.IN` | member | `CLSFIL` | [CLS.txt:1443–1530](../../c00co/CLS.txt#L1443-L1530) | Read an existing file |
+| `FileMode.OUT` | member | `CLSFIL4` | [CLS.txt:1994–1998](../../c00co/CLS.txt#L1994-L1998) | Write a new file; it goes into the directory at close |
+
+## FileSystem
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `FileSystem` | class | `OPNFIL`, `CLSFIL`, `SEQ0` | [OPNF.txt:115](../../c00co/OPNF.txt#L115), [CLS.txt:1443](../../c00co/CLS.txt#L1443), [RDF.txt:3136](../../c00co/RDF.txt#L3136) | OPEN, CLOSE, READ and WRITE for files |
+| `FileSystem.system` | attribute | *model only* |  | The system the file system belongs to |
+| `FileSystem.settings` | attribute | *model only* |  | Disc size and timing |
+| `FileSystem.disc` | attribute | *model only* |  | The file area's granules |
+| `FileSystem.accounts` | attribute | `ACNCFU` | [UTS.txt:464](../../c00co/UTS.txt#L464) | The account directory |
+| `FileSystem.openFiles` | attribute | `CFU` | [OPNF.txt:616–620](../../c00co/OPNF.txt#L616-L620) | OPEN scans the CFUs for the file before the directories |
+| `FileSystem.handles` | attribute | *model only* |  | Each user's open handles, so they can be closed at the end |
+| `FileSystem.openFile` | method | `OPNFIL`, `TFCHKOPN` | [OPNF.txt:115](../../c00co/OPNF.txt#L115), [OPNF.txt:503–620](../../c00co/OPNF.txt#L503-L620) | CP-V also takes the open/close lock (OPNCLSUS); the system does that around this call |
+| `FileSystem.lookUp` | method | `FNDKEY`, `SETUPUB` | [FIX1.txt:2194](../../c00co/FIX1.txt#L2194), [RDF.txt:1575](../../c00co/RDF.txt#L1575) | The account directory, then the file directory |
+| `FileSystem.readRecord` | method | `SEQ0` | [RDF.txt:3136–3268](../../c00co/RDF.txt#L3136-L3268) | At the end of the file CP-V returns TYC 7, code X'06' |
+| `FileSystem.writeRecord` | method | `SEQ0` | [WRTF.txt:273–505](../../c00co/WRTF.txt#L273-L505) |  |
+| `FileSystem.closeFile` | method | `CLSFIL`, `CLSFIL4` | [CLS.txt:1443–1530](../../c00co/CLS.txt#L1443-L1530), [CLS.txt:1994–1998](../../c00co/CLS.txt#L1994-L1998) | A new file goes into its directory at close |
+| `FileSystem.closeAll` | method | *model only* |  | CP-V closes a program's open DCBs when its job step ends; where wasn't traced |
+| `FileSystem.enter` | method | `INST` | [WRTF.txt:608](../../c00co/WRTF.txt#L608) | CP-V releases the file it replaces as well; when another user still has that file open isn't modelled |
+| `FileSystem.checkMode` | method | `K15` | [WRTF.txt:15](../../c00co/WRTF.txt#L15), [WRTF.txt:244](../../c00co/WRTF.txt#L244) | OPERATION ERROR: the DCB isn't open for it |
+| `FileSystem.fileNames` | method | *model only* |  | The names of an account's files, in order |
+
+## FileSystemSettings
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `FileSystemSettings` | class | *model only* |  | Disc timing; CP-V's comes from the RADs and disc packs |
+| `FileSystemSettings.discTime` | attribute | *model only* |  | Ticks per disc access |
+| `FileSystemSettings.discGranules` | attribute | *model only* |  | Granules in the file area |
+
+## OpenFile
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `OpenFile` | class | `CFU`, `NOU` | [UTS.txt:446–452](../../c00co/UTS.txt#L446-L452) | CURRENT FILE USAGE: one per open file, shared by every DCB that has it open |
+| `OpenFile.header` | attribute | `FITSIZE` | [WRTF.txt:44–46](../../c00co/WRTF.txt#L44-L46) |  |
+| `OpenFile.file` | attribute | `FDA` | [UTS.txt:448–460](../../c00co/UTS.txt#L448-L460) |  |
+| `OpenFile.users` | attribute | `NOU` | [UTS.txt:450](../../c00co/UTS.txt#L450) | Number of users |
+| `OpenFile.isNew` | attribute | `CLSFIL4` | [CLS.txt:1994–1998](../../c00co/CLS.txt#L1994-L1998) | Opened OUT: not in the directory until it is closed |

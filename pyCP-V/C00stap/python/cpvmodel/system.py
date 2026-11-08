@@ -1,8 +1,8 @@
 """The system: the components put together, a clock, and the loop that runs users.
 
 ``System`` owns the machine-wide things: the user slots, core memory, time, the things that
-will happen later, and the trace. The components do the work: the ``Scheduler`` and the
-``TerminalController``.
+will happen later, and the trace. The components do the work: the ``Scheduler``, the
+``TerminalController`` and the ``FileSystem``.
 
 A computing user runs until their step is done, their quantum runs out, or something comes
 due (an interrupt). After an interrupt the scheduler runs a swap schedule; after an interrupt
@@ -12,10 +12,11 @@ or a CAL, its exit path decides whether the user goes on.
 from dataclasses import dataclass
 
 from .futureevents import FutureEvents
+from .filesystem import FileError, FileSystem
 from .glossary import cpv, modelOnly
 from .memory import Memory
-from .program import (Compute, DoIo, OpenClose, OpenCloseDone, ReadTerminal, Release, Sleep,
-                      WaitFor, WriteTerminal, Yield)
+from .program import (Close, Compute, DoIo, Open, OpenClose, OpenCloseDone, ReadRecord,
+                      ReadTerminal, Release, Sleep, WaitFor, WriteRecord, WriteTerminal, Yield)
 from .scheduler import Event, Scheduler
 from .terminals import TerminalController, echoSession
 from .user import User
@@ -42,7 +43,7 @@ class System:
     """A CP-V system reduced to its components, users and time."""
 
     def __init__(self, userSlots=8, settings=None, memoryPages=64, terminalLines=4,
-                 terminalSettings=None, session=echoSession):
+                 terminalSettings=None, session=echoSession, fileSettings=None):
         self.clock = 0
         self.users = [User(number) for number in range(1, userSlots + 1)]
         self.freeSlots = list(self.users)
@@ -50,6 +51,7 @@ class System:
         self.runUntil = None
         self.scheduler = Scheduler(self, settings)
         self.terminals = TerminalController(self, terminalLines, terminalSettings, session)
+        self.files = FileSystem(self, fileSettings)
         self.futureEvents = FutureEvents()
         self.trace = []
 
@@ -63,6 +65,7 @@ class System:
         "memory": cpv("M:FPPH", "S:PCORE", source="SCHED.txt:2255-2271, TABLES.txt:725"),
         "scheduler": cpv("SCHED", source="SCHED.txt:1-20"),
         "terminals": cpv("COC", "T:RCE", source="SCHED.txt:1846-1868"),
+        "files": cpv("OPNFIL", "CLSFIL", source="OPNF.txt:115, CLS.txt:1443"),
         "futureEvents": modelOnly("What the clock and devices will do later"),
         "runUntil": modelOnly("The tick limit of the current run; a compute stops there"),
         "trace": modelOnly("What happened, for tests and for reading"),
@@ -71,7 +74,7 @@ class System:
     @cpv("LOGON", "ADD1", source="SCHED.txt:1869-1980",
          note="LOGON (on-line), MBS (batch) and T:GJOBSTRT (ghosts) take a slot from the "
               "SNULL queue and call ADD1")
-    def startUser(self, name, program, priority, pages=4):
+    def startUser(self, name, program, priority, pages=4, account="GUEST"):
         """Start a user at base ``priority`` (CP-V numbering: lower is more urgent), who
         needs ``pages`` pages in core."""
         if not self.freeSlots:
@@ -80,6 +83,7 @@ class System:
         user.name = name
         user.program = program
         user.pages = pages
+        user.account = account
         self.scheduler.addUser(user, priority)
         self.log(user, "started")
         return user
@@ -89,13 +93,15 @@ class System:
         self.futureEvents.cancelFor(user)
         self.scheduler.removeUser(user)
         self.terminals.userEnded(user)
+        self.files.closeAll(user)
         if user.inCore:
             self.memory.give(user.pages)
             user.inCore = False
         user.program = None
         user.computeLeft = 0
         user.pendingRequest = None
-        user.readResult = None
+        user.stepResult = None
+        user.stepError = None
         user.inputArrivedEarly = False
         user.pendingSignals = set()
         self.freeSlots.append(user)
@@ -128,12 +134,18 @@ class System:
             request, user.pendingRequest = user.pendingRequest, None
             return request
         try:
-            if user.readResult is not None:
-                text, user.readResult = user.readResult, None
-                return user.program.send(text)
+            if user.stepError is not None:
+                error, user.stepError = user.stepError, None
+                return user.program.throw(error)
+            if user.stepResult is not None:
+                (value,), user.stepResult = user.stepResult, None
+                return user.program.send(value)
             return next(user.program)
         except StopIteration:
             self.endUser(user)
+            return None
+        except FileError as error:
+            self.endUser(user, f"file error {error}")
             return None
 
     @modelOnly("The user computes until the step is done, the quantum is used up, or "
@@ -182,10 +194,17 @@ class System:
             if text is None:
                 user.pendingRequest = request       # read again after the wait (COCRD)
             else:
-                user.readResult = text
+                user.stepResult = (text,)
         elif isinstance(request, WriteTerminal):
             if not self.terminals.write(user, request.text):
                 user.pendingRequest = request       # write after the output drains
+        elif isinstance(request, (Open, Close)):
+            self.openOrClose(user, request)
+        elif isinstance(request, ReadRecord):
+            self.fileStep(user, request.handle, lambda: self.files.readRecord(request.handle))
+        elif isinstance(request, WriteRecord):
+            self.fileStep(user, request.handle,
+                          lambda: self.files.writeRecord(request.handle, request.text))
         elif isinstance(request, OpenCloseDone):
             self.log(user, "open/close done")
             self.scheduler.endOpenClose(user)
@@ -193,6 +212,54 @@ class System:
             raise TypeError(f"{user.name}: unknown request {request!r}")
         if user is self.scheduler.currentUser:
             self.scheduler.exitToUser(user)
+
+    @cpv("OPNCLSUS", "E:OCR", source="OPNF.txt:1479-1487",
+         note="OPEN and CLOSE run as the open/close user, one user at a time")
+    def openOrClose(self, user, request):
+        """Open or close a file under the open/close lock: wait for the lock, do it, wait
+        for the disc, give up the lock."""
+        if not self.scheduler.claimOpenClose(user):
+            user.pendingRequest = request           # try again when released
+            return
+        if isinstance(request, Open):
+            accesses = self.fileWork(
+                user, lambda: self.files.openFile(user, request.name, request.mode,
+                                                  request.account))
+            handle = user.stepResult[0] if user.stepResult is not None else None
+        else:
+            accesses = self.fileWork(user, lambda: self.files.closeFile(request.handle))
+            handle = request.handle
+        if handle is not None:
+            accesses += handle.takeDiscAccesses()
+            verb = "opens" if isinstance(request, Open) else "closes"
+            self.log(user, f"{verb} {handle.openFile.header.name} {handle.mode.name}")
+        user.pendingRequest = OpenCloseDone()
+        self.waitForDisc(user, accesses)
+
+    @modelOnly("A file read or write: do it, then wait for the disc")
+    def fileStep(self, user, handle, work):
+        accesses = self.fileWork(user, work)
+        self.waitForDisc(user, accesses + handle.takeDiscAccesses())
+
+    @modelOnly("Runs a file operation: its result goes back to the program, or its error is "
+               "thrown in. A failed lookup still read two directories")
+    def fileWork(self, user, work):
+        try:
+            user.stepResult = (work(),)
+            return 0
+        except FileError as error:
+            user.stepError = error
+            return 2
+
+    @cpv("E:IIP", "UB:MF", source="SCHED.txt:513, SCHED.txt:1553-1572",
+         note="The file code queues its disc I/O and the user waits (T:IOREG, E:IIP)")
+    def waitForDisc(self, user, accesses):
+        ticks = accesses * self.files.settings.discTime
+        if ticks == 0:
+            return
+        user.ioInFlight += 1
+        self.reportAt(self.clock + ticks, user, Event.IO_COMPLETE)
+        self.scheduler.report(user, Event.IO_STARTED)
 
     @modelOnly("Interrupts: everything due by now happens")
     def runDueEvents(self):

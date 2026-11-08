@@ -55,7 +55,7 @@ its parts.
 |---|---|---|---|
 | `cpvmodel.scheduler` | `Scheduler` | SCHED, "execution and swap scheduler" | `StateQueues`, `EventRouter` and `TransitionTable`, `ExitPath`, `SwapScheduler`, `ResourceManager`, `SchedulerSettings` |
 | `cpvmodel.terminals` | `TerminalController` | COC, "character-oriented communications" | `Line`, `TerminalSettings`; `echoSession` stands in for TEL |
-| `cpvmodel.filesystem` (later) | `FileSystem` | the file management modules | directories, file kinds, `GranuleAllocator` |
+| `cpvmodel.filesystem` | `FileSystem` | OPNF, CLS, RDF, WRTF: the file management modules | `Disc`, `Directory`, `FileHeader`, `ConsecutiveFile`, `OpenFile`, `FileHandle`, `FileSystemSettings` |
 
 `System` (`cpvmodel/system.py`) puts the components together. It owns what's machine-wide: the
 user slots, `Memory`, the clock, `FutureEvents`, the run loop and the trace. The components talk
@@ -214,6 +214,7 @@ classDiagram
     System "1" *-- "SMUIS" User : users
     System *-- Scheduler
     System *-- TerminalController : terminals
+    System *-- FileSystem : files
     TerminalController *-- Line : lines
     Line --> User
     System *-- Memory
@@ -233,7 +234,10 @@ classDiagram
 
 A program is a generator that yields `Compute(ticks)`, `Sleep(ticks)`, `DoIo(ticks)`,
 `Yield()`, `WaitFor(resource)`, `Release(resource)`, `OpenClose(ticks)`, `ReadTerminal()` or
-`WriteTerminal(text)`. A read's text is sent back into the program: `text = yield ReadTerminal()`. Each stands for what a user's code does in CP-V: compute, or make a CAL that leads
+`WriteTerminal(text)`, `Open(name, mode)`, `ReadRecord(handle)`, `WriteRecord(handle, text)` or
+`Close(handle)`. What a step returns is sent back into the program, such as
+`text = yield ReadTerminal()` or `handle = yield Open("DATA", FileMode.IN)`. An error is thrown into
+the program, so a program can catch a `FileError`. Each stands for what a user's code does in CP-V: compute, or make a CAL that leads
 to an event report. A tick is a clock-4 tick, 2 ms. A program can catch `Break`; that is its
 break routine (`M:INT`).
 
@@ -488,6 +492,109 @@ From the terminal demo (`python -m cpvmodel terminal`), a user typing beside a c
 - At 700 the cruncher is preempted 190 ticks into its quantum, near its swap quantum, so it goes
   back at X'FA' rather than X'F8' (`SL:SQPB`).
 
+### The file system
+
+The file system is the third component. Its front class is `FileSystem` (CP-V's OPNF, CLS, RDF
+and WRTF, about 25,000 lines). In this first iteration it has:
+
+```mermaid
+classDiagram
+    class FileSystem {
+        accounts
+        openFiles
+        openFile(user, name, mode, account)
+        readRecord(handle)
+        writeRecord(handle, text)
+        closeFile(handle)
+        closeAll(user)
+    }
+    class Directory {
+        keys
+        find(key)
+        insert(key, value)
+        remove(key)
+    }
+    class OpenFile {
+        header
+        file
+        users
+        isNew
+    }
+    class FileHandle {
+        user
+        mode
+        position
+    }
+    class ConsecutiveFile {
+        granules
+        recordCount
+        append(text)
+        read(position)
+        release()
+    }
+    class FileHeader {
+        name
+        account
+        organization
+    }
+    class Disc {
+        getGranule()
+        releaseGranule(granule)
+    }
+    class Granule {
+        address
+        capacity
+        segments
+    }
+    FileSystem *-- Disc
+    FileSystem *-- Directory : accounts
+    Directory o-- Directory : an account's files
+    Directory o-- ConsecutiveFile : by name
+    FileSystem o-- OpenFile : open files (CFU)
+    FileHandle --> OpenFile : DCB to CFU
+    OpenFile --> ConsecutiveFile
+    ConsecutiveFile --> FileHeader : FIT
+    ConsecutiveFile o-- Granule : chain
+```
+
+- **Two levels of directory.** The account directory maps an account to its file directory,
+  which maps a file name to the file. Both are ordered by name. In CP-V they are chains of index
+  blocks on the disc, kept in two copies; iteration 2 gives the model's directories those
+  blocks.
+- **A consecutive file** is a chain of granules of 2048 bytes. The header (the FIT, the closest
+  modern idea is an inode) takes 320 bytes of the first. Records follow one another, each with
+  a 4-byte control word, and a record that doesn't fit is split into segments continued in the
+  next granule.
+- **Open** first looks among the open files (CP-V's CFUs), so a second reader shares the
+  `OpenFile` and reads no directories. Each program gets its own `FileHandle` (the DCB), with
+  its own position. **A file opened OUT is new**: it goes into its directory only at close,
+  replacing any file of the same name and releasing its granules. Until then, opening the name
+  IN finds the old file, or nothing.
+- **Open and close take the open/close lock** (`OPNCLSUS`), the resource from the scheduler,
+  and hold it while they wait for the disc. A second user opening at the same time blocks on
+  `OPEN_CLOSE`.
+- **Disc time.** Every granule read or written, and every directory looked up, is a disc access
+  of `discTime` ticks. The program waits in `IO_WAIT` as it would for any I/O, so file work
+  shows up in the scheduler. `discTime` is 0 by default.
+
+A read, through the components:
+
+```mermaid
+sequenceDiagram
+    participant P as reader's program
+    participant S as System
+    participant F as FileSystem
+    participant C as Scheduler
+    P->>S: yield ReadRecord(handle)
+    S->>F: readRecord(handle)
+    F->>F: the record from its granules (2 touched)
+    F-->>S: "X...X", 2 disc accesses
+    S->>C: report(reader, IO_STARTED)  (E:IIP)
+    Note over C: reader in IO_WAIT for 2 × discTime
+    C-->>S: IO_COMPLETE, reader runs again
+    S->>P: send("X...X")
+```
+
 ### The run loop
 
 In CP-V, `T:SE` is entered again after every quantum, block and interrupt exit. Here it is a
@@ -589,6 +696,8 @@ Not yet:
 
 ## Iterations
 
+### The scheduler
+
 1. **A shallow System** (done). Users, bands, dispatch, priority boost and decay, shutdown.
 2. **Events and the transition table** (done). `Event`, `TransitionTable`,
    `InconsistentEvent`, `EventRouter`, `FutureEvents`. Programs that sleep, do I/O and yield.
@@ -604,3 +713,15 @@ Not yet:
 6. **Terminals and log-on** (done). `TerminalController`, `Line`, `TerminalSettings`, and
    `ReadTerminal` and `WriteTerminal` in programs. Log-on from a break, hang-up, and the access
    queue.
+
+### The file system
+
+1. **A shallow file system** (done). `FileSystem`, `Directory`, `Disc`, consecutive files,
+   open and close (IN and OUT) under the open/close lock, files shared through `OpenFile`, a
+   new file entered at close, disc time, and `Open`, `ReadRecord`, `WriteRecord` and `Close` in
+   programs.
+2. **Index chains and keyed files.** Blocks, slides, splits and the pyramid built at close,
+   shared by the directories and keyed files.
+3. **Granule allocation.** The stack, the bit map, the thresholds, and the ALLOCAT ghost with
+   `E:QFAC`/`E:UQFAC`.
+4. **Random files, deleting files, and OPEN's access checks.**

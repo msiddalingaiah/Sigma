@@ -60,6 +60,7 @@ class User:
     """
     number: int
     name: str = ""
+    account: str = "GUEST"
     state: UserState = UserState.FREE_SLOT
     priority: int = 0xFF
     basePriority: int = 0xFF
@@ -77,12 +78,14 @@ class User:
     program: object = None
     computeLeft: int = 0
     pendingRequest: object = None
-    readResult: str = None
+    stepResult: tuple = None
+    stepError: Exception = None
 
     cpvNames = {
         "number": cpv("S:CUN", source="TCATCH.txt:173",
                       note="User numbers start at 1; 0 is the null link in the queues"),
         "name": modelOnly("For traces; CP-V knows the account and name from the JIT"),
+        "account": cpv("J:ACCN", source="JIT.txt:308-310", note="The user's account"),
         "state": cpv("UB:US", source="SSDAT.txt:336"),
         "priority": cpv("UB:PRIO", source="SCHED.txt:1156-1160",
                         note="Current priority; events lower it below the base"),
@@ -116,7 +119,10 @@ class User:
         "computeLeft": modelOnly("Ticks left in the program's current Compute step"),
         "pendingRequest": modelOnly("The step a program yielded from its break routine, or "
                                     "a step to try again after a wait"),
-        "readResult": modelOnly("A terminal line for the program's next step to receive"),
+        "stepResult": modelOnly("What the program's last step returns, as a 1-tuple, sent "
+                                "back into the program: a terminal line, a file handle, a "
+                                "record"),
+        "stepError": modelOnly("An error the last step raises, thrown into the program"),
     }
 
     @cpv("UB:PRIO", "UB:PRIOB", source="SCHED.txt:1156-1160",
