@@ -69,12 +69,15 @@ class User:
     justSwappedIn: bool = False
     ioInFlight: int = 0
     blockedOn: object = None
+    inputArrivedEarly: bool = False
+    line: object = None
     quantumLeft: int = 0
     dispatchedAt: int = 0
     pendingSignals: set = field(default_factory=set)
     program: object = None
     computeLeft: int = 0
     pendingRequest: object = None
+    readResult: str = None
 
     cpvNames = {
         "number": cpv("S:CUN", source="TCATCH.txt:173",
@@ -99,6 +102,10 @@ class User:
                           note="The master function count: I/O requests the user has going"),
         "blockedOn": cpv("U:MISC", source="SCHED.txt:1808-1812",
                          note="The resource a user in SQR waits for (U:MISC byte 0)"),
+        "inputArrivedEarly": cpv("UH:FLG", "X'4000'", source="SCHED.txt:1670-1690",
+                                 note="The completion came before the user blocked (STIRCU)"),
+        "line": cpv("LB:UN", source="SCHED.txt:1859",
+                    note="CP-V maps the line to the user; the model links both ways"),
         "quantumLeft": cpv("J:DELTAT", source="ACCT.txt:27-43",
                            note="CP-V counts up from minus the quantum to zero"),
         "dispatchedAt": cpv("U:MISC", source="SCHED.txt:1194-1199",
@@ -107,7 +114,9 @@ class User:
                               note="ABRT, ERR, EC and BRK flags, bits 0-3"),
         "program": modelOnly("A generator standing in for the user's code"),
         "computeLeft": modelOnly("Ticks left in the program's current Compute step"),
-        "pendingRequest": modelOnly("The step a program yielded from its break routine"),
+        "pendingRequest": modelOnly("The step a program yielded from its break routine, or "
+                                    "a step to try again after a wait"),
+        "readResult": modelOnly("A terminal line for the program's next step to receive"),
     }
 
     @cpv("UB:PRIO", "UB:PRIOB", source="SCHED.txt:1156-1160",

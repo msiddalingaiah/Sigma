@@ -1,8 +1,8 @@
 """The system: the components put together, a clock, and the loop that runs users.
 
 ``System`` owns the machine-wide things: the user slots, core memory, time, the things that
-will happen later, and the trace. The components do the work. So far there is one, the
-``Scheduler``.
+will happen later, and the trace. The components do the work: the ``Scheduler`` and the
+``TerminalController``.
 
 A computing user runs until their step is done, their quantum runs out, or something comes
 due (an interrupt). After an interrupt the scheduler runs a swap schedule; after an interrupt
@@ -14,9 +14,10 @@ from dataclasses import dataclass
 from .futureevents import FutureEvents
 from .glossary import cpv, modelOnly
 from .memory import Memory
-from .program import (Compute, DoIo, OpenClose, OpenCloseDone, Release, Sleep, WaitFor,
-                      Yield)
+from .program import (Compute, DoIo, OpenClose, OpenCloseDone, ReadTerminal, Release, Sleep,
+                      WaitFor, WriteTerminal, Yield)
 from .scheduler import Event, Scheduler
+from .terminals import TerminalController, echoSession
 from .user import User
 
 
@@ -40,13 +41,15 @@ class TraceEntry:
 class System:
     """A CP-V system reduced to its components, users and time."""
 
-    def __init__(self, userSlots=8, settings=None, memoryPages=64):
+    def __init__(self, userSlots=8, settings=None, memoryPages=64, terminalLines=4,
+                 terminalSettings=None, session=echoSession):
         self.clock = 0
         self.users = [User(number) for number in range(1, userSlots + 1)]
         self.freeSlots = list(self.users)
         self.memory = Memory(memoryPages)
         self.runUntil = None
         self.scheduler = Scheduler(self, settings)
+        self.terminals = TerminalController(self, terminalLines, terminalSettings, session)
         self.futureEvents = FutureEvents()
         self.trace = []
 
@@ -59,6 +62,7 @@ class System:
                          note="The queue of the SNULL state"),
         "memory": cpv("M:FPPH", "S:PCORE", source="SCHED.txt:2255-2271, TABLES.txt:725"),
         "scheduler": cpv("SCHED", source="SCHED.txt:1-20"),
+        "terminals": cpv("COC", "T:RCE", source="SCHED.txt:1846-1868"),
         "futureEvents": modelOnly("What the clock and devices will do later"),
         "runUntil": modelOnly("The tick limit of the current run; a compute stops there"),
         "trace": modelOnly("What happened, for tests and for reading"),
@@ -84,12 +88,15 @@ class System:
     def endUser(self, user, reason=None):
         self.futureEvents.cancelFor(user)
         self.scheduler.removeUser(user)
+        self.terminals.userEnded(user)
         if user.inCore:
             self.memory.give(user.pages)
             user.inCore = False
         user.program = None
         user.computeLeft = 0
         user.pendingRequest = None
+        user.readResult = None
+        user.inputArrivedEarly = False
         user.pendingSignals = set()
         self.freeSlots.append(user)
         self.log(user, f"ended: {reason}" if reason else "ended")
@@ -121,6 +128,9 @@ class System:
             request, user.pendingRequest = user.pendingRequest, None
             return request
         try:
+            if user.readResult is not None:
+                text, user.readResult = user.readResult, None
+                return user.program.send(text)
             return next(user.program)
         except StopIteration:
             self.endUser(user)
@@ -146,7 +156,7 @@ class System:
          note="A CAL enters the monitor; the user comes back through TRAPEXIT")
     def call(self, user, request):
         """A step that asks the monitor for something: sleep, I/O, giving up the processor,
-        a resource, or opening and closing a file."""
+        a resource, opening and closing a file, or the terminal."""
         if isinstance(request, Sleep):
             self.reportAt(self.clock + request.ticks, user, Event.WAKE_UP)
             self.scheduler.report(user, Event.SLEEP)
@@ -167,6 +177,15 @@ class System:
                 user.pendingRequest = OpenCloseDone()
             else:
                 user.pendingRequest = request       # try again when released (CLS 1F1)
+        elif isinstance(request, ReadTerminal):
+            text = self.terminals.read(user)
+            if text is None:
+                user.pendingRequest = request       # read again after the wait (COCRD)
+            else:
+                user.readResult = text
+        elif isinstance(request, WriteTerminal):
+            if not self.terminals.write(user, request.text):
+                user.pendingRequest = request       # write after the output drains
         elif isinstance(request, OpenCloseDone):
             self.log(user, "open/close done")
             self.scheduler.endOpenClose(user)
@@ -201,7 +220,11 @@ class System:
     @modelOnly("The simulation loop: dispatch, execute, repeat")
     def run(self, tickLimit=100_000):
         """Run until the system shuts down, nothing more can happen, or the clock reaches
-        ``tickLimit``. Returns "shutdown", "stuck" or "tickLimit"."""
+        ``tickLimit``. Returns "shutdown", "stuck" or "tickLimit".
+
+        CP-V shuts down in its idle loop as soon as the users in the system (less GOODNGT)
+        reach 0. Its system ghosts keep that count above 0 until a ZAP. The model has no
+        ghosts, so it also waits for anything still to come, such as a log-on."""
         self.runUntil = tickLimit
         while self.clock < tickLimit:
             if self.scheduler.currentUser is not None:
@@ -209,11 +232,9 @@ class System:
                 continue
             if self.scheduler.dispatch() is not None:
                 continue
-            if self.scheduler.isShutDown():
-                return "shutdown"
             nextTime = self.futureEvents.nextTime()
             if nextTime is None:
-                return "stuck"
+                return "shutdown" if self.scheduler.isShutDown() else "stuck"
             self.idleUntil(min(nextTime, tickLimit))
         return "tickLimit"
 

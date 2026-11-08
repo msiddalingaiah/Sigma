@@ -8,11 +8,13 @@ Each major CP-V component is a subpackage with one class in front (``scheduler.S
 later ``filesystem.FileSystem`` and others). ``System`` puts them together.
 """
 
-from .program import Break, Compute, DoIo, OpenClose, Release, Sleep, WaitFor, Yield
+from .program import (Break, Compute, DoIo, OpenClose, ReadTerminal, Release, Sleep, WaitFor,
+                      WriteTerminal, Yield)
 from .memory import Memory
 from .scheduler import (Event, EventRouter, ExitPath, ImpossibleSwap, InconsistentEvent,
                         NotModelledYet, PriorityBoost, Resource, ResourceManager, Scheduler,
                         SchedulerSettings, Signal, StateQueues, SwapScheduler,
                         TransitionTable)
 from .system import NoFreeSlot, System, TraceEntry
+from .terminals import Line, TerminalController, TerminalSettings, echoSession
 from .user import User, UserState

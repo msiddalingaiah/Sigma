@@ -141,12 +141,20 @@ class EventRouter:
     @cpv("STCRD", source="SCHED.txt:1670-1673",
          note="Waits unless the input already came (UH:FLG X'4000')")
     def waitForTerminalInput(self, user, event, detail):
-        raise NotModelledYet("STCRD: terminals come later")
+        self._waitUnlessEarly(user, AWAITING_TERMINAL_INPUT)
 
     @cpv("STIRCU", source="SCHED.txt:1685-1688",
-         note="Input finished before the user blocked: sets UH:FLG X'4000'")
+         note="The completion came before the user blocked: remember it (UH:FLG X'4000')")
     def noteEarlyCompletion(self, user, event, detail):
-        raise NotModelledYet("STIRCU: terminals come later")
+        user.inputArrivedEarly = True
+
+    @cpv("QFORA2", "X'4000'", source="SCHED.txt:1674-1682",
+         note="Shared by STCRD and STQA: an early completion means no wait, and T:PULLE")
+    def _waitUnlessEarly(self, user, state):
+        if user.inputArrivedEarly:
+            user.inputArrivedEarly = False
+        else:
+            self.changeState(user, state)
 
     @leadsTo(READY, fromStates=[UserState.AWAITING_RESOURCE])
     @cpv("STBEEA", "SETDL", "UH:DL", source="SCHED.txt:1630-1660",
@@ -180,15 +188,19 @@ class EventRouter:
         self.scheduler.resources.release(resource, user)
 
     @leadsTo(AWAITING_ACCESS)
-    @cpv("STQA", source="SCHED.txt:1674-1682")
+    @cpv("STQA", source="SCHED.txt:1674-1682",
+         note="Queue for access (COOP), unless the access already came")
     def waitForAccess(self, user, event, detail):
-        raise NotModelledYet("STQA")
+        self._waitUnlessEarly(user, AWAITING_ACCESS)
 
     @leadsTo(READY, fromStates=[AWAITING_ACCESS])
     @cpv("STUQA", source="SCHED.txt:1683-1688",
          note="Special compute if queued for access, otherwise remembered as early")
     def grantAccess(self, user, event, detail):
-        raise NotModelledYet("STUQA")
+        if user.state is AWAITING_ACCESS:
+            self.makeReady(user, PriorityBoost.SPECIAL_COMPUTE)
+        else:
+            user.inputArrivedEarly = True
 
     @cpv("STKO", "RTR", "JIC", source="SCHED.txt:1697-1702",
          note="A ready user is requeued at their current priority (CHSE1)")

@@ -21,12 +21,15 @@ counterpart. Source paths are in `c00co/`.
 | `User.justSwappedIn` | attribute | `SWAPD` | [SCHED.txt:1182–1190](../../c00co/SCHED.txt#L1182-L1190) | Set at swap-in; the first dispatch gives a new quantum |
 | `User.ioInFlight` | attribute | `UB:MF` | [SCHED.txt:1574–1575](../../c00co/SCHED.txt#L1574-L1575) | The master function count: I/O requests the user has going |
 | `User.blockedOn` | attribute | `U:MISC` | [SCHED.txt:1808–1812](../../c00co/SCHED.txt#L1808-L1812) | The resource a user in SQR waits for (U:MISC byte 0) |
+| `User.inputArrivedEarly` | attribute | `UH:FLG`, `X'4000'` | [SCHED.txt:1670–1690](../../c00co/SCHED.txt#L1670-L1690) | The completion came before the user blocked (STIRCU) |
+| `User.line` | attribute | `LB:UN` | [SCHED.txt:1859](../../c00co/SCHED.txt#L1859) | CP-V maps the line to the user; the model links both ways |
 | `User.quantumLeft` | attribute | `J:DELTAT` | [ACCT.txt:27–43](../../c00co/ACCT.txt#L27-L43) | CP-V counts up from minus the quantum to zero |
 | `User.dispatchedAt` | attribute | `U:MISC` | [SCHED.txt:1194–1199](../../c00co/SCHED.txt#L1194-L1199) | The quantum mark saved at dispatch, for the minimum run |
 | `User.pendingSignals` | attribute | `UH:DL` | [SCHED.txt:905–912](../../c00co/SCHED.txt#L905-L912) | ABRT, ERR, EC and BRK flags, bits 0-3 |
 | `User.program` | attribute | *model only* |  | A generator standing in for the user's code |
 | `User.computeLeft` | attribute | *model only* |  | Ticks left in the program's current Compute step |
-| `User.pendingRequest` | attribute | *model only* |  | The step a program yielded from its break routine |
+| `User.pendingRequest` | attribute | *model only* |  | The step a program yielded from its break routine, or a step to try again after a wait |
+| `User.readResult` | attribute | *model only* |  | A terminal line for the program's next step to receive |
 | `User.isMoreUrgentThan` | method | `UB:PRIO`, `UB:PRIOB` | [SCHED.txt:1156–1160](../../c00co/SCHED.txt#L1156-L1160) | Lower values are more urgent |
 
 ## UserState
@@ -76,6 +79,12 @@ counterpart. Source paths are in `c00co/`.
 |---|---|---|---|---|
 | `OpenCloseDone` | class | *model only* |  | The end of an OpenClose: give up being the open/close user |
 
+## ReadTerminal
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `ReadTerminal` | class | *model only* |  | Stands for an M:READ on the terminal (M:UC), which COC's COCRD does |
+
 ## Release
 
 | Model name | Kind | CP-V | Source | Notes |
@@ -93,6 +102,12 @@ counterpart. Source paths are in `c00co/`.
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
 | `WaitFor` | class | *model only* |  | Stands for a CAL that reports a resource's block event through T:REG |
+
+## WriteTerminal
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `WriteTerminal` | class | *model only* |  | Stands for an M:WRITE on the terminal, which COC's COCWR does |
 
 ## Yield
 
@@ -138,6 +153,7 @@ counterpart. Source paths are in `c00co/`.
 | `System.freeSlots` | attribute | `SNULL`, `SB:HQ` | [SCHED.txt:317](../../c00co/SCHED.txt#L317), [SSDAT.txt:390–394](../../c00co/SSDAT.txt#L390-L394) | The queue of the SNULL state |
 | `System.memory` | attribute | `M:FPPH`, `S:PCORE` | [SCHED.txt:2255–2271](../../c00co/SCHED.txt#L2255-L2271), [TABLES.txt:725](../../c00co/TABLES.txt#L725) |  |
 | `System.scheduler` | attribute | `SCHED` | [SCHED.txt:1–20](../../c00co/SCHED.txt#L1-L20) |  |
+| `System.terminals` | attribute | `COC`, `T:RCE` | [SCHED.txt:1846–1868](../../c00co/SCHED.txt#L1846-L1868) |  |
 | `System.futureEvents` | attribute | *model only* |  | What the clock and devices will do later |
 | `System.runUntil` | attribute | *model only* |  | The tick limit of the current run; a compute stops there |
 | `System.trace` | attribute | *model only* |  | What happened, for tests and for reading |
@@ -281,12 +297,12 @@ counterpart. Source paths are in `c00co/`.
 | `EventRouter.completeIo` | method | `STIOC`, `UB:MF`, `STIOCC` | [SCHED.txt:1574–1605](../../c00co/SCHED.txt#L1574-L1605) |  |
 | `EventRouter.waitForIoToDrain` | method | `STIOMF` | [SCHED.txt:1553](../../c00co/SCHED.txt#L1553) |  |
 | `EventRouter.waitForTerminalInput` | method | `STCRD` | [SCHED.txt:1670–1673](../../c00co/SCHED.txt#L1670-L1673) | Waits unless the input already came (UH:FLG X'4000') |
-| `EventRouter.noteEarlyCompletion` | method | `STIRCU` | [SCHED.txt:1685–1688](../../c00co/SCHED.txt#L1685-L1688) | Input finished before the user blocked: sets UH:FLG X'4000' |
+| `EventRouter.noteEarlyCompletion` | method | `STIRCU` | [SCHED.txt:1685–1688](../../c00co/SCHED.txt#L1685-L1688) | The completion came before the user blocked: remember it (UH:FLG X'4000') |
 | `EventRouter.signal` | method | `STBEEA`, `SETDL`, `UH:DL` | [SCHED.txt:1630–1660](../../c00co/SCHED.txt#L1630-L1660) | Picks the flag by event number. For an on-line user, an abort also marks the terminal line off (COCOFF); a user blocked on R:NQW is released |
 | `EventRouter.signalAndWake` | method | `STBEEAC`, `STIRC` | [SCHED.txt:1630–1660](../../c00co/SCHED.txt#L1630-L1660) | As STBEEA, and makes a waiting user interactive compute so they see it soon |
 | `EventRouter.blockOnResource` | method | `T:RES` | [SCHED.txt:1755–1768](../../c00co/SCHED.txt#L1755-L1768) | The user blocks on the resource in the event's detail |
 | `EventRouter.releaseResource` | method | `T:REL` | [SCHED.txt:1771–1802](../../c00co/SCHED.txt#L1771-L1802) | Reported for any user; who is released depends on the resource |
-| `EventRouter.waitForAccess` | method | `STQA` | [SCHED.txt:1674–1682](../../c00co/SCHED.txt#L1674-L1682) |  |
+| `EventRouter.waitForAccess` | method | `STQA` | [SCHED.txt:1674–1682](../../c00co/SCHED.txt#L1674-L1682) | Queue for access (COOP), unless the access already came |
 | `EventRouter.grantAccess` | method | `STUQA` | [SCHED.txt:1683–1688](../../c00co/SCHED.txt#L1683-L1688) | Special compute if queued for access, otherwise remembered as early |
 | `EventRouter.kickOut` | method | `STKO`, `RTR`, `JIC` | [SCHED.txt:1697–1702](../../c00co/SCHED.txt#L1697-L1702) | A ready user is requeued at their current priority (CHSE1) |
 | `EventRouter.kickOutWaiting` | method | `STKOT` | [SCHED.txt:1692–1696](../../c00co/SCHED.txt#L1692-L1696) | CP-V moves the user to the state's out-of-core twin (STOBO, STIO, SQRO); the model keeps one state and clears inCore |
@@ -393,3 +409,52 @@ counterpart. Source paths are in `c00co/`.
 | `ResourceManager.chooseOpenCloseUser` | method | `OPNUNBLOCK`, `OPNCLSUS`, `OPNCLSUSR` | [SCHED.txt:1837–1844](../../c00co/SCHED.txt#L1837-L1844) | Returns False to release nobody |
 | `ResourceManager.updateAllocator` | method | `UQFAC`, `STUQFAC` | [SCHED.txt:1707–1745](../../c00co/SCHED.txt#L1707-L1745), [SCHED.txt:1836](../../c00co/SCHED.txt#L1836) | CP-V updates ALLOCAT's four buffers; the model doesn't have them |
 | `ResourceManager.releaseForSignal` | method | `SETDL`, `SH:RFLG`, `T:UQR` | [SCHED.txt:1630–1647](../../c00co/SCHED.txt#L1630-L1647) |  |
+
+## Line
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Line` | class | `LB:UN`, `MODE` | [SCHED.txt:1859](../../c00co/SCHED.txt#L1859), [COC.txt:2590–2593](../../c00co/COC.txt#L2590-L2593) | COC keeps a line's tables indexed by line number |
+| `Line.number` | attribute | `LB:UN` | [SCHED.txt:1859](../../c00co/SCHED.txt#L1859) | The line number indexes LB:UN |
+| `Line.user` | attribute | `LB:UN` | [SCHED.txt:1859–1860](../../c00co/SCHED.txt#L1859-L1860) | 0 when nobody is logged on |
+| `Line.typedLines` | attribute | `COCIP` | [COC.txt:412](../../c00co/COC.txt#L412) | The line's input buffers |
+| `Line.readPending` | attribute | `MODE` | [COC.txt:2590–2591](../../c00co/COC.txt#L2590-L2591) | The read-pending bit, X'10' |
+| `Line.outputCount` | attribute | `COCOC` | [COC.txt:2870–2872](../../c00co/COC.txt#L2870-L2872) | Characters waiting to go out |
+| `Line.outputCountAt` | attribute | *model only* |  | When outputCount was last brought up to date |
+| `Line.transcript` | attribute | *model only* |  | What the terminal printed, for tests and for reading |
+| `Line.printed` | method | *model only* |  | What the terminal printed, as text |
+
+## TerminalController
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `TerminalController` | class | `COC`, `T:RCE` | [SCHED.txt:1846–1868](../../c00co/SCHED.txt#L1846-L1868) | COC is CP-V's character-oriented communications handler |
+| `TerminalController.system` | attribute | *model only* |  | The system the terminals belong to |
+| `TerminalController.settings` | attribute | `SL:TB`, `SL:UB` | [COC.txt:2028](../../c00co/COC.txt#L2028), [COC.txt:2872](../../c00co/COC.txt#L2872) |  |
+| `TerminalController.lines` | attribute | `LB:UN` | [SCHED.txt:1859](../../c00co/SCHED.txt#L1859) |  |
+| `TerminalController.session` | attribute | *model only* |  | The program a logged-on user runs; stands for TEL |
+| `TerminalController.onlineUsers` | attribute | `S:OUIS` | [SSDAT.txt:53](../../c00co/SSDAT.txt#L53), [STEP.txt:159](../../c00co/STEP.txt#L159) | Counted up at log-on, down when the user is removed |
+| `TerminalController.pressBreak` | method | `COCIPBRK`, `E:CBK`, `T:RCE` | [COC.txt:857–900](../../c00co/COC.txt#L857-L900), [SCHED.txt:1859–1868](../../c00co/SCHED.txt#L1859-L1868) |  |
+| `TerminalController.type` | method | `COCIP`, `E:CIC` | [COC.txt:412–593](../../c00co/COC.txt#L412-L593) | CP-V gets a character at a time and completes the read at an activation character; the model gets a whole line |
+| `TerminalController.hangUp` | method | `E:OFF`, `UH:FLG2` | [SCHED.txt:1859–1866](../../c00co/SCHED.txt#L1859-L1866) | The line drops (found by T:COCHC): T:RCE sets the hang-up bit and reports E:OFF |
+| `TerminalController.typeAt` | method | *model only* |  | Schedules a line to be typed at ``time`` |
+| `TerminalController.breakAt` | method | *model only* |  | Schedules a break key at ``time`` |
+| `TerminalController.hangUpAt` | method | *model only* |  | Schedules a hang-up at ``time`` |
+| `TerminalController.logOn` | method | `LOGON`, `S:OUIS`, `S:OUAIS`, `SL:OPRIO` | [SCHED.txt:1869–1893](../../c00co/SCHED.txt#L1869-L1893) | CP-V also checks the swap devices' free granules against S:OUAIS |
+| `TerminalController.userEnded` | method | `S:OUIS` | [STEP.txt:155–160](../../c00co/STEP.txt#L155-L160) | CP-V marks the line off (COCOFF) on a hang-up |
+| `TerminalController.read` | method | `COCRD`, `E:CRD` | [COC.txt:2287–2606](../../c00co/COC.txt#L2287-L2606) | CP-V echoes type-ahead when the read starts, then waits for an activation |
+| `TerminalController.write` | method | `COCWR`, `SL:TB`, `E:CBL` | [COC.txt:2864–2890](../../c00co/COC.txt#L2864-L2890) | The limit is checked before the record goes into the buffers |
+| `TerminalController.outputDrained` | method | `SL:UB`, `E:CUB` | [COC.txt:2020–2044](../../c00co/COC.txt#L2020-L2044) | The output interrupt sends a character; at SL:UB a blocked user is released |
+| `TerminalController.drain` | method | *model only* |  | Brings the output count up to date: a character goes out every ticksPerCharacter. CP-V counts down at each output interrupt |
+
+## TerminalSettings
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `TerminalSettings` | class | `SL:TB`, `SL:UB`, `S:OUAIS`, `SL:OPRIO` | [CONMAIN.txt:1041–1087](../../c00co/CONMAIN.txt#L1041-L1087) | Operator settings (CONMAIN); none is set in the source |
+| `TerminalSettings.outputBlockLimit` | attribute | `SL:TB` | [COC.txt:2871–2879](../../c00co/COC.txt#L2871-L2879) | A write with this much output pending blocks the user |
+| `TerminalSettings.outputUnblockLimit` | attribute | `SL:UB` | [COC.txt:2028](../../c00co/COC.txt#L2028) | The output interrupt releases the user at this count |
+| `TerminalSettings.ticksPerCharacter` | attribute | *model only* |  | The line's speed; CP-V's comes from the line's hardware |
+| `TerminalSettings.onlineUsersAllowed` | attribute | `S:OUAIS` | [CONMAIN.txt:1041](../../c00co/CONMAIN.txt#L1041) | The OUM key-in |
+| `TerminalSettings.onlinePriority` | attribute | `SL:OPRIO` | [CONMAIN.txt:1087](../../c00co/CONMAIN.txt#L1087) | 192-255 |
+| `TerminalSettings.onlinePages` | attribute | *model only* |  | Pages a logged-on user needs; CP-V's come from TEL and the JIT |

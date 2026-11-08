@@ -34,6 +34,7 @@ MODEL_MODULES = [
     "cpvmodel.scheduler.settings",
     "cpvmodel.scheduler.swapscheduler",
     "cpvmodel.scheduler.resources",
+    "cpvmodel.terminals.terminals",
 ]
 
 

@@ -64,3 +64,17 @@ class OpenClose:
 @dataclass
 class OpenCloseDone:
     pass
+
+
+@modelOnly("Stands for an M:READ on the terminal (M:UC), which COC's COCRD does")
+@dataclass
+class ReadTerminal:
+    """Read a line from the user's terminal. The line is sent back into the program:
+    ``text = yield ReadTerminal()``."""
+
+
+@modelOnly("Stands for an M:WRITE on the terminal, which COC's COCWR does")
+@dataclass
+class WriteTerminal:
+    """Write ``text`` to the user's terminal."""
+    text: str

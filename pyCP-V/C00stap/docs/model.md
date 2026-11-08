@@ -40,6 +40,7 @@ From `python/`, with the `p3.13` environment:
 
 ```
 python -m cpvmodel              # a demo run, printed as a trace
+python -m cpvmodel terminal     # a user logs on at a terminal, beside a cruncher
 python -m cpvmodel docs         # regenerate docs/model/glossary.md and states.md
 python -m pytest cpvmodel/tests # or: make modeltest
 ```
@@ -53,10 +54,13 @@ its parts.
 | Package | Front class | CP-V | Parts |
 |---|---|---|---|
 | `cpvmodel.scheduler` | `Scheduler` | SCHED, "execution and swap scheduler" | `StateQueues`, `EventRouter` and `TransitionTable`, `ExitPath`, `SwapScheduler`, `ResourceManager`, `SchedulerSettings` |
+| `cpvmodel.terminals` | `TerminalController` | COC, "character-oriented communications" | `Line`, `TerminalSettings`; `echoSession` stands in for TEL |
 | `cpvmodel.filesystem` (later) | `FileSystem` | the file management modules | directories, file kinds, `GranuleAllocator` |
 
 `System` (`cpvmodel/system.py`) puts the components together. It owns what's machine-wide: the
-user slots, `Memory`, the clock, `FutureEvents`, the run loop and the trace. `User` and the
+user slots, `Memory`, the clock, `FutureEvents`, the run loop and the trace. The components talk
+to each other only through their front classes: the terminals report events to the scheduler
+with `scheduler.report`. `User` and the
 program steps are shared by everything.
 
 ```mermaid
@@ -87,6 +91,24 @@ classDiagram
         claimOpenClose(user)
         endOpenClose(user)
         isShutDown()
+    }
+    class TerminalController {
+        lines
+        onlineUsers
+        pressBreak(line)
+        type(line, text)
+        hangUp(line)
+        logOn(line)
+        read(user)
+        write(user, text)
+    }
+    class Line {
+        number
+        user
+        typedLines
+        readPending
+        outputCount
+        transcript
     }
     class ResourceManager {
         queues
@@ -191,6 +213,9 @@ classDiagram
     }
     System "1" *-- "SMUIS" User : users
     System *-- Scheduler
+    System *-- TerminalController : terminals
+    TerminalController *-- Line : lines
+    Line --> User
     System *-- Memory
     System *-- FutureEvents
     Scheduler *-- StateQueues
@@ -207,7 +232,8 @@ classDiagram
 ```
 
 A program is a generator that yields `Compute(ticks)`, `Sleep(ticks)`, `DoIo(ticks)`,
-`Yield()`, `WaitFor(resource)`, `Release(resource)` or `OpenClose(ticks)`. Each stands for what a user's code does in CP-V: compute, or make a CAL that leads
+`Yield()`, `WaitFor(resource)`, `Release(resource)`, `OpenClose(ticks)`, `ReadTerminal()` or
+`WriteTerminal(text)`. A read's text is sent back into the program: `text = yield ReadTerminal()`. Each stands for what a user's code does in CP-V: compute, or make a CAL that leads
 to an event report. A tick is a clock-4 tick, 2 ms. A program can catch `Break`; that is its
 break routine (`M:INT`).
 
@@ -417,6 +443,51 @@ A signal for a blocked user is only noted, and acted on when they next run, afte
 release. The exception is `ENQUEUE`, whose flags list the signals (`SETDL`): there the user
 is released at once to act on the signal.
 
+### Terminals and log-on
+
+The **terminal controller** (CP-V's COC) owns the terminal lines and reports what happens on
+them to the scheduler:
+
+| On the line | The model | Event, state |
+|---|---|---|
+| A program reads, nothing typed yet | `read` (`COCRD`) | `TERMINAL_READ` (`E:CRD`): `AWAITING_TERMINAL_INPUT` (`STI`) |
+| A line is typed, a read waiting | `type` (`COCIP`) | `TERMINAL_INPUT_DONE` (`E:CIC`): ready, interactive boost (`STIRC`) |
+| A line is typed, no read yet | `type` | kept as type-ahead; the next read takes it without waiting |
+| A write with `SL:TB` characters still to go out | `write` (`COCWR`) | `OUTPUT_BLOCKED` (`E:CBL`, `STOB`) |
+| The output drains to `SL:UB` | `outputDrained` (`COCOP`) | `OUTPUT_UNBLOCKED` (`E:CUB`): ready, I/O-done boost |
+| Break on a line with a user | `pressBreak` | `BREAK` (`E:CBK`) |
+| Break on a line with nobody | `pressBreak` → `logOn` (`LOGON`) | a new user, through `ADD1` |
+| The line drops | `hangUp` | `ABORT` (`E:OFF`) |
+
+**Log-on** (`LOGON`, `SCHED.txt:1869`) takes a free slot if the on-line users are under
+`S:OUAIS`. It ties the user to the line (`LB:UN`) and starts them at the on-line priority
+`SL:OPRIO`. In CP-V the user starts in TEL, the command processor; the model runs the line's
+`session`, by default an echo loop that stops at `OFF`. When the user ends, the line is free
+again and the on-line count drops (`STEP.txt:159`).
+
+**Input that beats the block.** COC reports the read (`E:CRD`) after finding no input. If the
+input completes in between, `E:CIC` arrives while the user is still running. `STIRCU` then
+remembers it (`UH:FLG` X'4000'), and `STCRD` lets the read go straight on. The access queue
+(`STQA`, `STUQA`) uses the same flag.
+
+From the terminal demo (`python -m cpvmodel terminal`), a user typing beside a cruncher:
+
+```
+    20  line0      logged on, line 0
+    20  line0      TERMINAL_READ: RUNNING -> AWAITING_TERMINAL_INPUT
+    20  line0      KICK_OUT in AWAITING_TERMINAL_INPUT
+   ...
+   300  line0      TERMINAL_INPUT_DONE: AWAITING_TERMINAL_INPUT -> READY
+   300  line0      swapped in
+   300  cruncher   preempted
+   300  line0      dispatched at 0xf3
+```
+
+- While the user waits for input they are swapped out, because nobody else needs to come in.
+- Each typed line brings them back with the interactive boost (X'F2'), ahead of the cruncher.
+- At 700 the cruncher is preempted 190 ticks into its quantum, near its swap quantum, so it goes
+  back at X'FA' rather than X'F8' (`SL:SQPB`).
+
 ### The run loop
 
 In CP-V, `T:SE` is entered again after every quantum, block and interrupt exit. Here it is a
@@ -428,11 +499,11 @@ flowchart TD
     current -->|yes| execute
     current -->|no| dispatch["scheduler.dispatch: swap schedule (T:SS), then<br/>first in-core user, most urgent band first (T:SE),<br/>boost decays 1 (SE1)"]
     dispatch -->|user| run
-    dispatch -->|nobody ready in core| check{"scheduler.isShutDown?<br/>S:CUIS + GOODNGT ≤ 0"}
-    check -->|yes| shutdown(["shutdown (SCREECH X'404')"])
-    check -->|no| pending{"future events?"}
+    dispatch -->|nobody ready in core| pending{"anything still to come?"}
     pending -->|yes| idle["idleUntil the next one (WAIT)"]
-    pending -->|no| stuck(["stuck"])
+    pending -->|no| check{"scheduler.isShutDown?<br/>S:CUIS + GOODNGT ≤ 0"}
+    check -->|yes| shutdown(["shutdown (SCREECH X'404')"])
+    check -->|no| stuck(["stuck"])
     idle --> run
     execute{"execute: go on with the<br/>Compute step, or take the next"} -->|Compute| compute["compute until the step is done, the<br/>quantum runs out, or something is due"]
     compute -->|"interrupt or quantum end"| exit["swap schedule if interrupted (T:SSE),<br/>then scheduler.exitToUser"]
@@ -495,9 +566,12 @@ What is CP-V's so far:
   swap quantum, swapping out idle waiters, and kick-out (`STKO`, `STKOT`).
 - **Resources.** The seven resources with their release flags, last in first out, the
   open/close lock (`OPNCLSUS`, `OPNUNBLOCK`), and signals releasing ENQ waiters.
+- **Terminals and log-on.** Reads, type-ahead, output pacing, break, hang-up and log-on, with
+  the "input before the block" flag.
 - **Shutdown.** When nobody is ready and `usersInSystem − ghostsKeptAtShutdown ≤ 0`, the run
   ends ("shutdown"). This is the idle check, `S:CUIS`+`GOODNGT` ≤ 0, which ends in
-  `SCREECH X'404'`.
+  `SCREECH X'404'`. CP-V's system ghosts keep that count up until a `ZAP`. The model has no
+  ghosts, so it also waits for anything still to come, such as a log-on.
 
 Not yet:
 
@@ -506,6 +580,10 @@ Not yet:
   CP-V waits until the swap set changes (`S:SEVF`).
 - **Resource detail.** ALLOCAT's buffers (`STUQFAC`) aren't modelled, and nothing in the
   model is short of disc pages, buffers or symbiont space yet; programs block with `WaitFor`.
+- **Terminal detail.** COC's characters, echo, editing and line modes; the model types and
+  reads whole lines. TEL is stood in for by `echoSession`.
+- **Still `NotModelledYet`:** too much I/O (`STIOMF`) and associating a shared processor
+  (`STASP`).
 - No DO list and no command processor. Control-Y and an uncaught break end the user instead
   of returning to TEL.
 
@@ -523,4 +601,6 @@ Not yet:
    kick-out, the swap quantum, and swap time.
 5. **Resources** (done). `Resource`, `ResourceManager`, the resource events, and `WaitFor`,
    `Release` and `OpenClose` in programs.
-6. **Terminals and log-on.** Terminal read and output blocking, and log-on from a break.
+6. **Terminals and log-on** (done). `TerminalController`, `Line`, `TerminalSettings`, and
+   `ReadTerminal` and `WriteTerminal` in programs. Log-on from a break, hang-up, and the access
+   queue.
