@@ -23,6 +23,12 @@ MNTH = NL + "RECOVERY FOR UNKNOWN REASON" + NL
 MSFTW = NL + "SOFTWARE CHECK  {:02X}-{:02X}" + NL
 OPERFAIL = NL + "RECOVERY ERROR -"
 BRKMS = NL + "RE-BOOT SYSTEM - SAVE DUMP TAPE FOR ANLZ" + NL
+# To the terminals, as COCOUT's table makes them ASCII: TC, the timing character, a
+# rubout (DEL); BELL; CR, LF. RELOGM's XO first isn't sent: its code didn't survive in
+# the listing (a control character; X-OFF, probably).
+TC, BELL, CRLF = "\x7f", "\x07", "\r\n"
+RELOGM = CRLF + TC * 8 + BELL + TC + BELL + "RECOVERY SAYS-STAND BY-" + CRLF   # RCVCTL.txt:1181
+FAILMS = CRLF + TC * 8 + "STAND BY - FOR EXTENDED RECOVERY" + CRLF               # :1141
 
 SCREECH, SUA, DUMP = 0, 1, 2                            # NAME values of the UTS.txt:20 proc
 SHUTDOWN_CODE = 0x404                                   # "ZAP CODE, FROM SSS"
@@ -77,12 +83,30 @@ def tyout(m, text):
         m.console.write(text)
 
 
+def cocout(m, mon, text):
+    """COCOUT  RCVCTL.txt:363 - the message to every line of every COC, a character at a
+    time through RECOVER's own ASCII table; not when shutting down (INT,R3 X'2A' /
+    BDR). Here: to the lines COC has (mon.sched.coc), as they are. Not CP-V's way
+    around COC: RECOVER writes to the hardware directly, so the lines' buffers and
+    columns aren't touched."""
+    if shutdown(m):
+        return
+    coc = getattr(getattr(mon, "sched", None), "coc", None)
+    if coc is None:
+        return                                           # LI,1 COC / BEZ: NO COC
+    data = text.encode("latin-1")
+    for line in coc.lines:
+        if line.send is not None:
+            line.send(data)
+    m.trace(f"COCOUT: {text.strip(CRLF + TC + BELL)!r} to the terminals")
+
+
 def rcvctl(m, mon, sysgen, reboot):
     """RCVCTL  RCVCTL.txt:93"""
     try:
         _rcvctl(m, mon, sysgen, reboot)
     except DeviceError as e:
-        norcvr(m, str(e))
+        norcvr(m, str(e), mon)
 
 
 def _rcvctl(m, mon, sysgen, reboot):
@@ -109,7 +133,8 @@ def _rcvctl(m, mon, sysgen, reboot):
     tyout(m, message)
     for _ in range(2):                                   # INCRDA twice: room for the buffer
         incrda(mon)
-    # COCOUT / RBOUT / TPCHECK: no COCs, work stations or TP in this model.
+    cocout(m, mon, RELOGM)                               # TELL USERS TO STAND BY
+    # RBOUT / TPCHECK: no remote work stations or TP in this model.
     d = mon.DATE
     if d:
         tyout(m, f"{NL}{d['MO']:02d}/{d['DA']:02d}/{d['YR']:02d} {d['HR']:02d}:{d['MI']:02d}{NL}")
@@ -165,8 +190,10 @@ def reboot_disc(m, mon, reboot):
     return reboot()
 
 
-def norcvr(m, why):
+def norcvr(m, why, mon=None):
     """NORCVR  RCVCTL.txt:1163"""
+    if mon is not None:
+        cocout(m, mon, FAILMS)                           # TELL USERS ABOUT PROBLEMS
     m.console.write(OPERFAIL + " " + why + NL)
     m.console.write(BRKMS)
     raise Halted("NORCVR: recovery failed, operator must reboot")

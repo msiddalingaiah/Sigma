@@ -111,3 +111,27 @@ def test_ghost1_starts_anlz_after_a_recovery():
     names = [n for n, _ in filter(None, new.sched.S_GJOBTBL)]
     assert m.mem[BOOTTYPE] == 0 and "ANLZ" in names        # MTB,0 X'2A' is zero
     assert new.sched.S_CUIS == 2
+
+
+def _terminals(mon, n=2):
+    """COC lines with something connected to the first: what each line received."""
+    from uts.coc import Coc
+    coc = Coc(mon.sched, lines=n)
+    got = bytearray()
+    coc.lines[0].send = got.extend
+    return got
+
+
+def test_recovery_tells_the_terminals_to_stand_by():
+    m, mon = running()
+    got = _terminals(mon)
+    crash(m, mon, code=0x2E, subcode=3)
+    assert b"RECOVERY SAYS-STAND BY-\r\n" in got         # RELOGM, through COCOUT
+    assert got.startswith(b"\r\n" + b"\x7f" * 8 + b"\x07\x7f\x07")   # rubouts, bells
+
+
+def test_a_shutdown_tells_the_terminals_nothing():
+    m, mon = running()
+    got = _terminals(mon)
+    crash(m, mon, code=0x404)
+    assert got == b""                                    # COCOUT: NOTYPE IF SHUTDOWN

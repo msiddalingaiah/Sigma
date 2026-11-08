@@ -45,7 +45,7 @@ simplification; the top-level `README.md` has the commands.
 | System tape | `writemon.py` | Writes a tape from an invented `M:MON` (modules and sizes in `config.py`, contents zero) |
 | Tape install | `tboot.py`, `xdelta.py`, `reconfig.py` | Runs end to end. Patch cards are placed and read, but storing a patch (XDELTA's evaluator) and RECONFIG `:` commands stop with `NotTranslated` |
 | Disc boot | `bootsubr.py`, `initial.py` | Reads back what the install wrote and comes up to `T:SE` |
-| Recovery | `recovery.py` | Crash and operator recovery, the dump, the silent shutdown path, the reboot. SUA and DUMP stop |
+| Recovery | `recovery.py` | Crash and operator recovery, the dump, the silent shutdown path, the reboot. The terminals are told `RECOVERY SAYS-STAND BY-` (COCOUT), or `STAND BY - FOR EXTENDED RECOVERY` when recovery fails. SUA and DUMP stop |
 | Key-ins | `keyin.py` | `DATE`, `TIME`, `ON`, `ONB`, `OFF`, `ZAP` (with its abort loop), `PREF`, `OBON`, `OBOF`, `SYST`, `SEND`, errors and device key-ins. KEYIN runs as a ghost through `T:GJOBSTRT`. Other commands are logged as not translated |
 | I/O | `io.py` | IOQ for monitor requests, the console and printer handlers, injectable printer faults |
 | Scheduler | `sched.py` | States, events and transition tables, priorities, resources, the exit path, log-on, `T:SE` and idle, and `T:SS` on page counts. Users are generator stand-ins; swaps complete at once. `INITIAL` builds it and starts ALLOCAT and GHOST1, and the key-ins run through it (`ghosts.py`) |

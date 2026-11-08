@@ -129,7 +129,12 @@ I/O and starts the `RVGHOST` ghost. A DUMP returns to the instruction after the 
    `RBOUT` stop typing (`INT` / `BDR` on X'2A'), and no dump is taken.
 5. Moves `RCVRAD` on by two granules (`INCRDA` twice, `CYCUSR.txt:1335`) to leave room for the
    recovery buffer, and makes `RECOVER0` branch to `NORCVR` from now on (`STW NRCVRX`).
-6. Tells the terminals `RECOVERY SAYS-STAND BY-` (`COCOUT`) and the remote work stations to re-dial.
+6. Tells the terminals `RECOVERY SAYS-STAND BY-` (`RELOGM`, `RCVCTL.txt:1181`, through `COCOUT`, `:363`)
+   and the remote work stations to re-dial. COCOUT writes to every line of every COC directly, a
+   character at a time through RECOVER's own ASCII table. The message starts with eight rubouts
+   (`TC`, timing characters for the carriage) and two bells. NORCVR, when recovery itself fails, sends
+   `STAND BY - FOR EXTENDED RECOVERY` (`FAILMS`, `:1141`), as RECOVER2 does for bad granule maps
+   (`HGPERRUM`, `RECOVER2.txt:444`).
    Checks TP, and types the date and time.
 7. Dumps memory (`RCVDMP`, unless shutting down) and saves system state. This is system-specific:
    ALLOCAT stacks, queued I/O, real-time pages, TP queue buffers and journals, symbiont tables, the
@@ -206,6 +211,12 @@ start-up error-log message (`GHOST1D.txt:299`). GHOST1's own comment repeats the
 
 FIX1 tests byte 0 for X'22' in the same way ("IS IT COLD TAPE BOOT", `FIX1.txt:5253`), to decide
 whether to initialise ALLYCAT's data or to read the recovery buffer back from `RCVRAD`.
+
+**In the translation** (`recovery.py`, `cocout`): the message goes to the lines the scheduler's COC
+has, to those with a terminal connected, as ASCII. `TC` is sent as DEL, `BELL` as BEL, and `CR`/`LF`
+as themselves. RELOGM's first character, `XO`, isn't sent: the listing's text lost the control
+characters of `CR`, `LF`, `TC`, `BELL` and `XO` (`RCVCTL.txt:1122`–`:1129`), and `XO`'s use
+(X-OFF, probably) isn't certain. The lines' own buffers aren't touched, as RECOVER bypasses COC.
 
 ## Open questions
 
