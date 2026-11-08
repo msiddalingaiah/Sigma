@@ -82,6 +82,30 @@ def edit_number(recnum, key):
     return bin2bcd(recnum)[2:] + lineno
 
 
+# A file name as typed: characters, and runs of bytes that don't print as hex in
+# parentheses (not CP-V: AP's scratch files end in the SYSID, binary: FX1(0007))
+NAME = r"(?:[A-Z0-9:$*_-]|\((?:[0-9A-F]{2})+\))+"
+
+
+def show_name(name):
+    """A file name for the terminal: each run of bytes that don't print as (hex)."""
+    out, run = "", b""
+    for b in name.encode(EBCDIC):
+        c = bytes([b]).decode(EBCDIC)
+        if 0x20 < ord(c) < 0x7F:
+            if run:
+                out, run = out + f"({run.hex().upper()})", b""
+            out += c
+        else:
+            run += bytes([b])
+    return out + (f"({run.hex().upper()})" if run else "")
+
+
+def file_name(typed):
+    """show_name's form back to the name: (hex) runs to their bytes."""
+    return re.sub(r"\(([0-9A-F]+)\)", lambda m: bytes.fromhex(m.group(1)).decode(EBCDIC), typed)
+
+
 def unprint(key):
     """UNPRINT  UTILITY.txt - a key as it prints: itself, or X'hex' if any of it isn't
     printable (CCTAB: here, an EBCDIC character outside ASCII's graphics)."""
@@ -319,6 +343,9 @@ class Online:
             if verb in ("COPY", "C") and rest:         # PCL  TEL.txt:3889, :4567
                 yield from self.copy(u, rest)
                 continue
+            if verb in ("DELETE", "D") and rest:       # PCL's DELETE  TEL.txt:4590 (D)
+                yield from self.delete(u, rest)
+                continue
             if verb == "TAPE":                         # not CP-V: the mounted tapes (--mount)
                 yield from self.tape(u, rest)
                 continue
@@ -476,6 +503,37 @@ class Online:
                 continue
         return None
 
+    def delete(self, u, args):
+        """PCL's DELETE (D): DELETE fid[,fid...]. Each file is opened (M:OPEN, with its
+        security checks) and closed with REL (M:CLOSE, the FPT's first parameter 1: CLSFIL
+        releases the directory entry and the granules). A name with bytes that don't print
+        is given as LIST shows it, FX1(0007), or as X'hex'. The user's own account only (a
+        stand-in's limit: PCL leaves it to OPEN and CLOSE). The messages are invented."""
+        cal = self.s.cal
+        own = cal.account.get(u, ":SYS")
+        for fid in [f for f in re.split(r"[,\s]+", args) if f]:
+            m = re.fullmatch(rf"(?:X'((?:[0-9A-F]{{2}})+)'|({NAME}))(?:\.([A-Z0-9:]{{1,8}}))?", fid)
+            if m is None:
+                yield from _type(cal, u, f"DELETE: {fid}: NOT A FILE NAME")
+                continue
+            hexname, name, account = m.groups()
+            name = bytes.fromhex(hexname).decode(EBCDIC) if hexname else file_name(name)
+            if account and account != own:
+                yield from _type(cal, u, f"DELETE: {fid}: ONLY YOUR OWN FILES")
+                continue
+            cal.add_dcb(u, "F:COPY", COPYDCB, asn=1, fname=name, account=own,
+                        fun="IN", keym=11, org=0x20)
+            err = pyprog.Cpv.ERRR, pyprog.Cpv.ABNR
+            result = yield Cal1(1, Fpt(0x14, word0=COPYDCB, presence=P_ERR | P_ABN,
+                                       params=list(err)))
+            if _routine(result):
+                yield from _type(cal, u, f"DELETE: {fid}: " + (
+                    "NO SUCH FILE" if _code(result) == 0x03 else f"CAN'T OPEN, CODE {_code(result):02X}"))
+                continue
+            yield Cal1(1, Fpt(0x15, word0=COPYDCB, presence=P_ERR, params=[1]))   # REL
+            cal.trace(f"DELETE user {u}: {name}.{own}")
+            yield from _type(cal, u, f"{fid} DELETED")
+
     def copy(self, u, args):
         """PCL's COPY, the part for a terminal: COPY fid [TO ME[(opts)] | OVER ME[(opts)]],
         the options K and X. With no output on-line, the output is ME (COPYTO.txt:
@@ -485,13 +543,14 @@ class Online:
         With X, each record is dumped in hex, its key or record number first
         (HEXDUMP.txt; RDWRT.txt READ20 :1077, which takes X before K)."""
         cal = self.s.cal
-        m = re.fullmatch(r"([A-Z0-9:]{1,31})(?:\.([A-Z0-9:]{1,8}))?"
+        m = re.fullmatch(rf"({NAME})(?:\.([A-Z0-9:]{{1,8}}))?"
                          r"(?:\s+(TO|OVER)\s+([^\s(]+)(?:\(([A-Z,]+)\))?)?", args)
         options = set((m.group(5) or "").split(",")) - {""} if m else set()
         if m is None or options - {"K", "X"}:
             yield from _type(cal, u, "COPY: SYNTAX ERROR")
             return
         name, account, _, dest, _ = m.groups()
+        name = file_name(name)
         if dest is not None and dest != "ME":
             yield from _type(cal, u, f"COPY: ONLY TO ME, NOT {dest}")
             return
@@ -558,11 +617,12 @@ class Online:
         if attributes:
             yield from _type(cal, u, "ORG    GRAN     REC     DATE    NAME")
         for n in names:
+            shown = show_name(n)                       # FX1(0007): DELETE and COPY take it
             if not attributes:
-                yield from _type(cal, u, n)
+                yield from _type(cal, u, shown)
                 continue
             org, recs = self._attributes(n, account)
-            yield from _type(cal, u, f"{org:<7}{'':<9}{recs:<8}{'':<8}{n}")
+            yield from _type(cal, u, f"{org:<7}{'':<9}{recs:<8}{'':<8}{shown}")
 
     def _attributes(self, name, account):
         """A file's organization letter and record count (host-side, as LIST's own read)."""

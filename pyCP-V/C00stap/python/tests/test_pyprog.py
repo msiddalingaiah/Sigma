@@ -272,3 +272,17 @@ def test_binary_keys():
                      "LINE 3", "ODD BYTES", "def main(cpv):"]   # line 1 is blank
     kf = s.cal.fs.open("LINES", ":SYS", "IN").file
     assert kf.read(bytes([0, 0xFF, 0x15])) == "ODD BYTES".encode("cp037") and kf.check() == []
+
+
+def test_live_key_ins_go_on_after_an_eh():
+    """Typed while the system runs (--terminals with -i --console): after EH?, KEYERR's
+    new read waits for the next line, which completes it; nothing hangs."""
+    from uts.terminals import operator_line
+    m, con, s = system()
+    m.console.live = True
+    for line in ("BYE", "FOO"):
+        operator_line(con, line)                        # each: EH?, then a read that waits
+    assert m.console.text().count("EH?") == 2
+    con.screech = lambda code, sub: ("shut", code)      # (the recovery, a stand-in here)
+    operator_line(con, "ZAP")
+    assert con.shutdown is not None

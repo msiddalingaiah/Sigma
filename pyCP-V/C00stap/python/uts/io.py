@@ -159,6 +159,18 @@ class ConsoleUnit(Unit):
         super().__init__(faults)
         self.console = console
 
+    def reading(self):
+        """A read started that waits for the operator: live, with no line typed yet."""
+        return bool(self.console.live and self.commands and not self.console.replies
+                    and any(order == "read" for order, _, _ in self.commands))
+
+    def ready(self):
+        """A read waits until the operator types (a real console's read does: the
+        interrupt comes with the line). KEYERR's new prompt after EH? is such a read."""
+        if self.reading():
+            return False
+        return super().ready()
+
     def execute(self, order, text, count, status):
         if order == "write":
             self.console.write(text[:count] if count else text)

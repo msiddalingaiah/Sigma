@@ -501,3 +501,25 @@ def test_ap_assembles_from_the_terminal():
     assert "abnormal X'03' on DCB X'AC00': routine X'B7B7'" in log   # F:STD's own ABA
     assert "OPEN $:STDDEF.:SYS IN" in log                 # ... which opens it in :SYS
     assert "PRECORD" in log                               # a scratch file, consecutive
+
+
+def test_delete_releases_files_in_ones_own_account():
+    from uts import pyprog
+    t = logged_on()
+    fs = t.s.cal.fs
+    odd = bytes.fromhex("C6E7F115").decode("cp037")          # FX1 and NL: doesn't print
+    for name in ("ONE", "TWO", odd):
+        pyprog.store_source(fs, name, "BOB", "X")
+    pyprog.store_source(fs, "SYSFILE", ":SYS", "X")
+    t.type("L\r")
+    assert "FX1(15)" in t.text().splitlines()               # LIST: the bytes in hex
+    t.type("COPY FX1(15)\r")                                 # COPY takes that form too
+    assert t.text().splitlines()[1] == "X"
+    pyprog.store_source(fs, odd + "Z", "BOB", "X")
+    t.type("DELETE ONE,FX1(15) NONE X'C6E7F115E9'\r")       # either form
+    assert t.text().splitlines()[1:] == ["ONE DELETED", "FX1(15) DELETED",
+                                         "DELETE: NONE: NO SUCH FILE", "X'C6E7F115E9' DELETED", "!"]
+    assert set(fs.files("BOB")) == {"TWO"}
+    t.type("D SYSFILE.:SYS\r")
+    assert "DELETE: SYSFILE.:SYS: ONLY YOUR OWN FILES" in t.text()
+    assert "SYSFILE" in fs.files(":SYS")

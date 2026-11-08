@@ -147,3 +147,26 @@ def test_lynx_links_aps_object_and_it_runs():
     t.run(8000)
     assert t.text().splitlines()[1:] == ["HELLO FROM AP", "COUNT 3", "COUNT 2", "COUNT 1",
                                          "GOODBYE", "!"]
+
+
+@pytest.mark.skipif(not os.path.exists(C00_TAPE), reason="the C00 boot tape image isn't here")
+def test_calc_an_interpreter_in_ap():
+    from uts import labtape
+    t = logged_on()
+    with open(C00_TAPE, "rb") as f:
+        tape = labtape.read_tape(f.read())
+    labtape.restore(t.s.cal.fs, labtape.Tape(tape.reel, ":SYS", [
+        f for f in tape.files if f.name in ("AP", "$:STDDEF", "LYNX", "LOADER", "ERRMSG", ":LIB")]))
+    with open(os.path.join(os.path.dirname(__file__), "..", "examples", "calc.asm")) as f:
+        pyprog.store_source(t.s.cal.fs, "CALC", "BOB", f.read())
+    for line in ("AP CALC OVER CALCBO", "", "LYNX CALCBO ON CALCLM", "CALCLM"):
+        t.type(line + "\r")
+        t.run(8000)
+    t.text()
+    answers = []
+    for line in ("A = 6*7", "B = (A - 2) / 4", "PRINT A + B*-3", "a", "7/(3-3)", "2+", "BYE"):
+        t.type(line + "\r")
+        t.run(2000)
+        answers.append(t.text().splitlines()[1:])
+    assert answers == [[">"], [">"], ["12", ">"], ["42", ">"], ["DIVISION BY ZERO", ">"],
+                       ["SYNTAX ERROR", ">"], ["!"]]

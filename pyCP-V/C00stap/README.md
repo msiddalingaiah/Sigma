@@ -207,6 +207,8 @@ python -m uts --replies 06/15/76 13:45 N --file examples/hello.py=HELLO --termin
 #   IMPORT hello.asm        AP HELLO OVER HELLOBO,HELLOLS
 #   (Enter at OPTIONS >)    EXPORT HELLOLS TO hello.lst     (the listing lands in examples)
 #   LYNX HELLOBO ON HELLOLM   HELLOLM                         (link, then run it)
+# examples/calc.asm the same way: CALC, an interpreter for integer expressions and variables
+#   (A = 6*7, PRINT (A - 2) / 4, BYE), recursive descent in Sigma assembler
 python -m uts --replies 06/15/76 13:45 N --terminals 1 --install ../c00si/cpcp.tap --share examples
 ```
 

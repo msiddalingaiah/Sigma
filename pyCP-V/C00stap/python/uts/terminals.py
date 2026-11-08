@@ -191,9 +191,16 @@ def operator_line(con, text):
     from .monitor import NotTranslated
     console = con.m.console
     console.typed()
+    oc = con.io.devices.get(con.oc)
+    waiting = oc is not None and oc.busy and getattr(oc.unit, "reading", lambda: False)()
     console.replies.append(text)
     try:
-        con.interrupt()
+        if waiting:                                    # a read is waiting (KEYERR's new
+            con.io.pending.append(oc)                  # prompt): the line completes it
+            con.io.run()
+            con.ctiop()
+        else:
+            con.interrupt()
     except ConsoleExhausted:
         return
     except NotTranslated as e:

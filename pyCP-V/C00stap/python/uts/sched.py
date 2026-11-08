@@ -1686,6 +1686,7 @@ class Scheduler:
         ``until`` clock units have passed. Returns 'idle', 'shutdown' or 'time'. A run
         stopped by ``until`` carries on where it stopped on the next call."""
         nxt, self._next = self._next, "SE"
+        start = self.now
         for _ in range(max_steps):
             if until is not None and self.now >= until:
                 self._next = nxt
@@ -1708,7 +1709,22 @@ class Scheduler:
                 continue
             if isinstance(nxt, tuple):
                 nxt = self.pulle(nxt[1])
-        raise RuntimeError("scheduler run: too many steps")
+        if until is not None and self.now > start:
+            self._next = nxt                           # busy, but time passes: carry on
+            return "time"
+        # The clock didn't move in max_steps steps: a loop with no time in it (CALs
+        # alone take none here). Not CP-V: the user's program is stopped, as at code
+        # that isn't translated, if there is a hook for that; else the run fails.
+        u = self.S_CUN
+        last = " / ".join(line.strip() for line in self.log[-3:])
+        why = f"{max_steps} steps with the clock at {self.now} (a loop?): {last}"
+        if u and "NOT TRANSLATED" in self.hooks:
+            from .monitor import NotTranslated
+            self.trace(f"user {u}: {why}")
+            self.not_translated[u] = NotTranslated(why)
+            self._next = self.hook("NOT TRANSLATED", u)
+            return "time"
+        raise RuntimeError(f"scheduler run: too many steps (user {u}): {why}")
 
     def _cal(self):
         if self.cal is None:
