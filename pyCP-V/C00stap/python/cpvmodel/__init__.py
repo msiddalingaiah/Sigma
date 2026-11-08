@@ -3,11 +3,13 @@
 Not a translation: ``uts`` is the faithful one. This model keeps the design and leaves out the
 machine. Every name maps back to CP-V's symbols and source lines in the glossary
 (``docs/model/glossary.md``). See ``docs/model.md``.
+
+Each major CP-V component is a subpackage with one class in front (``scheduler.Scheduler``;
+later ``filesystem.FileSystem`` and others). ``System`` puts them together.
 """
 
-from .eventrouter import EventRouter, NotModelledYet
-from .events import Event, InconsistentEvent, PriorityBoost, TransitionTable
 from .program import Compute, DoIo, Sleep, Yield
-from .statequeues import StateQueues
+from .scheduler import (Event, EventRouter, InconsistentEvent, NotModelledYet, PriorityBoost,
+                        Scheduler, StateQueues, TransitionTable)
 from .system import NoFreeSlot, System, TraceEntry
 from .user import User, UserState

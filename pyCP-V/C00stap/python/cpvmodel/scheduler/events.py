@@ -14,8 +14,8 @@ An event the table has no entry for is a bug in the reporter: CP-V stops with SC
 import enum
 from dataclasses import dataclass
 
-from .glossary import cpv, modelOnly
-from .user import UserState
+from ..glossary import cpv, modelOnly
+from ..user import UserState
 
 READY = UserState.READY
 RUNNING = UserState.RUNNING

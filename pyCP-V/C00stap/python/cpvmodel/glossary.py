@@ -20,8 +20,16 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPO_ROOT / "c00co"
 
-MODEL_MODULES = ["cpvmodel.user", "cpvmodel.statequeues", "cpvmodel.events", "cpvmodel.eventrouter",
-                 "cpvmodel.futureevents", "cpvmodel.program", "cpvmodel.system"]
+MODEL_MODULES = [
+    "cpvmodel.user",
+    "cpvmodel.program",
+    "cpvmodel.futureevents",
+    "cpvmodel.system",
+    "cpvmodel.scheduler.scheduler",
+    "cpvmodel.scheduler.statequeues",
+    "cpvmodel.scheduler.events",
+    "cpvmodel.scheduler.eventrouter",
+]
 
 
 @dataclass(frozen=True)

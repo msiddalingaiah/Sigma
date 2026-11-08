@@ -2,8 +2,8 @@
 
 from .events import (AWAITING_ACCESS, AWAITING_TERMINAL_INPUT, IO_WAIT, READY, RUNNING,
                      TOO_MUCH_IO, PriorityBoost, TransitionTable)
-from .glossary import cpv, modelOnly
-from .user import UserState
+from ..glossary import cpv, modelOnly
+from ..user import UserState
 
 
 @modelOnly("Raised by the transitions that a later iteration will model")
@@ -29,13 +29,13 @@ class EventRouter:
     transition routines that ``S:TRNSVEC`` points into.
     """
 
-    def __init__(self, system):
-        self.system = system
+    def __init__(self, scheduler):
+        self.scheduler = scheduler
         self.table = TransitionTable()
         self.eventCount = 0
 
     cpvNames = {
-        "system": modelOnly("The system the router belongs to"),
+        "scheduler": modelOnly("The scheduler the router belongs to"),
         "table": cpv("S:SET", "SB:SET", source="SCHED.txt:419-428"),
         "eventCount": cpv("S:EVF", source="SSDAT.txt:403",
                           note="Bumped on every report and state change; the swap scheduler "
@@ -56,9 +56,9 @@ class EventRouter:
         else:
             getattr(self, action)(user, event, detail)
         if user.state is oldState:
-            self.system.log(user, f"{event.name} in {oldState.name}")
+            self.scheduler.log(user, f"{event.name} in {oldState.name}")
         else:
-            self.system.log(user, f"{event.name}: {oldState.name} -> {user.state.name}")
+            self.scheduler.log(user, f"{event.name}: {oldState.name} -> {user.state.name}")
 
     @cpv("RCE4", "CHS1", "S:EVF", source="SCHED.txt:1408-1433, SCHED.txt:1606-1611",
          note="Unlinks the user from the old state's queue and appends them to the new one")
@@ -79,16 +79,16 @@ class EventRouter:
 
     def _leave(self, user):
         if user.state is READY:
-            self.system.stateQueues.remove(user)
-        if user is self.system.currentUser:
-            self.system.currentUser = None
+            self.scheduler.stateQueues.remove(user)
+        if user is self.scheduler.currentUser:
+            self.scheduler.currentUser = None
 
     def _enter(self, user, state):
         user.state = state
         if state is READY:
-            self.system.stateQueues.add(user)
+            self.scheduler.stateQueues.add(user)
         elif state is RUNNING:
-            self.system.currentUser = user
+            self.scheduler.currentUser = user
         self.eventCount += 1
 
     # --- The special transitions (S:TRNSVEC) --------------------------------------------

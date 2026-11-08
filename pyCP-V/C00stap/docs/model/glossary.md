@@ -37,6 +37,92 @@ counterpart. Source paths are in `c00co/`.
 | `UserState.AWAITING_INTERRUPT` | member | `SQFI` | [SCHED.txt:277–318](../../c00co/SCHED.txt#L277-L318) | Queued for interrupt |
 | `UserState.FREE_SLOT` | member | `SNULL` | [SCHED.txt:277–318](../../c00co/SCHED.txt#L277-L318) | Empty user slot |
 
+## Compute
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Compute` | class | *model only* |  | A stand-in for user code running in slave mode until the clock-4 interrupt |
+
+## DoIo
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `DoIo` | class | *model only* |  | Stands for a read or write CAL: IOQ starts the I/O (UB:MF + 1), the monitor reports E:IIP, and the device's completion reports E:IC |
+
+## Sleep
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Sleep` | class | *model only* |  | Stands for a wait CAL: the monitor reports E:SL, and CLOCK4 reports E:WU later |
+
+## Yield
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Yield` | class | *model only* |  | Stands for giving up the processor, as RDL's TIMSUP does (E:QE) |
+
+## FutureEvents
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `FutureEvents` | class | *model only* |  | Stands in for the interrupts that report events in CP-V: clock 4 for wake-ups, the I/O interrupt for completions |
+| `FutureEvents.pending` | attribute | *model only* |  | A heap of (time, sequence, user, event) |
+| `FutureEvents.sequence` | attribute | *model only* |  | Keeps reports at the same time in order |
+| `FutureEvents.schedule` | method | *model only* |  | Adds a report to the calendar |
+| `FutureEvents.nextTime` | method | *model only* |  | When the next report is due, or None |
+| `FutureEvents.popDue` | method | *model only* |  | Removes and returns the next report due by ``time``, or None |
+
+## NoFreeSlot
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `NoFreeSlot` | class | *model only* |  | CP-V's LOGON just does nothing when no slot is free |
+
+## System
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `System` | class | *model only* |  | The monitor as a whole; CP-V has no single counterpart |
+| `System.clock` | attribute | *model only* |  | Simulated time in ticks. CP-V counts time per user in J:DELTAT with clock 4 |
+| `System.users` | attribute | `SMUIS` | [SSDAT.txt:336–381](../../c00co/SSDAT.txt#L336-L381) | The per-user tables have SMUIS entries |
+| `System.freeSlots` | attribute | `SNULL`, `SB:HQ` | [SCHED.txt:317](../../c00co/SCHED.txt#L317), [SSDAT.txt:390–394](../../c00co/SSDAT.txt#L390-L394) | The queue of the SNULL state |
+| `System.scheduler` | attribute | `SCHED` | [SCHED.txt:1–20](../../c00co/SCHED.txt#L1-L20) |  |
+| `System.futureEvents` | attribute | *model only* |  | Reports that the clock and devices will make later |
+| `System.trace` | attribute | *model only* |  | What happened, for tests and for reading |
+| `System.startUser` | method | `LOGON`, `ADD1` | [SCHED.txt:1869–1980](../../c00co/SCHED.txt#L1869-L1980) | LOGON (on-line), MBS (batch) and T:GJOBSTRT (ghosts) take a slot from the SNULL queue and call ADD1 |
+| `System.endUser` | method | `STEP70` | [STEP.txt:117–150](../../c00co/STEP.txt#L117-L150) | Removal of a user from the system |
+| `System.execute` | method | *model only* |  | The user's code runs; in CP-V the processor simply runs the user in slave mode |
+| `System.advanceClock` | method | *model only* |  | Time passes; reports that come due on the way are made at their own time |
+| `System.idleUntil` | method | `C:IDLE`, `WAIT` | [SCHED.txt:1085–1126](../../c00co/SCHED.txt#L1085-L1126) | T:SE's idle loop: CP-V waits for an interrupt, then tries T:SE again |
+| `System.run` | method | *model only* |  | The simulation loop: dispatch, execute, repeat |
+| `System.log` | method | *model only* |  | Adds a line to the trace |
+| `System.traceText` | method | *model only* |  | The trace as text |
+
+## TraceEntry
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `TraceEntry` | class | *model only* |  | One line of a run's trace |
+
+## Scheduler
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Scheduler` | class | `SCHED` | [SCHED.txt:1–20](../../c00co/SCHED.txt#L1-L20) | SCHED - EXECUTION AND SWAP SCHEDULER; its data is in SSDAT |
+| `Scheduler.system` | attribute | *model only* |  | The system the scheduler belongs to; used for the trace |
+| `Scheduler.stateQueues` | attribute | `SB:HQ`, `SB:TQ` | [SSDAT.txt:390–394](../../c00co/SSDAT.txt#L390-L394) |  |
+| `Scheduler.router` | attribute | `RCE0` | [SCHED.txt:1371–1404](../../c00co/SCHED.txt#L1371-L1404) |  |
+| `Scheduler.currentUser` | attribute | `S:CUN` | [TCATCH.txt:173](../../c00co/TCATCH.txt#L173) |  |
+| `Scheduler.usersInSystem` | attribute | `S:CUIS` | [SSDAT.txt:51](../../c00co/SSDAT.txt#L51) |  |
+| `Scheduler.ghostsKeptAtShutdown` | attribute | `GOODNGT` | [SCHED.txt:1065–1084](../../c00co/SCHED.txt#L1065-L1084) | CP-V stores the negative: ZAP sets GOODNGT to -2 |
+| `Scheduler.report` | method | `T:RUE`, `T:RE`, `RCE0` | [SCHED.txt:1360–1404](../../c00co/SCHED.txt#L1360-L1404) | T:RUE reports for any user, T:RE for the current one |
+| `Scheduler.addUser` | method | `ADD1`, `S:CUIS`, `UB:PRIOB` | [SCHED.txt:1922–1980](../../c00co/SCHED.txt#L1922-L1980) | The JIT granule, flags and page count aren't modelled yet |
+| `Scheduler.removeUser` | method | `STEP70`, `S:CUIS`, `SNULL` | [STEP.txt:117–150](../../c00co/STEP.txt#L117-L150) | In CP-V this is in STEP, which also frees the JIT page and processor counts |
+| `Scheduler.dispatch` | method | `T:SE`, `SE1`, `S:CUN`, `S:PRIODEC` | [SCHED.txt:1021–1209](../../c00co/SCHED.txt#L1021-L1209) | Also does a swap schedule first, and loads the map and access locks |
+| `Scheduler.endQuantum` | method | `T:ACCTEX`, `T:CHSE0` | [SCHED.txt:980–1012](../../c00co/SCHED.txt#L980-L1012) | CP-V ends the quantum when the time in J:DELTAT runs out |
+| `Scheduler.isShutDown` | method | `S:CUIS`, `GOODNGT`, `X'404'` | [SCHED.txt:1065–1084](../../c00co/SCHED.txt#L1065-L1084) | Checked when nobody is ready; ends with SCREECH X'404' |
+| `Scheduler.log` | method | *model only* |  | Adds a line to the system's trace |
+
 ## StateQueues
 
 | Model name | Kind | CP-V | Source | Notes |
@@ -111,7 +197,7 @@ counterpart. Source paths are in `c00co/`.
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
 | `EventRouter` | class | `T:RE`, `T:RUE`, `RCE0`, `RCE4` | [SCHED.txt:1360–1433](../../c00co/SCHED.txt#L1360-L1433) | CP-V reports with the event in R6 and the user in R4 or R5, disabled |
-| `EventRouter.system` | attribute | *model only* |  | The system the router belongs to |
+| `EventRouter.scheduler` | attribute | *model only* |  | The scheduler the router belongs to |
 | `EventRouter.table` | attribute | `S:SET`, `SB:SET` | [SCHED.txt:419–428](../../c00co/SCHED.txt#L419-L428) |  |
 | `EventRouter.eventCount` | attribute | `S:EVF` | [SSDAT.txt:403](../../c00co/SSDAT.txt#L403) | Bumped on every report and state change; the swap scheduler uses it to notice that something happened while it worked |
 | `EventRouter.report` | method | `RCE0` | [SCHED.txt:1371–1404](../../c00co/SCHED.txt#L1371-L1404) | T:RUE reports for any user, T:RE for the current one, T:REG for the current one and then reschedules |
@@ -136,77 +222,3 @@ counterpart. Source paths are in `c00co/`.
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
 | `NotModelledYet` | class | *model only* |  | Raised by the transitions that a later iteration will model |
-
-## FutureEvents
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `FutureEvents` | class | *model only* |  | Stands in for the interrupts that report events in CP-V: clock 4 for wake-ups, the I/O interrupt for completions |
-| `FutureEvents.pending` | attribute | *model only* |  | A heap of (time, sequence, user, event) |
-| `FutureEvents.sequence` | attribute | *model only* |  | Keeps reports at the same time in order |
-| `FutureEvents.schedule` | method | *model only* |  | Adds a report to the calendar |
-| `FutureEvents.nextTime` | method | *model only* |  | When the next report is due, or None |
-| `FutureEvents.popDue` | method | *model only* |  | Removes and returns the next report due by ``time``, or None |
-
-## Compute
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `Compute` | class | *model only* |  | A stand-in for user code running in slave mode until the clock-4 interrupt |
-
-## DoIo
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `DoIo` | class | *model only* |  | Stands for a read or write CAL: IOQ starts the I/O (UB:MF + 1), the monitor reports E:IIP, and the device's completion reports E:IC |
-
-## Sleep
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `Sleep` | class | *model only* |  | Stands for a wait CAL: the monitor reports E:SL, and CLOCK4 reports E:WU later |
-
-## Yield
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `Yield` | class | *model only* |  | Stands for giving up the processor, as RDL's TIMSUP does (E:QE) |
-
-## NoFreeSlot
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `NoFreeSlot` | class | *model only* |  | CP-V's LOGON just does nothing when no slot is free |
-
-## System
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `System` | class | *model only* |  | The monitor as a whole; CP-V has no single counterpart |
-| `System.clock` | attribute | *model only* |  | Simulated time in ticks. CP-V counts time per user in J:DELTAT with clock 4 |
-| `System.users` | attribute | `SMUIS` | [SSDAT.txt:336–381](../../c00co/SSDAT.txt#L336-L381) | The per-user tables have SMUIS entries |
-| `System.freeSlots` | attribute | `SNULL`, `SB:HQ` | [SCHED.txt:317](../../c00co/SCHED.txt#L317), [SSDAT.txt:390–394](../../c00co/SSDAT.txt#L390-L394) | The queue of the SNULL state |
-| `System.stateQueues` | attribute | `SB:HQ`, `SB:TQ` | [SSDAT.txt:390–394](../../c00co/SSDAT.txt#L390-L394) |  |
-| `System.router` | attribute | `RCE0` | [SCHED.txt:1371–1404](../../c00co/SCHED.txt#L1371-L1404) |  |
-| `System.futureEvents` | attribute | *model only* |  | Reports that the clock and devices will make later |
-| `System.currentUser` | attribute | `S:CUN` | [TCATCH.txt:173](../../c00co/TCATCH.txt#L173) |  |
-| `System.usersInSystem` | attribute | `S:CUIS` | [SSDAT.txt:51](../../c00co/SSDAT.txt#L51) |  |
-| `System.ghostsKeptAtShutdown` | attribute | `GOODNGT` | [SCHED.txt:1065–1084](../../c00co/SCHED.txt#L1065-L1084) | CP-V stores the negative: ZAP sets GOODNGT to -2 |
-| `System.trace` | attribute | *model only* |  | What happened, for tests and for reading |
-| `System.startUser` | method | `ADD1`, `S:CUIS`, `UB:PRIOB` | [SCHED.txt:1922–1980](../../c00co/SCHED.txt#L1922-L1980) | Also takes the head of the SNULL queue (LOGON, MBS). The JIT granule, flags and page count aren't modelled yet |
-| `System.dispatch` | method | `T:SE`, `SE1`, `S:CUN`, `S:PRIODEC` | [SCHED.txt:1021–1209](../../c00co/SCHED.txt#L1021-L1209) | Also does a swap schedule first, and loads the map and access locks |
-| `System.execute` | method | *model only* |  | The user's code runs; in CP-V the processor simply runs the user in slave mode |
-| `System.endQuantum` | method | `T:ACCTEX`, `T:CHSE0` | [SCHED.txt:980–1012](../../c00co/SCHED.txt#L980-L1012) | CP-V ends the quantum when the time in J:DELTAT runs out |
-| `System.endUser` | method | `STEP70`, `S:CUIS`, `SNULL` | [STEP.txt:117–150](../../c00co/STEP.txt#L117-L150) | Also frees the JIT page and processor counts |
-| `System.isShutDown` | method | `S:CUIS`, `GOODNGT`, `X'404'` | [SCHED.txt:1065–1084](../../c00co/SCHED.txt#L1065-L1084) | Checked when nobody is ready; ends with SCREECH X'404' |
-| `System.advanceClock` | method | *model only* |  | Time passes; reports that come due on the way are made at their own time |
-| `System.idleUntil` | method | `C:IDLE`, `WAIT` | [SCHED.txt:1085–1126](../../c00co/SCHED.txt#L1085-L1126) | CP-V waits for an interrupt, then tries T:SE again |
-| `System.run` | method | *model only* |  | The simulation loop: dispatch, execute, repeat |
-| `System.log` | method | *model only* |  | Adds a line to the trace |
-| `System.traceText` | method | *model only* |  | The trace as text |
-
-## TraceEntry
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `TraceEntry` | class | *model only* |  | One line of a run's trace |

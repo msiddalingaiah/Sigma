@@ -17,10 +17,10 @@ def statesOf(system, name):
 def testSleepThenWakeUpWithTheSpecialComputeBoost():
     system = System()
     user = system.startUser("sleeper", program(Sleep(50), Compute(1)), priority=0xF8)
-    system.dispatch()
+    system.scheduler.dispatch()
     system.execute(user)
     assert user.state is UserState.ASLEEP
-    assert system.currentUser is None
+    assert system.scheduler.currentUser is None
     system.advanceClock(50)
     assert user.state is UserState.READY
     assert user.priority == 0xF8 - 3
@@ -29,7 +29,7 @@ def testSleepThenWakeUpWithTheSpecialComputeBoost():
 def testIoWaitEndsWhenTheIoCompletesWithTheIoBoost():
     system = System()
     user = system.startUser("reader", program(DoIo(20), Compute(1)), priority=0xF8)
-    system.dispatch()
+    system.scheduler.dispatch()
     system.execute(user)
     assert user.state is UserState.IO_WAIT
     assert user.ioInFlight == 1
@@ -42,16 +42,16 @@ def testIoWaitEndsWhenTheIoCompletesWithTheIoBoost():
 def testIoAlreadyDoneMeansNoWait():
     system = System()
     user = system.startUser("fast", program(), priority=0xF8)
-    system.dispatch()
-    system.router.report(user, Event.IO_STARTED)        # UB:MF is 0: GRANT
+    system.scheduler.dispatch()
+    system.scheduler.report(user, Event.IO_STARTED)        # UB:MF is 0: GRANT
     assert user.state is UserState.RUNNING
-    assert system.currentUser is user
+    assert system.scheduler.currentUser is user
 
 
 def testWakeUpForAUserWhoIsNotAsleepIsIgnored():
     system = System()
     user = system.startUser("alpha", program(), priority=0xF8)
-    system.router.report(user, Event.WAKE_UP)
+    system.scheduler.report(user, Event.WAKE_UP)
     assert user.state is UserState.READY
 
 
@@ -59,7 +59,7 @@ def testSleepWhileReadyIsInconsistent():
     system = System()
     user = system.startUser("alpha", program(), priority=0xF8)
     with pytest.raises(InconsistentEvent):
-        system.router.report(user, Event.SLEEP)
+        system.scheduler.report(user, Event.SLEEP)
 
 
 def testYieldGoesBehindEqualPriorities():
@@ -101,6 +101,6 @@ def testIdleUntilTheNextEvent():
 def testAUserWaitingForeverLeavesTheSystemStuck():
     system = System()
     user = system.startUser("waiter", program(), priority=0xF8)
-    system.dispatch()
-    system.router.report(user, Event.WAIT_FOR_INTERRUPT)
+    system.scheduler.dispatch()
+    system.scheduler.report(user, Event.WAIT_FOR_INTERRUPT)
     assert system.run() == "stuck"

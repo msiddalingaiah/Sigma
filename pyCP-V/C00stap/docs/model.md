@@ -46,21 +46,40 @@ python -m pytest cpvmodel/tests # or: make modeltest
 
 ## The model so far
 
+The model is built from **components**, one per major part of CP-V. Each component is a
+subpackage with one class in front. The rest of the system calls that class's methods, never
+its parts.
+
+| Package | Front class | CP-V | Parts |
+|---|---|---|---|
+| `cpvmodel.scheduler` | `Scheduler` | SCHED, "execution and swap scheduler" | `StateQueues`, `EventRouter` and `TransitionTable`; later `ExitPath` and `SwapScheduler` |
+| `cpvmodel.filesystem` (later) | `FileSystem` | the file management modules | directories, file kinds, `GranuleAllocator` |
+
+`System` (`cpvmodel/system.py`) puts the components together. It owns what's machine-wide: the
+user slots, the clock, `FutureEvents`, the run loop and the trace. `User` and the program steps
+are shared by everything.
+
 ```mermaid
 classDiagram
     class System {
         clock
-        usersInSystem
-        currentUser
+        users
         startUser(name, program, priority)
-        dispatch()
-        execute(user)
-        endQuantum(user)
         endUser(user)
+        execute(user)
         advanceClock(ticks)
         idleUntil(time)
-        isShutDown()
         run(tickLimit)
+    }
+    class Scheduler {
+        currentUser
+        usersInSystem
+        report(user, event)
+        addUser(user, priority)
+        removeUser(user)
+        dispatch()
+        endQuantum(user)
+        isShutDown()
     }
     class User {
         number
@@ -110,9 +129,10 @@ classDiagram
         INTERACTIVE = 6
     }
     System "1" *-- "SMUIS" User : users
-    System *-- StateQueues
-    System *-- EventRouter : router
+    System *-- Scheduler
     System *-- FutureEvents
+    Scheduler *-- StateQueues
+    Scheduler *-- EventRouter : router
     EventRouter *-- TransitionTable
     TransitionTable ..> Event
     TransitionTable ..> PriorityBoost
@@ -125,7 +145,7 @@ or make a CAL that leads to an event report.
 
 ### Events and the transition table
 
-When something happens to a user, it is **reported** as an event: `router.report(user, event)`.
+When something happens to a user, it is **reported** as an event: `scheduler.report(user, event)`.
 The transition table looks up the user's state and the event and returns an action:
 
 - a **state**: just move there (`SLEEP` from `RUNNING` → `ASLEEP`);
@@ -146,19 +166,22 @@ An I/O round trip:
 sequenceDiagram
     participant P as editor's program
     participant S as System
+    participant C as Scheduler
     participant R as EventRouter
     participant T as TransitionTable
     participant F as FutureEvents
     P->>S: yield DoIo(30)
     S->>S: user.ioInFlight += 1 (UB:MF)
     S->>F: schedule(now+30, editor, IO_COMPLETE)
-    S->>R: report(editor, IO_STARTED)  (T:IOREG, E:IIP)
+    S->>C: report(editor, IO_STARTED)  (T:IOREG, E:IIP)
+    C->>R: report
     R->>T: lookup(IO_STARTED, RUNNING)
     T-->>R: waitForIo (STIIP)
     R->>R: I/O still going → changeState(IO_WAIT)
     Note over S: other users run, or the system idles
     F-->>S: due at now+30
-    S->>R: report(editor, IO_COMPLETE)  (IOQ, E:IC)
+    S->>C: report(editor, IO_COMPLETE)  (IOQ, E:IC)
+    C->>R: report
     R->>T: lookup(IO_COMPLETE, IO_WAIT)
     T-->>R: completeIo (STIOC)
     R->>R: ioInFlight -= 1 → 0, makeReady(IO_DONE)
@@ -172,18 +195,18 @@ plain loop:
 
 ```mermaid
 flowchart TD
-    run([run]) --> current{"current user<br/>still running?"}
+    run([run]) --> current{"scheduler.currentUser<br/>still running?"}
     current -->|yes| execute
-    current -->|no| dispatch["dispatch: first in-core user,<br/>most urgent band first (T:SE)<br/>boost decays 1 (SE1)"]
+    current -->|no| dispatch["scheduler.dispatch: first in-core user,<br/>most urgent band first (T:SE)<br/>boost decays 1 (SE1)"]
     dispatch -->|user| execute["execute: next program step"]
-    dispatch -->|nobody ready| check{"isShutDown?<br/>S:CUIS + GOODNGT ≤ 0"}
+    dispatch -->|nobody ready| check{"scheduler.isShutDown?<br/>S:CUIS + GOODNGT ≤ 0"}
     check -->|yes| shutdown(["shutdown (SCREECH X'404')"])
     check -->|no| pending{"future events?"}
     pending -->|yes| idle["idleUntil the next one (WAIT)"]
     pending -->|no| stuck(["stuck"])
     idle --> run
     execute -->|"Compute(n)"| quantum["advanceClock(n): due events are reported<br/>endQuantum: base priority, tail of band"]
-    execute -->|"Sleep, DoIo, Yield"| report["router.report(...)"]
+    execute -->|"Sleep, DoIo, Yield"| report["scheduler.report(...)"]
     execute -->|program ended| endUser["endUser: free the slot (STEP70)"]
     quantum --> run
     report --> run
@@ -232,7 +255,8 @@ nobody is swapped, so every user stays in core.
 1. **A shallow System** (done). Users, bands, dispatch, priority boost and decay, shutdown.
 2. **Events and the transition table** (done). `Event`, `TransitionTable`,
    `InconsistentEvent`, `EventRouter`, `FutureEvents`. Programs that sleep, do I/O and yield.
-   The generated state diagram.
+   The generated state diagram. Then the refactor into components: `Scheduler` in front of
+   SCHED's parts, with `System` putting the components together.
 3. **The exit path.** Real quanta cut by the clock, preemption by a more urgent user (`S:HIR`,
    `QMIN`), and signals (break, control-Y, error, abort), which replace the first
    `NotModelledYet` stubs.

@@ -4,9 +4,13 @@ them. The symbol-to-model mapping comes from the glossary refs, so this also che
 
 import pytest
 
-from cpvmodel import Event, EventRouter, InconsistentEvent, PriorityBoost, TransitionTable, UserState
-from cpvmodel.eventrouter import NotModelledYet
+from cpvmodel import (Event, EventRouter, InconsistentEvent, NotModelledYet, PriorityBoost,
+                      TransitionTable, UserState)
 from cpvmodel.glossary import SOURCE_ROOT
+
+# The CP-V listings (c00co/) are kept out of the repository, so these tests need a local copy.
+needsSource = pytest.mark.skipif(not (SOURCE_ROOT / "SCHED.txt").exists(),
+                                 reason="the CP-V source listings (c00co/) aren't here")
 
 FIRST_LINE, LAST_LINE = 513, 668        # E:IIP through E:QFI
 EXECUTABLE = ["SRT"] + [f"SC{n}" for n in range(11)]
@@ -69,12 +73,14 @@ for name, value in vars(EventRouter).items():
         ACTIONS.setdefault(ref.symbols[0], name)
 
 
+@needsSource
 def testTheParserFindsEveryEvent():
     events = {event for event, _, _ in cpvEntries()}
     assert len(events) == len(Event)
     assert events <= set(EVENTS)
 
 
+@needsSource
 def testEveryCpvEntryMatchesTheModel():
     table = TransitionTable()
     mismatches = []
@@ -89,6 +95,7 @@ def testEveryCpvEntryMatchesTheModel():
     assert mismatches == []
 
 
+@needsSource
 def testTheModelInventsNoEntries():
     """A model entry needs a CP-V entry for at least one of the merged states."""
     covered = {(EVENTS[event], STATES[state]) for event, state in cpvTable()}
@@ -121,4 +128,4 @@ def testUnmodelledTransitionsSaySo():
     system = System()
     user = system.startUser("alpha", iter(()), priority=0xF8)
     with pytest.raises(NotModelledYet):
-        system.router.report(user, Event.BREAK)
+        system.scheduler.report(user, Event.BREAK)

@@ -1,6 +1,6 @@
 """The queues that users wait in. For now, only the ready users' priority bands."""
 
-from .glossary import cpv
+from ..glossary import cpv
 
 BAND_COUNT = 12
 REAL_TIME_BAND = 0              # SRT: priority below X'C0'

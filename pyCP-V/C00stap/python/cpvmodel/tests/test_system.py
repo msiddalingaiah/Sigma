@@ -3,7 +3,7 @@
 import pytest
 
 from cpvmodel import Compute, NoFreeSlot, StateQueues, System, UserState
-from cpvmodel.statequeues import BACKGROUND_BAND, FIRST_LEVEL_BAND, REAL_TIME_BAND
+from cpvmodel.scheduler.statequeues import BACKGROUND_BAND, FIRST_LEVEL_BAND, REAL_TIME_BAND
 
 
 def cruncher(steps, ticks=10):
@@ -20,7 +20,7 @@ def testStartUserTakesTheFirstFreeSlot():
     user = system.startUser("alpha", cruncher(1), priority=0xF8)
     assert user.number == 1
     assert user.state is UserState.READY
-    assert system.usersInSystem == 1
+    assert system.scheduler.usersInSystem == 1
 
 
 def testStartUserWithNoFreeSlotFails():
@@ -49,7 +49,7 @@ def testMoreUrgentUserRunsFirst():
     system = System()
     system.startUser("slow", cruncher(1), priority=0xFC)
     system.startUser("fast", cruncher(1), priority=0xF0)
-    assert system.dispatch().name == "fast"
+    assert system.scheduler.dispatch().name == "fast"
 
 
 def testEqualPrioritiesTakeTurns():
@@ -63,7 +63,7 @@ def testEqualPrioritiesTakeTurns():
 def testBoostDecaysOneNotchPerDispatchAndQuantumEndRestoresBase():
     system = System()
     user = system.startUser("alpha", cruncher(2), priority=0xF8)
-    system.dispatch()
+    system.scheduler.dispatch()
     assert user.priority == 0xF8 - 5
     system.execute(user)
     assert user.priority == 0xF8
@@ -84,7 +84,7 @@ def testUserEndsAndFreesTheSlot():
     user = system.startUser("alpha", cruncher(1), priority=0xF8)
     system.run()
     assert user.state is UserState.FREE_SLOT
-    assert system.usersInSystem == 0
+    assert system.scheduler.usersInSystem == 0
     assert system.startUser("beta", cruncher(1), priority=0xF8).number == 1
 
 
@@ -97,9 +97,9 @@ def testRunEndsInShutdownWhenTheLastUserEnds():
 
 def testGhostsKeptAtShutdownLetTheSystemShutDownEarly():
     system = System()
-    system.ghostsKeptAtShutdown = 1
+    system.scheduler.ghostsKeptAtShutdown = 1
     system.startUser("ghost", cruncher(1), priority=0xF0)
-    assert system.isShutDown()
+    assert system.scheduler.isShutDown()
 
 
 def testTickLimitStopsTheRun():

@@ -1,7 +1,7 @@
 """Diagrams generated from the model itself, so they can't disagree with it."""
 
-from .eventrouter import EventRouter
-from .events import RULES, PriorityBoost
+from .scheduler.eventrouter import EventRouter
+from .scheduler.events import RULES, PriorityBoost
 from .user import UserState
 
 # Moves that aren't event reports: (from, to, label).
