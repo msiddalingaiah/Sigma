@@ -94,16 +94,14 @@ class EventRouter:
         self._enter(user, READY)
 
     def _leave(self, user):
-        if user.state is READY:
-            self.scheduler.stateQueues.remove(user)
+        self.scheduler.stateQueues.remove(user)
         if user is self.scheduler.currentUser:
             self.scheduler.currentUser = None
 
     def _enter(self, user, state):
         user.state = state
-        if state is READY:
-            self.scheduler.stateQueues.add(user)
-        elif state is RUNNING:
+        self.scheduler.stateQueues.add(user)
+        if state is RUNNING:
             self.scheduler.currentUser = user
         self.eventCount += 1
 
@@ -174,14 +172,19 @@ class EventRouter:
     def grantAccess(self, user, event, detail):
         raise NotModelledYet("STUQA")
 
-    @cpv("STKO", "RTR", source="SCHED.txt:1697-1705", note="Swapped out: RTR and JIC cleared")
+    @cpv("STKO", "RTR", "JIC", source="SCHED.txt:1697-1702",
+         note="A ready user is requeued at their current priority (CHSE1)")
     def kickOut(self, user, event, detail):
-        raise NotModelledYet("STKO: swapping comes later")
+        """The swap scheduler chose this user to swap out."""
+        user.inCore = False
+        if user.state is READY:
+            self.requeue(user)
 
     @cpv("STKOT", source="SCHED.txt:1692-1696",
-         note="Swapped out while waiting: CP-V moves to the out-of-core twin state")
+         note="CP-V moves the user to the state's out-of-core twin (STOBO, STIO, SQRO); the "
+              "model keeps one state and clears inCore")
     def kickOutWaiting(self, user, event, detail):
-        raise NotModelledYet("STKOT: swapping comes later")
+        user.inCore = False
 
     @leadsTo(READY)
     @cpv("STASP", source="SCHED.txt:1668-1669",

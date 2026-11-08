@@ -80,17 +80,17 @@ def testRealTimeUsersDontFloat():
 def testANewcomersBoostCanOutrankAnIoBoost():
     """The editor starts I/O at once, and the cruncher runs at X'F3' on its newcomer boost.
     When the editor's I/O ends at 30 it is ready at X'F6', less urgent than X'F3', so the
-    cruncher isn't preempted. The editor runs when the cruncher's quantum ends at 100."""
+    cruncher isn't preempted. The editor runs when the cruncher's quantum ends at 250."""
     system = System()
     system.startUser("editor", program(DoIo(30), Compute(5)), priority=0xF8)
-    system.startUser("cruncher", program(Compute(200)), priority=0xF8)
+    system.startUser("cruncher", program(Compute(400)), priority=0xF8)
     assert system.run() == "shutdown"
     assert statesOf(system, "editor") == ["IO_STARTED: RUNNING -> IO_WAIT",
                                           "IO_COMPLETE: IO_WAIT -> READY"]
     assert not any(entry.what == "preempted" for entry in system.trace)
     dispatches = [(entry.time, entry.user) for entry in system.trace
                   if entry.what.startswith("dispatched")]
-    assert dispatches[:3] == [(0, "editor"), (0, "cruncher"), (100, "editor")]
+    assert dispatches[:3] == [(0, "editor"), (0, "cruncher"), (250, "editor")]
 
 
 def testIdleUntilTheNextEvent():

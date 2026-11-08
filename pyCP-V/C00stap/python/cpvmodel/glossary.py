@@ -24,6 +24,7 @@ MODEL_MODULES = [
     "cpvmodel.user",
     "cpvmodel.program",
     "cpvmodel.futureevents",
+    "cpvmodel.memory",
     "cpvmodel.system",
     "cpvmodel.scheduler.scheduler",
     "cpvmodel.scheduler.statequeues",
@@ -31,6 +32,7 @@ MODEL_MODULES = [
     "cpvmodel.scheduler.eventrouter",
     "cpvmodel.scheduler.exitpath",
     "cpvmodel.scheduler.settings",
+    "cpvmodel.scheduler.swapscheduler",
 ]
 
 

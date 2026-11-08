@@ -6,3 +6,4 @@ from .exitpath import ExitPath, Signal
 from .scheduler import Scheduler
 from .settings import SchedulerSettings
 from .statequeues import StateQueues
+from .swapscheduler import ImpossibleSwap, SwapScheduler

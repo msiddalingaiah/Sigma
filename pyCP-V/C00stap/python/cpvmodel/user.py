@@ -63,7 +63,10 @@ class User:
     state: UserState = UserState.FREE_SLOT
     priority: int = 0xFF
     basePriority: int = 0xFF
-    inCore: bool = True
+    inCore: bool = False
+    pages: int = 4
+    swapQuantumPending: bool = False
+    justSwappedIn: bool = False
     ioInFlight: int = 0
     quantumLeft: int = 0
     dispatchedAt: int = 0
@@ -80,8 +83,17 @@ class User:
         "priority": cpv("UB:PRIO", source="SCHED.txt:1156-1160",
                         note="Current priority; events lower it below the base"),
         "basePriority": cpv("UB:PRIOB", source="SCHED.txt:1924"),
-        "inCore": cpv("RTR", "UH:FLG", source="SCHED.txt:1147-1149",
-                      note="Ready to run: in core. Always true until the swapper is modelled"),
+        "inCore": cpv("RTR", "JIC", source="SWAPPER.txt:1495-1500",
+                      note="Ready to run (RTR) and JIT in core (JIC). Set when a swap-in "
+                           "finishes, cleared by a kick-out"),
+        "pages": cpv("UB:PCT", source="SSDAT.txt:377",
+                     note="The pages the user needs in core. CP-V adds the user's shared "
+                          "processors (T:TOTESZ)"),
+        "swapQuantumPending": cpv("SQUAN", "UH:FLG2", source="SCHED.txt:986-997",
+                                  note="Set at swap-in; while set, a ready user isn't swapped "
+                                       "out"),
+        "justSwappedIn": cpv("SWAPD", source="SCHED.txt:1182-1190",
+                             note="Set at swap-in; the first dispatch gives a new quantum"),
         "ioInFlight": cpv("UB:MF", source="SCHED.txt:1574-1575",
                           note="The master function count: I/O requests the user has going"),
         "quantumLeft": cpv("J:DELTAT", source="ACCT.txt:27-43",

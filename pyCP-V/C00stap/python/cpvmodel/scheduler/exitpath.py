@@ -37,15 +37,18 @@ class ExitPath:
        command processor. Break is thrown into the program as a ``Break`` exception (its
        break routine, ``M:INT``). A program that doesn't catch it goes back to the command
        processor, as with control-Y.
-    2. **Quantum end.** The user gets a new quantum and goes back to their base priority, at
+    2. **Swap quantum.** Once the user has run ``swapQuantum`` in this quantum, they may be
+       swapped out again.
+    3. **Quantum end.** The user gets a new quantum and goes back to their base priority, at
        the tail of their queue.
-    3. **Preemption.** If a more urgent user is ready, and this one has run at least the
+    4. **Preemption.** If a more urgent user is ready, and this one has run at least the
        minimum since being dispatched, this one goes back in the queue at their current
-       priority.
+       priority. A user preempted when nearly through the swap quantum goes back
+       ``swapPenalty`` notches less urgent.
 
     In CP-V this is really the code from ``SSE0`` to ``SSE6``. The model leaves out the DO
-    list, the swap quantum (``SL:SQUAN``) and the real-time bypass of the minimum run
-    (``S:RTIR`` = 0). There is no command processor yet, so going back to it ends the user.
+    list and the real-time bypass of the minimum run (``S:RTIR`` = 0). There is no command
+    processor yet, so going back to it ends the user.
     """
 
     def __init__(self, scheduler):
@@ -59,12 +62,32 @@ class ExitPath:
         current user, or back in a queue, or gone."""
         if user.pendingSignals:
             self.actOnSignals(user)
-        elif user.quantumLeft <= 0:
+            return
+        nearSwapQuantum = self.checkSwapQuantum(user)
+        if user.quantumLeft <= 0:
             self.endQuantum(user)
         elif self.scheduler.system.clock - user.dispatchedAt < self.scheduler.settings.minimumRun:
             pass
         elif self.scheduler.moreUrgentUserWaiting(user):
-            self.preempt(user)
+            self.preempt(user, nearSwapQuantum)
+
+    @cpv("SSE5A", "SL:SQNT", "SL:SQUAN", "SQUAN", source="SCHED.txt:981-999",
+         note="Time used is measured from the start of the quantum, which a swap-in resets. "
+              "CP-V quirk: the swap quantum is only looked at once SL:SQNT is reached, so "
+              "in effect it is never less than SL:SQNT")
+    def checkSwapQuantum(self, user):
+        """Clear the swap protection once the user has run the swap quantum. Returns True
+        when the user is near it: past ``swapQuantumNear`` but not yet at ``swapQuantum``."""
+        settings = self.scheduler.settings
+        used = settings.quantum - user.quantumLeft
+        if used < settings.swapQuantumNear:
+            return False
+        if used < settings.swapQuantum:
+            return True
+        if user.swapQuantumPending:
+            user.swapQuantumPending = False
+            self.scheduler.log(user, "swap quantum met")
+        return False
 
     @cpv("T:DOLIST", "SEABRT", "SEERR", "SE7", "SE9", source="SCHED.txt:905-925",
          note="CP-V clears all four flags and acts on the first of ABRT, ERR, EC, BRK. "
@@ -107,6 +130,8 @@ class ExitPath:
     @cpv("SSE41", "SSE43", "S:HIR", "CHSE0", source="SCHED.txt:794-846",
          note="CP-V quirk: near the swap quantum, SL:SQPB is added to the priority, which "
               "makes the user less urgent, not more")
-    def preempt(self, user):
+    def preempt(self, user, nearSwapQuantum=False):
+        if nearSwapQuantum:
+            user.priority = min(0xFF, user.priority + self.scheduler.settings.swapPenalty)
         self.scheduler.log(user, "preempted")
         self.scheduler.requeue(user)

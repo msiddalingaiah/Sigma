@@ -9,8 +9,9 @@ later ``filesystem.FileSystem`` and others). ``System`` puts them together.
 """
 
 from .program import Break, Compute, DoIo, Sleep, Yield
-from .scheduler import (Event, EventRouter, ExitPath, InconsistentEvent, NotModelledYet,
-                        PriorityBoost, Scheduler, SchedulerSettings, Signal, StateQueues,
-                        TransitionTable)
+from .memory import Memory
+from .scheduler import (Event, EventRouter, ExitPath, ImpossibleSwap, InconsistentEvent,
+                        NotModelledYet, PriorityBoost, Scheduler, SchedulerSettings, Signal,
+                        StateQueues, SwapScheduler, TransitionTable)
 from .system import NoFreeSlot, System, TraceEntry
 from .user import User, UserState

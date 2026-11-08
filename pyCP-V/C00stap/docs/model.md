@@ -52,19 +52,19 @@ its parts.
 
 | Package | Front class | CP-V | Parts |
 |---|---|---|---|
-| `cpvmodel.scheduler` | `Scheduler` | SCHED, "execution and swap scheduler" | `StateQueues`, `EventRouter` and `TransitionTable`, `ExitPath`, `SchedulerSettings`; later `SwapScheduler` |
+| `cpvmodel.scheduler` | `Scheduler` | SCHED, "execution and swap scheduler" | `StateQueues`, `EventRouter` and `TransitionTable`, `ExitPath`, `SwapScheduler`, `SchedulerSettings` |
 | `cpvmodel.filesystem` (later) | `FileSystem` | the file management modules | directories, file kinds, `GranuleAllocator` |
 
 `System` (`cpvmodel/system.py`) puts the components together. It owns what's machine-wide: the
-user slots, the clock, `FutureEvents`, the run loop and the trace. `User` and the program steps
-are shared by everything.
+user slots, `Memory`, the clock, `FutureEvents`, the run loop and the trace. `User` and the
+program steps are shared by everything.
 
 ```mermaid
 classDiagram
     class System {
         clock
         users
-        startUser(name, program, priority)
+        startUser(name, program, priority, pages)
         endUser(user)
         execute(user)
         advanceClock(ticks)
@@ -79,6 +79,7 @@ classDiagram
         addUser(user, priority)
         removeUser(user)
         dispatch()
+        swapSchedule()
         exitToUser(user)
         endQuantum(user)
         moreUrgentUserWaiting(user)
@@ -89,12 +90,30 @@ classDiagram
         check(user)
         actOnSignals(user)
         deliverBreak(user)
+        checkSwapQuantum(user)
         endQuantum(user)
         preempt(user)
+    }
+    class SwapScheduler {
+        swapInProgress
+        schedule()
+        chooseUsersToSwapOut(incoming, shortfall)
+        startSwap(outgoing, incoming)
+        finishSwap(outgoing, incoming)
     }
     class SchedulerSettings {
         quantum
         minimumRun
+        swapQuantum
+        swapQuantumNear
+        swapPenalty
+        swapTime
+    }
+    class Memory {
+        totalPages
+        freePages
+        take(pages)
+        give(pages)
     }
     class User {
         number
@@ -102,6 +121,8 @@ classDiagram
         priority
         basePriority
         inCore
+        pages
+        swapQuantumPending
         ioInFlight
         quantumLeft
         dispatchedAt
@@ -110,10 +131,13 @@ classDiagram
     }
     class StateQueues {
         bands
+        waiting
         bandFor(priority)$
         add(user)
         remove(user)
         firstReady()
+        firstReadyOutOfCore()
+        swapOutOrder()
     }
     class EventRouter {
         eventCount
@@ -127,8 +151,9 @@ classDiagram
         lookup(event, state)
     }
     class FutureEvents {
-        schedule(time, user, event)
+        schedule(time, action, user)
         popDue(time)
+        cancelFor(user)
     }
     class Event {
         <<enumeration>>
@@ -148,15 +173,17 @@ classDiagram
     }
     System "1" *-- "SMUIS" User : users
     System *-- Scheduler
+    System *-- Memory
     System *-- FutureEvents
     Scheduler *-- StateQueues
     Scheduler *-- EventRouter : router
     Scheduler *-- ExitPath
+    Scheduler *-- SwapScheduler
     Scheduler *-- SchedulerSettings
     EventRouter *-- TransitionTable
     TransitionTable ..> Event
     TransitionTable ..> PriorityBoost
-    StateQueues o-- User : 12 bands
+    StateQueues o-- User : 12 bands, waiting queues
 ```
 
 A program is a generator that yields `Compute(ticks)`, `Sleep(ticks)`, `DoIo(ticks)` or
@@ -224,13 +251,14 @@ flowchart TD
     signals -->|BREAK| brk{"program catches Break?<br/>(M:INT)"}
     brk -->|yes| routine(["user goes on in its break routine"])
     brk -->|no| cp
-    signals -->|none| quantum{"quantum used up?<br/>(J:DELTAT)"}
+    signals -->|none| squan["swap quantum: met? near it?<br/>(SSE5A: SL:SQNT, SL:SQUAN)"]
+    squan --> quantum{"quantum used up?<br/>(J:DELTAT)"}
     quantum -->|yes| newq(["new quantum, base priority,<br/>tail of band (T:ACCTEX, T:CHSE0)"])
     quantum -->|no| qmin{"run at least minimumRun<br/>since dispatch? (SL:QMIN)"}
     qmin -->|no| goon(["user goes on (T:PULLE)"])
     qmin -->|yes| hir{"a more urgent user ready?<br/>(S:HIR)"}
     hir -->|no| goon
-    hir -->|yes| preempt(["preempted: back in the queue<br/>at the current priority (CHSE0)"])
+    hir -->|yes| preempt(["preempted: back in the queue<br/>at the current priority (CHSE0),<br/>+ SL:SQPB if near the swap quantum"])
 ```
 
 Signals are reported like any other event. For a running or I/O-waiting user, `BREAK`,
@@ -238,7 +266,7 @@ Signals are reported like any other event. For a running or I/O-waiting user, `B
 they run. A user who is asleep, waiting for terminal input, or ready is also made ready with
 the interactive boost (`STBEEAC`), so they see the signal soon.
 
-A preemption, from the demo:
+A preemption: an I/O completion makes a more urgent user ready.
 
 ```mermaid
 sequenceDiagram
@@ -247,16 +275,76 @@ sequenceDiagram
     participant C as Scheduler
     participant E as ExitPath
     Note over S: beta computes at X'F8'
-    D-->>S: interrupt: editor's I/O done (t=235)
+    D-->>S: interrupt: editor's I/O done
     S->>C: report(editor, IO_COMPLETE)
     C->>C: editor ready at X'F6' (IO_DONE boost)
-    S->>C: exitToUser(beta)  (T:SSE)
+    S->>C: swapSchedule()  (T:SS)
+    S->>C: exitToUser(beta)  (SSE0)
     C->>E: check(beta)
     E->>E: no signals, quantum left,<br/>beta has run at least minimumRun
     E->>C: moreUrgentUserWaiting(beta)? yes
     E->>C: requeue(beta) at X'F8'
     S->>C: dispatch()
     C-->>S: editor
+```
+
+### Swapping
+
+Users need pages in core to run, and there are fewer pages than users need, so the
+**swap scheduler** (`T:SS`) decides who is in core. It runs before every dispatch and on every
+interrupt exit. A new user starts out of core, and is swapped in before they first run.
+
+```mermaid
+flowchart TD
+    start(["swapSchedule (T:SS)"]) --> busy{"a swap going?<br/>(S:SIP)"}
+    busy -->|yes| done([nothing])
+    busy -->|no| pick{"most urgent ready user<br/>out of core? (PIKUS)"}
+    pick -->|none| idleout["swap out the in-core sleepers<br/>and terminal waiters anyway"]
+    pick -->|incoming| fits{"enough free pages?"}
+    fits -->|yes| swap
+    fits -->|no| walk["walk the queues in SB:SWP order, each from its tail:<br/>asleep, terminal input, X'FF' band, output blocked,<br/>resource, interrupt, access, X'FE' ... real-time bands"]
+    walk --> take{"in core, no I/O going,<br/>and (if ready) swap quantum met?"}
+    take -->|"yes, enough pages now"| swap["report KICK_OUT for each one going out;<br/>the swap takes swapTime per user"]
+    take -->|"reached the incoming user,<br/>or the end"| giveup(["no room (GIVEUP)"])
+    idleout --> swap
+    swap --> finish(["finishSwap: pages move; the incoming user<br/>is in core with the swap quantum pending"])
+```
+
+Some consequences, all CP-V's:
+
+- **Only waiting users and less urgent ready users can be swapped out** for a user coming in.
+  The walk starts with the least urgent band and stops when it reaches the user coming in.
+- **A just-swapped-in ready user is protected** until they've run the swap quantum
+  (`SL:SQUAN`) in a quantum, so swapping can't thrash. CP-V only looks at the swap quantum once
+  the user has used `SL:SQNT` (300 ms), so in effect it is never shorter than that.
+- **Nobody is swapped out while I/O is going**, and the running user is in no queue, so it is
+  never a candidate either.
+- **When nobody needs to come in, sleepers and terminal waiters are swapped out anyway**, so
+  the room is there when someone does.
+- **A user preempted when nearly through the swap quantum goes back 2 notches less urgent**
+  (`SL:SQPB`, commented "BOOST TWO NOTCHES" but added to the priority value).
+
+A swap, from the demo:
+
+```mermaid
+sequenceDiagram
+    participant S as System
+    participant C as Scheduler
+    participant W as SwapScheduler
+    participant Q as StateQueues
+    participant M as Memory
+    Note over S: alpha's quantum ends (t=515)
+    S->>C: dispatch()  (T:SE)
+    C->>W: schedule()  (T:SS)
+    W->>Q: firstReadyOutOfCore()
+    Q-->>W: clock, needs 4 pages; 3 free
+    W->>Q: swapOutOrder()
+    W->>W: alpha: ready, in core, swap quantum met
+    W->>C: report(alpha, KICK_OUT)  (E:KO: inCore = false)
+    Note over W: swap device busy for 2 × swapTime
+    C-->>S: editor (in core) runs meanwhile
+    W->>M: give(alpha's 5), take(clock's 4)  (t=535)
+    W->>W: clock in core, swap quantum pending
 ```
 
 ### The run loop
@@ -268,19 +356,19 @@ plain loop:
 flowchart TD
     run([run]) --> current{"scheduler.currentUser?"}
     current -->|yes| execute
-    current -->|no| dispatch["scheduler.dispatch: first in-core user,<br/>most urgent band first (T:SE)<br/>boost decays 1 (SE1)"]
+    current -->|no| dispatch["scheduler.dispatch: swap schedule (T:SS), then<br/>first in-core user, most urgent band first (T:SE),<br/>boost decays 1 (SE1)"]
     dispatch -->|user| run
-    dispatch -->|nobody ready| check{"scheduler.isShutDown?<br/>S:CUIS + GOODNGT ≤ 0"}
+    dispatch -->|nobody ready in core| check{"scheduler.isShutDown?<br/>S:CUIS + GOODNGT ≤ 0"}
     check -->|yes| shutdown(["shutdown (SCREECH X'404')"])
     check -->|no| pending{"future events?"}
     pending -->|yes| idle["idleUntil the next one (WAIT)"]
     pending -->|no| stuck(["stuck"])
     idle --> run
-    execute{"execute: go on with the<br/>Compute step, or take the next"} -->|Compute| compute["compute until the step is done, the<br/>quantum runs out, or an event is due"]
-    compute -->|"event or quantum end"| exit["scheduler.exitToUser"]
+    execute{"execute: go on with the<br/>Compute step, or take the next"} -->|Compute| compute["compute until the step is done, the<br/>quantum runs out, or something is due"]
+    compute -->|"interrupt or quantum end"| exit["swap schedule if interrupted (T:SSE),<br/>then scheduler.exitToUser"]
     compute -->|step done| run
     execute -->|"Sleep, DoIo, Yield (a CAL)"| report["scheduler.report(...),<br/>then exitToUser if still running"]
-    execute -->|program ended| endUser["endUser: free the slot (STEP70)"]
+    execute -->|program ended| endUser["endUser: free the slot<br/>and the pages (STEP70)"]
     exit --> run
     report --> run
     endUser --> run
@@ -288,26 +376,35 @@ flowchart TD
 
 ### What it shows
 
-From the demo (`python -m cpvmodel`), with a quantum of 100 ticks. `editor` alternates
-computing and I/O, `clock` sleeps, and `alpha` and `beta` crunch at the same base, X'F8':
+From the demo (`python -m cpvmodel`). It has 12 pages of memory, swaps of 10 ticks per user, and
+a 500 ms quantum. `alpha` and `beta` (5 pages each) crunch at base X'F8', `editor` (4 pages)
+alternates computing and I/O, and `clock` (4 pages, base X'FC') sleeps:
 
 ```
-   100  alpha      quantum ended
-   100  beta       dispatched at 0xf3
+   270  beta       quantum ended
+   270  beta       KICK_OUT in READY
+   270  -          swap starts: out beta; in editor
+   270  alpha      dispatched at 0xf4
+   290  beta       swapped out
+   290  editor     swapped in
+   290  alpha      preempted
+   290  editor     dispatched at 0xf3
    ...
-   225  beta       dispatched at 0xf8
-   235  editor     IO_COMPLETE: IO_WAIT -> READY
-   235  beta       preempted
-   235  editor     dispatched at 0xf7
+   535  clock      dispatched at 0xf7
+   535  clock      SLEEP: RUNNING -> ASLEEP
+   535  clock      KICK_OUT in ASLEEP
+   535  -          swap starts: out clock; in beta
 ```
 
-- The crunchers' 120-tick programs are cut into quanta, and they take turns at each quantum end.
-- When `editor`'s I/O ends at 235, its I/O boost makes it X'F6', more urgent than `beta` at
-  X'F8'. `beta` has run more than the minimum, so it is preempted at the interrupt.
-- A newcomer's boost can outrank an I/O boost. A cruncher still at X'F3' isn't preempted by an
-  editor at X'F6' (`testANewcomersBoostCanOutrankAnIoBoost`).
-- `clock` wakes with the special-compute boost. But its base is X'FC', so X'FC' − 3 = X'F9' is
-  still less urgent than the crunchers.
+- `editor` and `clock` start out of core and wait for room. At 270 `beta`'s quantum ends. It
+  has met its swap quantum, so it goes out to make room for `editor`, and `alpha` runs during
+  the swap.
+- When `editor` is in core it preempts `alpha`, being more urgent on its newcomer boost.
+- At 535 `clock` goes to sleep and is swapped out at once to bring `beta` back.
+- When `clock` wakes at 635 it is ready at X'F9', less urgent than the crunchers at X'F8'. The
+  walk reaches `clock` before them, so there is no room until a cruncher ends.
+- At the end, with nobody waiting to come in, the sleeping `clock` is swapped out anyway and
+  swapped back in when it wakes.
 
 What is CP-V's so far:
 
@@ -322,16 +419,19 @@ What is CP-V's so far:
   - A real-time user always runs at their base ("DONT FLOAT RT").
 - **Events.** CP-V's whole state-and-event table, checked against the source.
 - **The exit path.** Signals are acted on in CP-V's order of importance, and all four are
-  cleared at once, so a break that comes with a control-Y is lost. Then quantum end, the
-  minimum run and preemption.
+  cleared at once, so a break that comes with a control-Y is lost. Then the swap quantum,
+  quantum end, the minimum run and preemption.
+- **Swapping.** Who comes in, the swap-out walk in `SB:SWP` order with its exclusions, the
+  swap quantum, swapping out idle waiters, and kick-out (`STKO`, `STKOT`).
 - **Shutdown.** When nobody is ready and `usersInSystem − ghostsKeptAtShutdown ≤ 0`, the run
   ends ("shutdown"). This is the idle check, `S:CUIS`+`GOODNGT` ≤ 0, which ends in
   `SCREECH X'404'`.
 
 Not yet:
 
-- No swapping, so every user stays in core. That also leaves out the swap quantum
-  (`SL:SQUAN`, `SL:SQNT`, `SL:SQPB`).
+- **Swapping detail.** Pages are only counted: no shared processors (their use counts and
+  pages), no page stealer, no locks in core. A failed swap-in is retried at every schedule;
+  CP-V waits until the swap set changes (`S:SEVF`).
 - No DO list and no command processor. Control-Y and an uncaught break end the user instead
   of returning to TEL.
 
@@ -345,7 +445,7 @@ Not yet:
 3. **The exit path** (done). `ExitPath`, `SchedulerSettings` and `Signal`. Quanta cut by the
    clock, preemption at interrupts after the minimum run, and signals, with `Break` thrown
    into programs.
-4. **Resources.** Blocking on and releasing `R:*` resources, and their events.
-5. **Swapping.** `inCore`, pages, the swap scheduler choosing who comes in and who goes out,
-   kick-out, and the swap quantum.
+4. **Swapping** (done). `Memory`, `SwapScheduler`, waiting-state queues in `StateQueues`,
+   kick-out, the swap quantum, and swap time.
+5. **Resources.** Blocking on and releasing `R:*` resources, and their events.
 6. **Terminals and log-on.** Terminal read and output blocking, and log-on from a break.

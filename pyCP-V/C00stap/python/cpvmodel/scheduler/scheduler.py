@@ -7,6 +7,7 @@ from .events import PriorityBoost
 from .exitpath import ExitPath
 from .settings import SchedulerSettings
 from .statequeues import StateQueues
+from .swapscheduler import SwapScheduler
 
 
 @cpv("SCHED", source="SCHED.txt:1-20",
@@ -20,9 +21,8 @@ class Scheduler:
     - ``stateQueues``, the queues users wait in;
     - ``router``, which turns event reports into state changes using the transition table;
     - ``exitPath``, which checks signals, quantum end and preemption on the way back to a
-      user.
-
-    A later iteration adds the swap scheduler.
+      user;
+    - ``swapScheduler``, which decides who is in core.
     In CP-V this is really the module SCHED, with its data cells in SSDAT.
     """
 
@@ -32,6 +32,7 @@ class Scheduler:
         self.stateQueues = StateQueues()
         self.router = EventRouter(self)
         self.exitPath = ExitPath(self)
+        self.swapScheduler = SwapScheduler(self)
         self.currentUser = None
         self.usersInSystem = 0
         self.ghostsKeptAtShutdown = 0
@@ -42,6 +43,7 @@ class Scheduler:
         "stateQueues": cpv("SB:HQ", "SB:TQ", source="SSDAT.txt:390-394"),
         "router": cpv("RCE0", source="SCHED.txt:1371-1404"),
         "exitPath": cpv("SSE0", source="SCHED.txt:889"),
+        "swapScheduler": cpv("T:SS", source="SCHED.txt:2109"),
         "currentUser": cpv("S:CUN", source="TCATCH.txt:173"),
         "usersInSystem": cpv("S:CUIS", source="SSDAT.txt:51"),
         "ghostsKeptAtShutdown": cpv("GOODNGT", source="SCHED.txt:1065-1084",
@@ -58,9 +60,12 @@ class Scheduler:
          note="The JIT granule, flags and page count aren't modelled yet")
     def addUser(self, user, priority):
         """Take a user into the system at base ``priority``. Like every new user, they start
-        with the interactive boost, so they run soon."""
+        with the interactive boost, so they run soon. They start out of core: the swap
+        scheduler brings them in."""
         user.basePriority = priority
-        user.inCore = True
+        user.inCore = False
+        user.justSwappedIn = False
+        user.swapQuantumPending = False
         user.ioInFlight = 0
         user.quantumLeft = self.settings.quantum
         user.pendingSignals = set()
@@ -79,17 +84,27 @@ class Scheduler:
         """Pick the most urgent ready user and make them the current user, or return None.
         A user with signals pending goes through the exit path at once, so they may not
         be the current user afterwards."""
+        self.swapSchedule()
         user = self.stateQueues.firstReady()
         if user is None:
             return None
         self.router.changeState(user, UserState.RUNNING)
         if user.priority < user.basePriority:
             user.priority += 1
+        if user.justSwappedIn:
+            user.justSwappedIn = False
+            user.quantumLeft = self.settings.quantum
         user.dispatchedAt = self.system.clock
         self.log(user, f"dispatched at {user.priority:#04x}")
         if user.pendingSignals:
             self.exitPath.check(user)
         return user
+
+    @cpv("T:SS", source="SCHED.txt:2109-2116",
+         note="T:SE calls it first; interrupts call it on the way out (T:SSE)")
+    def swapSchedule(self):
+        """Start a swap if one is needed and none is going."""
+        self.swapScheduler.schedule()
 
     @cpv("SSE0", "TRAPEXIT", "T:SSE", source="SCHED.txt:862-892",
          note="Interrupts go in at T:SSE, CALs at TRAPEXIT")

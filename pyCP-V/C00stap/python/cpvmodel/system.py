@@ -1,17 +1,19 @@
 """The system: the components put together, a clock, and the loop that runs users.
 
-``System`` owns the machine-wide things: the user slots, time, the events that will happen
-later, and the trace. The components do the work. So far there is one, the ``Scheduler``.
+``System`` owns the machine-wide things: the user slots, core memory, time, the things that
+will happen later, and the trace. The components do the work. So far there is one, the
+``Scheduler``.
 
-A computing user runs until their step is done, their quantum runs out, or an event comes
-due (an interrupt). After an interrupt or a CAL, the scheduler's exit path decides whether
-they go on. Nobody is swapped yet.
+A computing user runs until their step is done, their quantum runs out, or something comes
+due (an interrupt). After an interrupt the scheduler runs a swap schedule; after an interrupt
+or a CAL, its exit path decides whether the user goes on.
 """
 
 from dataclasses import dataclass
 
 from .futureevents import FutureEvents
 from .glossary import cpv, modelOnly
+from .memory import Memory
 from .program import Compute, DoIo, Sleep, Yield
 from .scheduler import Event, Scheduler
 from .user import User
@@ -37,10 +39,12 @@ class TraceEntry:
 class System:
     """A CP-V system reduced to its components, users and time."""
 
-    def __init__(self, userSlots=8, settings=None):
+    def __init__(self, userSlots=8, settings=None, memoryPages=64):
         self.clock = 0
         self.users = [User(number) for number in range(1, userSlots + 1)]
         self.freeSlots = list(self.users)
+        self.memory = Memory(memoryPages)
+        self.runUntil = None
         self.scheduler = Scheduler(self, settings)
         self.futureEvents = FutureEvents()
         self.trace = []
@@ -52,21 +56,25 @@ class System:
                      note="The per-user tables have SMUIS entries"),
         "freeSlots": cpv("SNULL", "SB:HQ", source="SCHED.txt:317, SSDAT.txt:390-394",
                          note="The queue of the SNULL state"),
+        "memory": cpv("M:FPPH", "S:PCORE", source="SCHED.txt:2255-2271, TABLES.txt:725"),
         "scheduler": cpv("SCHED", source="SCHED.txt:1-20"),
-        "futureEvents": modelOnly("Reports that the clock and devices will make later"),
+        "futureEvents": modelOnly("What the clock and devices will do later"),
+        "runUntil": modelOnly("The tick limit of the current run; a compute stops there"),
         "trace": modelOnly("What happened, for tests and for reading"),
     }
 
     @cpv("LOGON", "ADD1", source="SCHED.txt:1869-1980",
          note="LOGON (on-line), MBS (batch) and T:GJOBSTRT (ghosts) take a slot from the "
               "SNULL queue and call ADD1")
-    def startUser(self, name, program, priority):
-        """Start a user at base ``priority`` (CP-V numbering: lower is more urgent)."""
+    def startUser(self, name, program, priority, pages=4):
+        """Start a user at base ``priority`` (CP-V numbering: lower is more urgent), who
+        needs ``pages`` pages in core."""
         if not self.freeSlots:
             raise NoFreeSlot(name)
         user = self.freeSlots.pop(0)
         user.name = name
         user.program = program
+        user.pages = pages
         self.scheduler.addUser(user, priority)
         self.log(user, "started")
         return user
@@ -75,6 +83,9 @@ class System:
     def endUser(self, user, reason=None):
         self.futureEvents.cancelFor(user)
         self.scheduler.removeUser(user)
+        if user.inCore:
+            self.memory.give(user.pages)
+            user.inCore = False
         user.program = None
         user.computeLeft = 0
         user.pendingRequest = None
@@ -85,7 +96,7 @@ class System:
     @modelOnly("An event that something outside the users will report at ``time``, such as "
                "a break key")
     def reportAt(self, time, user, event):
-        self.futureEvents.schedule(time, user, event)
+        self.futureEvents.schedule(time, lambda: self.scheduler.report(user, event), user)
 
     @modelOnly("The user's code runs; in CP-V the processor simply runs the user in slave mode")
     def execute(self, user):
@@ -117,13 +128,15 @@ class System:
                "an interrupt comes")
     def compute(self, user):
         ticks = min(user.computeLeft, user.quantumLeft)
-        nextTime = self.futureEvents.nextTime()
-        if nextTime is not None:
-            ticks = min(ticks, max(0, nextTime - self.clock))
+        for limit in (self.futureEvents.nextTime(), self.runUntil):
+            if limit is not None:
+                ticks = min(ticks, max(0, limit - self.clock))
         self.clock += ticks
         user.computeLeft -= ticks
         user.quantumLeft -= ticks
-        interrupted = self.reportDueEvents()
+        interrupted = self.runDueEvents()
+        if interrupted:
+            self.scheduler.swapSchedule()
         if (interrupted or user.quantumLeft <= 0) and user is self.scheduler.currentUser:
             self.scheduler.exitToUser(user)
 
@@ -133,11 +146,11 @@ class System:
         """A step that asks the monitor for something: sleep, I/O, or giving up the
         processor."""
         if isinstance(request, Sleep):
-            self.futureEvents.schedule(self.clock + request.ticks, user, Event.WAKE_UP)
+            self.reportAt(self.clock + request.ticks, user, Event.WAKE_UP)
             self.scheduler.report(user, Event.SLEEP)
         elif isinstance(request, DoIo):
             user.ioInFlight += 1
-            self.futureEvents.schedule(self.clock + request.ticks, user, Event.IO_COMPLETE)
+            self.reportAt(self.clock + request.ticks, user, Event.IO_COMPLETE)
             self.scheduler.report(user, Event.IO_STARTED)
         elif isinstance(request, Yield):
             self.scheduler.report(user, Event.YIELD)
@@ -146,21 +159,21 @@ class System:
         if user is self.scheduler.currentUser:
             self.scheduler.exitToUser(user)
 
-    @modelOnly("Interrupts: every report due by now is made")
-    def reportDueEvents(self):
+    @modelOnly("Interrupts: everything due by now happens")
+    def runDueEvents(self):
         count = 0
         while (due := self.futureEvents.popDue(self.clock)) is not None:
-            _, user, event = due
-            self.scheduler.report(user, event)
+            _, action = due
+            action()
             count += 1
         return count
 
-    @modelOnly("Time passes; reports that come due on the way are made at their own time")
+    @modelOnly("Time passes; what comes due on the way happens at its own time")
     def advanceClock(self, ticks):
         end = self.clock + ticks
         while (due := self.futureEvents.popDue(end)) is not None:
-            self.clock, user, event = due
-            self.scheduler.report(user, event)
+            self.clock, action = due
+            action()
         self.clock = end
 
     @cpv("C:IDLE", "WAIT", source="SCHED.txt:1085-1126",
@@ -173,6 +186,7 @@ class System:
     def run(self, tickLimit=100_000):
         """Run until the system shuts down, nothing more can happen, or the clock reaches
         ``tickLimit``. Returns "shutdown", "stuck" or "tickLimit"."""
+        self.runUntil = tickLimit
         while self.clock < tickLimit:
             if self.scheduler.currentUser is not None:
                 self.execute(self.scheduler.currentUser)

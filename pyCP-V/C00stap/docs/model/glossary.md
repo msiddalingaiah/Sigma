@@ -15,7 +15,10 @@ counterpart. Source paths are in `c00co/`.
 | `User.state` | attribute | `UB:US` | [SSDAT.txt:336](../../c00co/SSDAT.txt#L336) |  |
 | `User.priority` | attribute | `UB:PRIO` | [SCHED.txt:1156–1160](../../c00co/SCHED.txt#L1156-L1160) | Current priority; events lower it below the base |
 | `User.basePriority` | attribute | `UB:PRIOB` | [SCHED.txt:1924](../../c00co/SCHED.txt#L1924) |  |
-| `User.inCore` | attribute | `RTR`, `UH:FLG` | [SCHED.txt:1147–1149](../../c00co/SCHED.txt#L1147-L1149) | Ready to run: in core. Always true until the swapper is modelled |
+| `User.inCore` | attribute | `RTR`, `JIC` | [SWAPPER.txt:1495–1500](../../c00co/SWAPPER.txt#L1495-L1500) | Ready to run (RTR) and JIT in core (JIC). Set when a swap-in finishes, cleared by a kick-out |
+| `User.pages` | attribute | `UB:PCT` | [SSDAT.txt:377](../../c00co/SSDAT.txt#L377) | The pages the user needs in core. CP-V adds the user's shared processors (T:TOTESZ) |
+| `User.swapQuantumPending` | attribute | `SQUAN`, `UH:FLG2` | [SCHED.txt:986–997](../../c00co/SCHED.txt#L986-L997) | Set at swap-in; while set, a ready user isn't swapped out |
+| `User.justSwappedIn` | attribute | `SWAPD` | [SCHED.txt:1182–1190](../../c00co/SCHED.txt#L1182-L1190) | Set at swap-in; the first dispatch gives a new quantum |
 | `User.ioInFlight` | attribute | `UB:MF` | [SCHED.txt:1574–1575](../../c00co/SCHED.txt#L1574-L1575) | The master function count: I/O requests the user has going |
 | `User.quantumLeft` | attribute | `J:DELTAT` | [ACCT.txt:27–43](../../c00co/ACCT.txt#L27-L43) | CP-V counts up from minus the quantum to zero |
 | `User.dispatchedAt` | attribute | `U:MISC` | [SCHED.txt:1194–1199](../../c00co/SCHED.txt#L1194-L1199) | The quantum mark saved at dispatch, for the minimum run |
@@ -76,13 +79,23 @@ counterpart. Source paths are in `c00co/`.
 
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
-| `FutureEvents` | class | *model only* |  | Stands in for the interrupts that report events in CP-V: clock 4 for wake-ups, the I/O interrupt for completions |
-| `FutureEvents.pending` | attribute | *model only* |  | A heap of (time, sequence, user, event) |
-| `FutureEvents.sequence` | attribute | *model only* |  | Keeps reports at the same time in order |
-| `FutureEvents.schedule` | method | *model only* |  | Adds a report to the calendar |
-| `FutureEvents.nextTime` | method | *model only* |  | When the next report is due, or None |
-| `FutureEvents.popDue` | method | *model only* |  | Removes and returns the next report due by ``time``, or None |
-| `FutureEvents.cancelFor` | method | *model only* |  | Drops a user's reports, when the user ends. CP-V's timers are in the JIT |
+| `FutureEvents` | class | *model only* |  | Stands in for the interrupts that drive CP-V: clock 4 for wake-ups, the I/O interrupt for completions, the swap device for swaps |
+| `FutureEvents.pending` | attribute | *model only* |  | A heap of (time, sequence, user, action) |
+| `FutureEvents.sequence` | attribute | *model only* |  | Keeps actions at the same time in order |
+| `FutureEvents.schedule` | method | *model only* |  | Adds an action to the calendar |
+| `FutureEvents.nextTime` | method | *model only* |  | When the next action is due, or None |
+| `FutureEvents.popDue` | method | *model only* |  | Removes and returns the next (time, action) due by ``time``, or None |
+| `FutureEvents.cancelFor` | method | *model only* |  | Drops a user's actions, when the user ends. CP-V's timers are in the JIT |
+
+## Memory
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Memory` | class | `M:FPPH`, `S:PCORE` | [SCHED.txt:2255–2271](../../c00co/SCHED.txt#L2255-L2271), [TABLES.txt:725](../../c00co/TABLES.txt#L725) | CP-V chains the free physical pages through MX:PPUT, with head, tail and count in M:FPPH, M:FPPT and M:FPPC |
+| `Memory.totalPages` | attribute | `S:PCORE` | [TABLES.txt:725](../../c00co/TABLES.txt#L725) | The pages that users and processors can have |
+| `Memory.freePages` | attribute | `M:FPPC` | [SCHED.txt:2373](../../c00co/SCHED.txt#L2373) | The free page count |
+| `Memory.take` | method | *model only* |  | Pages go to a user being swapped in; CP-V moves them to the swapper's chain |
+| `Memory.give` | method | *model only* |  | Pages come back from a user swapped out or ended |
 
 ## NoFreeSlot
 
@@ -98,8 +111,10 @@ counterpart. Source paths are in `c00co/`.
 | `System.clock` | attribute | *model only* |  | Simulated time in ticks. CP-V counts time per user in J:DELTAT with clock 4 |
 | `System.users` | attribute | `SMUIS` | [SSDAT.txt:336–381](../../c00co/SSDAT.txt#L336-L381) | The per-user tables have SMUIS entries |
 | `System.freeSlots` | attribute | `SNULL`, `SB:HQ` | [SCHED.txt:317](../../c00co/SCHED.txt#L317), [SSDAT.txt:390–394](../../c00co/SSDAT.txt#L390-L394) | The queue of the SNULL state |
+| `System.memory` | attribute | `M:FPPH`, `S:PCORE` | [SCHED.txt:2255–2271](../../c00co/SCHED.txt#L2255-L2271), [TABLES.txt:725](../../c00co/TABLES.txt#L725) |  |
 | `System.scheduler` | attribute | `SCHED` | [SCHED.txt:1–20](../../c00co/SCHED.txt#L1-L20) |  |
-| `System.futureEvents` | attribute | *model only* |  | Reports that the clock and devices will make later |
+| `System.futureEvents` | attribute | *model only* |  | What the clock and devices will do later |
+| `System.runUntil` | attribute | *model only* |  | The tick limit of the current run; a compute stops there |
 | `System.trace` | attribute | *model only* |  | What happened, for tests and for reading |
 | `System.startUser` | method | `LOGON`, `ADD1` | [SCHED.txt:1869–1980](../../c00co/SCHED.txt#L1869-L1980) | LOGON (on-line), MBS (batch) and T:GJOBSTRT (ghosts) take a slot from the SNULL queue and call ADD1 |
 | `System.endUser` | method | `STEP70` | [STEP.txt:117–150](../../c00co/STEP.txt#L117-L150) | Removal of a user from the system |
@@ -108,8 +123,8 @@ counterpart. Source paths are in `c00co/`.
 | `System.nextRequest` | method | *model only* |  | The program's next step, or None when the program has ended |
 | `System.compute` | method | *model only* |  | The user computes until the step is done, the quantum is used up, or an interrupt comes |
 | `System.call` | method | `TRAPEXIT` | [SCHED.txt:877–889](../../c00co/SCHED.txt#L877-L889) | A CAL enters the monitor; the user comes back through TRAPEXIT |
-| `System.reportDueEvents` | method | *model only* |  | Interrupts: every report due by now is made |
-| `System.advanceClock` | method | *model only* |  | Time passes; reports that come due on the way are made at their own time |
+| `System.runDueEvents` | method | *model only* |  | Interrupts: everything due by now happens |
+| `System.advanceClock` | method | *model only* |  | Time passes; what comes due on the way happens at its own time |
 | `System.idleUntil` | method | `C:IDLE`, `WAIT` | [SCHED.txt:1085–1126](../../c00co/SCHED.txt#L1085-L1126) | T:SE's idle loop: CP-V waits for an interrupt, then tries T:SE again |
 | `System.run` | method | *model only* |  | The simulation loop: dispatch, execute, repeat |
 | `System.log` | method | *model only* |  | Adds a line to the trace |
@@ -131,6 +146,7 @@ counterpart. Source paths are in `c00co/`.
 | `Scheduler.stateQueues` | attribute | `SB:HQ`, `SB:TQ` | [SSDAT.txt:390–394](../../c00co/SSDAT.txt#L390-L394) |  |
 | `Scheduler.router` | attribute | `RCE0` | [SCHED.txt:1371–1404](../../c00co/SCHED.txt#L1371-L1404) |  |
 | `Scheduler.exitPath` | attribute | `SSE0` | [SCHED.txt:889](../../c00co/SCHED.txt#L889) |  |
+| `Scheduler.swapScheduler` | attribute | `T:SS` | [SCHED.txt:2109](../../c00co/SCHED.txt#L2109) |  |
 | `Scheduler.currentUser` | attribute | `S:CUN` | [TCATCH.txt:173](../../c00co/TCATCH.txt#L173) |  |
 | `Scheduler.usersInSystem` | attribute | `S:CUIS` | [SSDAT.txt:51](../../c00co/SSDAT.txt#L51) |  |
 | `Scheduler.ghostsKeptAtShutdown` | attribute | `GOODNGT` | [SCHED.txt:1065–1084](../../c00co/SCHED.txt#L1065-L1084) | CP-V stores the negative: ZAP sets GOODNGT to -2 |
@@ -138,6 +154,7 @@ counterpart. Source paths are in `c00co/`.
 | `Scheduler.addUser` | method | `ADD1`, `S:CUIS`, `UB:PRIOB` | [SCHED.txt:1922–1980](../../c00co/SCHED.txt#L1922-L1980) | The JIT granule, flags and page count aren't modelled yet |
 | `Scheduler.removeUser` | method | `STEP70`, `S:CUIS`, `SNULL` | [STEP.txt:117–150](../../c00co/STEP.txt#L117-L150) | In CP-V this is in STEP, which also frees the JIT page and processor counts |
 | `Scheduler.dispatch` | method | `T:SE`, `SE1`, `S:CUN`, `S:PRIODEC` | [SCHED.txt:1021–1209](../../c00co/SCHED.txt#L1021-L1209) | Also does a swap schedule first, and loads the map and access locks |
+| `Scheduler.swapSchedule` | method | `T:SS` | [SCHED.txt:2109–2116](../../c00co/SCHED.txt#L2109-L2116) | T:SE calls it first; interrupts call it on the way out (T:SSE) |
 | `Scheduler.exitToUser` | method | `SSE0`, `TRAPEXIT`, `T:SSE` | [SCHED.txt:862–892](../../c00co/SCHED.txt#L862-L892) | Interrupts go in at T:SSE, CALs at TRAPEXIT |
 | `Scheduler.moreUrgentUserWaiting` | method | `S:HIR`, `S:CUP` | [SCHED.txt:1452–1466](../../c00co/SCHED.txt#L1452-L1466), [SSDAT.txt:45](../../c00co/SSDAT.txt#L45) | CP-V keeps a count, S:HIR, raised when a user more urgent than S:CUP becomes ready and lowered at each dispatch; the model just looks |
 | `Scheduler.requeue` | method | `CHSE0` | [SCHED.txt:1459–1466](../../c00co/SCHED.txt#L1459-L1466) |  |
@@ -151,10 +168,13 @@ counterpart. Source paths are in `c00co/`.
 |---|---|---|---|---|
 | `StateQueues` | class | `SB:HQ`, `SB:TQ`, `UB:FL`, `UB:BL` | [SSDAT.txt:337–394](../../c00co/SSDAT.txt#L337-L394) | CP-V links users through per-user forward and back link bytes, with a head and tail byte per state |
 | `StateQueues.bands` | attribute | `SRT`, `SC0`, `SC1`, `SC10` | [SCHED.txt:277–288](../../c00co/SCHED.txt#L277-L288) |  |
+| `StateQueues.waiting` | attribute | `SB:HQ`, `SB:TQ` | [SSDAT.txt:390–394](../../c00co/SSDAT.txt#L390-L394) | The queues of the waiting states, STOB to SQFI |
 | `StateQueues.bandFor` | method | `CHSE1` | [SCHED.txt:1468–1480](../../c00co/SCHED.txt#L1468-L1480) | Maps the priority to a state; X'F6' is SC1 |
-| `StateQueues.add` | method | `T:CHSE`, `CHSE1` | [SCHED.txt:1452–1535](../../c00co/SCHED.txt#L1452-L1535) | Inserts behind equal priorities. Queuing to the head (STASP) isn't modelled yet |
+| `StateQueues.add` | method | `T:CHSE`, `CHSE1`, `RCE4` | [SCHED.txt:1408–1535](../../c00co/SCHED.txt#L1408-L1535) | A ready user goes behind equal priorities (T:CHSE); a waiting user goes to the tail of their state's queue (RCE4). Queuing to the head (STASP) isn't modelled yet |
 | `StateQueues.remove` | method | `RCE4` | [SCHED.txt:1408–1433](../../c00co/SCHED.txt#L1408-L1433) | Unlinks the user from the old state's queue |
 | `StateQueues.firstReady` | method | `SIC1`, `SB:HQ` | [SCHED.txt:1036–1060](../../c00co/SCHED.txt#L1036-L1060) | T:SE finds the first non-empty queue with a floating-point normalize |
+| `StateQueues.firstReadyOutOfCore` | method | `PIKUS1`, `RTR` | [SCHED.txt:2117–2143](../../c00co/SCHED.txt#L2117-L2143) | The same scan as T:SE, for a user without RTR |
+| `StateQueues.swapOutOrder` | method | `SB:SWP` | [SCHED.txt:763–764](../../c00co/SCHED.txt#L763-L764) | SW, STI, SC10, STOB, SQR, SQFI, SQA, SC9, ..., SC0, SRT |
 | `StateQueues.isEmpty` | method | `SB:HQ` | [SSDAT.txt:390–394](../../c00co/SSDAT.txt#L390-L394) |  |
 
 ## Event
@@ -236,8 +256,8 @@ counterpart. Source paths are in `c00co/`.
 | `EventRouter.signalAndWake` | method | `STBEEAC`, `STIRC` | [SCHED.txt:1630–1660](../../c00co/SCHED.txt#L1630-L1660) | As STBEEA, and makes a waiting user interactive compute so they see it soon |
 | `EventRouter.waitForAccess` | method | `STQA` | [SCHED.txt:1674–1682](../../c00co/SCHED.txt#L1674-L1682) |  |
 | `EventRouter.grantAccess` | method | `STUQA` | [SCHED.txt:1683–1688](../../c00co/SCHED.txt#L1683-L1688) | Special compute if queued for access, otherwise remembered as early |
-| `EventRouter.kickOut` | method | `STKO`, `RTR` | [SCHED.txt:1697–1705](../../c00co/SCHED.txt#L1697-L1705) | Swapped out: RTR and JIC cleared |
-| `EventRouter.kickOutWaiting` | method | `STKOT` | [SCHED.txt:1692–1696](../../c00co/SCHED.txt#L1692-L1696) | Swapped out while waiting: CP-V moves to the out-of-core twin state |
+| `EventRouter.kickOut` | method | `STKO`, `RTR`, `JIC` | [SCHED.txt:1697–1702](../../c00co/SCHED.txt#L1697-L1702) | A ready user is requeued at their current priority (CHSE1) |
+| `EventRouter.kickOutWaiting` | method | `STKOT` | [SCHED.txt:1692–1696](../../c00co/SCHED.txt#L1692-L1696) | CP-V moves the user to the state's out-of-core twin (STOBO, STIO, SQRO); the model keeps one state and clears inCore |
 | `EventRouter.associateProcessor` | method | `STASP` | [SCHED.txt:1668–1669](../../c00co/SCHED.txt#L1668-L1669) | Special compute, queued at the head |
 
 ## NotModelledYet
@@ -253,6 +273,7 @@ counterpart. Source paths are in `c00co/`.
 | `ExitPath` | class | `SSE0`, `SSE1`, `TRAPEXIT`, `T:SSE` | [SCHED.txt:862–1012](../../c00co/SCHED.txt#L862-L1012) | Every interrupt, trap and CAL goes back to the user this way |
 | `ExitPath.scheduler` | attribute | *model only* |  | The scheduler this exit path belongs to |
 | `ExitPath.check` | method | `SSE11`, `T:DOLIST` | [SCHED.txt:893–1012](../../c00co/SCHED.txt#L893-L1012) |  |
+| `ExitPath.checkSwapQuantum` | method | `SSE5A`, `SL:SQNT`, `SL:SQUAN`, `SQUAN` | [SCHED.txt:981–999](../../c00co/SCHED.txt#L981-L999) | Time used is measured from the start of the quantum, which a swap-in resets. CP-V quirk: the swap quantum is only looked at once SL:SQNT is reached, so in effect it is never less than SL:SQNT |
 | `ExitPath.actOnSignals` | method | `T:DOLIST`, `SEABRT`, `SEERR`, `SE7`, `SE9` | [SCHED.txt:905–925](../../c00co/SCHED.txt#L905-L925) | CP-V clears all four flags and acts on the first of ABRT, ERR, EC, BRK. CP-V quirk: a break and a control-Y together act as one control-Y |
 | `ExitPath.deliverBreak` | method | `SE7`, `SE6A`, `J:INTENT`, `ALTENT` | [SCHED.txt:1291–1324](../../c00co/SCHED.txt#L1291-L1324) | CP-V enters the user's M:INT routine with the environment on the user's stack |
 | `ExitPath.backToCommandProcessor` | method | `SE9`, `T:ECCP` | [SCHED.txt:1306–1315](../../c00co/SCHED.txt#L1306-L1315) | Ignored while the command processor is in control. The model has no command processor yet, so the user ends |
@@ -276,3 +297,28 @@ counterpart. Source paths are in `c00co/`.
 | `SchedulerSettings` | class | `SL:QUAN`, `SL:QMIN` | [CONMAIN.txt:1037–1047](../../c00co/CONMAIN.txt#L1037-L1047) | SYSGEN values that the operator can change through CONMAIN (0-5000) |
 | `SchedulerSettings.quantum` | attribute | `SL:QUAN` | [ACCT.txt:27–43](../../c00co/ACCT.txt#L27-L43) | T:ACCTEX gives a new quantum; a batch partition can set its own (PLH:QN) |
 | `SchedulerSettings.minimumRun` | attribute | `SL:QMIN`, `S:RTIR` | [SCHED.txt:794–800](../../c00co/SCHED.txt#L794-L800) | How long a user runs before a more urgent one can preempt them; 0 while a real-time user waits |
+| `SchedulerSettings.swapQuantum` | attribute | `SL:SQUAN` | [CONMAIN.txt:1039](../../c00co/CONMAIN.txt#L1039) | Run time after a swap-in before the user can be swapped out |
+| `SchedulerSettings.swapQuantumNear` | attribute | `SL:SQNT` | [SSDAT.txt:294](../../c00co/SSDAT.txt#L294) | 150, "300 MS" |
+| `SchedulerSettings.swapPenalty` | attribute | `SL:SQPB` | [SSDAT.txt:293](../../c00co/SSDAT.txt#L293) | 2, "BOOST TWO NOTCHES", but added to the priority value |
+| `SchedulerSettings.swapTime` | attribute | *model only* |  | Swap device time per user; CP-V's comes from the RADs and disc packs |
+
+## ImpossibleSwap
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `ImpossibleSwap` | class | `X'62'` | [SCHED.txt:2617–2625](../../c00co/SCHED.txt#L2617-L2625) | IMPOSSIBLE SWAP CONDITION |
+
+## SwapScheduler
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `SwapScheduler` | class | `T:SS`, `S:SIP` | [SCHED.txt:2102–2143](../../c00co/SCHED.txt#L2102-L2143) | Called before every execution schedule and on interrupt exits; not re-entrant |
+| `SwapScheduler.scheduler` | attribute | *model only* |  | The scheduler this swap scheduler belongs to |
+| `SwapScheduler.swapInProgress` | attribute | `S:SIP` | [SSDAT.txt:56](../../c00co/SSDAT.txt#L56) |  |
+| `SwapScheduler.lastFailure` | attribute | `S:ISUNF` | [SCHED.txt:2607–2611](../../c00co/SCHED.txt#L2607-L2611) | Here only so that a failure is logged once |
+| `SwapScheduler.schedule` | method | `T:SS`, `PIKUS1`, `SSIN`, `GOTNUF`, `DOSWAP` | [SCHED.txt:2109–2400](../../c00co/SCHED.txt#L2109-L2400) |  |
+| `SwapScheduler.chooseUsersToSwapOut` | method | `USERSOUT`, `SB:OSUL`, `SMAXOUT` | [SCHED.txt:2445–2520](../../c00co/SCHED.txt#L2445-L2520) | Users locked in core (RTHOLD, RMAHOLD), interrupted in a CAL, or in a held batch partition are skipped too; the model has none |
+| `SwapScheduler.canSwapOut` | method | `USOUT5`, `UB:MF`, `SQUAN` | [SCHED.txt:2479–2492](../../c00co/SCHED.txt#L2479-L2492) |  |
+| `SwapScheduler.startSwap` | method | `PROUT4`, `E:KO`, `SWAPOUT`, `SWAPIN` | [SCHED.txt:2567–2579](../../c00co/SCHED.txt#L2567-L2579), [SCHED.txt:2388–2392](../../c00co/SCHED.txt#L2388-L2392) | Each user going out is reported E:KO; then the swapper does the I/O |
+| `SwapScheduler.finishSwap` | method | `SIU13`, `JIC`, `RTR`, `X'18'` | [SWAPPER.txt:1427–1510](../../c00co/SWAPPER.txt#L1427-L1510) | The swap-in sets X'18' in UH:FLG2 (just swapped in, swap quantum pending) |
+| `SwapScheduler.giveUp` | method | `GIVEUP`, `C:NSP` | [SCHED.txt:2580–2625](../../c00co/SCHED.txt#L2580-L2625) | CP-V also sets BYPASS and asks the page stealer for the shortfall |
