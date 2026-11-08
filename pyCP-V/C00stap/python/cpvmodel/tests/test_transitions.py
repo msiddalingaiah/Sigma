@@ -127,5 +127,6 @@ def testUnmodelledTransitionsSaySo():
     from cpvmodel import System
     system = System()
     user = system.startUser("alpha", iter(()), priority=0xF8)
+    system.scheduler.dispatch()
     with pytest.raises(NotModelledYet):
-        system.scheduler.report(user, Event.BREAK)
+        system.scheduler.report(user, Event.WAIT_FOR_ACCESS)

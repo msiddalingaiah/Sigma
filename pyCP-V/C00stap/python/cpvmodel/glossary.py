@@ -29,6 +29,8 @@ MODEL_MODULES = [
     "cpvmodel.scheduler.statequeues",
     "cpvmodel.scheduler.events",
     "cpvmodel.scheduler.eventrouter",
+    "cpvmodel.scheduler.exitpath",
+    "cpvmodel.scheduler.settings",
 ]
 
 

@@ -1,7 +1,15 @@
 """Reporting events: look the event up in the transition table, then act on it."""
 
 from .events import (AWAITING_ACCESS, AWAITING_TERMINAL_INPUT, IO_WAIT, READY, RUNNING,
-                     TOO_MUCH_IO, PriorityBoost, TransitionTable)
+                     TOO_MUCH_IO, Event, PriorityBoost, TransitionTable)
+from .exitpath import Signal
+
+SIGNAL_FOR = {
+    Event.BREAK: Signal.BREAK,
+    Event.CONTROL_Y: Signal.CONTROL_Y,
+    Event.ERROR: Signal.ERROR,
+    Event.ABORT: Signal.ABORT,
+}
 from ..glossary import cpv, modelOnly
 from ..user import UserState
 
@@ -77,6 +85,14 @@ class EventRouter:
             user.priority = user.basePriority
         self._enter(user, READY)
 
+    @cpv("CHSE0", source="SCHED.txt:1459-1466",
+         note="Entered with the priority already chosen; the exit path uses it to park "
+              "a preempted user")
+    def requeue(self, user):
+        """Back in the queue at the user's current priority, behind equals."""
+        self._leave(user)
+        self._enter(user, READY)
+
     def _leave(self, user):
         if user.state is READY:
             self.scheduler.stateQueues.remove(user)
@@ -133,17 +149,19 @@ class EventRouter:
     def noteEarlyCompletion(self, user, event, detail):
         raise NotModelledYet("STIRCU: terminals come later")
 
-    @cpv("STBEEA", "UH:DL", source="SCHED.txt:1630-1660",
-         note="Sets the break, control-Y, error or abort flag in UH:DL; the user acts on "
-              "it next time they run")
+    @cpv("STBEEA", "SETDL", "UH:DL", source="SCHED.txt:1630-1660",
+         note="Picks the flag by event number. For an on-line user, an abort also marks the "
+              "terminal line off (COCOFF); a user blocked on R:NQW is released")
     def signal(self, user, event, detail):
-        raise NotModelledYet("STBEEA: signals come with the exit path")
+        """Note the signal; the user acts on it the next time they run."""
+        user.pendingSignals.add(SIGNAL_FOR[event])
 
     @leadsTo(READY)
     @cpv("STBEEAC", "STIRC", source="SCHED.txt:1630-1660",
-         note="As STBEEA, and makes a waiting user interactive compute so they see it")
+         note="As STBEEA, and makes a waiting user interactive compute so they see it soon")
     def signalAndWake(self, user, event, detail):
-        raise NotModelledYet("STBEEAC: signals come with the exit path")
+        user.pendingSignals.add(SIGNAL_FOR[event])
+        self.makeReady(user, PriorityBoost.INTERACTIVE)
 
     @leadsTo(AWAITING_ACCESS)
     @cpv("STQA", source="SCHED.txt:1674-1682")

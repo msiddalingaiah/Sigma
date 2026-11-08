@@ -1,9 +1,14 @@
-"""The shallow System: starting users, dispatch order, priority boost and decay, shutdown."""
+"""The System: starting users, dispatch order, priority boost and decay, shutdown.
+
+These tests use a quantum of 10 ticks, the length of most of their Compute steps, so each
+step is one quantum."""
 
 import pytest
 
-from cpvmodel import Compute, NoFreeSlot, StateQueues, System, UserState
+from cpvmodel import Compute, NoFreeSlot, SchedulerSettings, StateQueues, System, UserState
 from cpvmodel.scheduler.statequeues import BACKGROUND_BAND, FIRST_LEVEL_BAND, REAL_TIME_BAND
+
+SETTINGS = SchedulerSettings(quantum=10)
 
 
 def cruncher(steps, ticks=10):
@@ -16,7 +21,7 @@ def dispatchOrder(system):
 
 
 def testStartUserTakesTheFirstFreeSlot():
-    system = System(userSlots=2)
+    system = System(userSlots=2, settings=SETTINGS)
     user = system.startUser("alpha", cruncher(1), priority=0xF8)
     assert user.number == 1
     assert user.state is UserState.READY
@@ -24,14 +29,14 @@ def testStartUserTakesTheFirstFreeSlot():
 
 
 def testStartUserWithNoFreeSlotFails():
-    system = System(userSlots=1)
+    system = System(userSlots=1, settings=SETTINGS)
     system.startUser("alpha", cruncher(1), priority=0xF8)
     with pytest.raises(NoFreeSlot):
         system.startUser("beta", cruncher(1), priority=0xF8)
 
 
 def testNewUserGetsTheInteractiveBoost():
-    system = System()
+    system = System(settings=SETTINGS)
     user = system.startUser("alpha", cruncher(1), priority=0xF8)
     assert user.priority == 0xF8 - 6
 
@@ -46,14 +51,14 @@ def testPriorityBandsFollowChse1():
 
 
 def testMoreUrgentUserRunsFirst():
-    system = System()
+    system = System(settings=SETTINGS)
     system.startUser("slow", cruncher(1), priority=0xFC)
     system.startUser("fast", cruncher(1), priority=0xF0)
     assert system.scheduler.dispatch().name == "fast"
 
 
 def testEqualPrioritiesTakeTurns():
-    system = System()
+    system = System(settings=SETTINGS)
     system.startUser("alpha", cruncher(2), priority=0xF8)
     system.startUser("beta", cruncher(2), priority=0xF8)
     system.run()
@@ -61,7 +66,7 @@ def testEqualPrioritiesTakeTurns():
 
 
 def testBoostDecaysOneNotchPerDispatchAndQuantumEndRestoresBase():
-    system = System()
+    system = System(settings=SETTINGS)
     user = system.startUser("alpha", cruncher(2), priority=0xF8)
     system.scheduler.dispatch()
     assert user.priority == 0xF8 - 5
@@ -71,7 +76,7 @@ def testBoostDecaysOneNotchPerDispatchAndQuantumEndRestoresBase():
 
 
 def testBoostedNewcomerRunsBeforeLessUrgentUsersAtBase():
-    system = System()
+    system = System(settings=SETTINGS)
     system.startUser("alpha", cruncher(3), priority=0xF8)
     system.run(tickLimit=10)                        # alpha is back at its base, 0xF8
     system.startUser("gamma", cruncher(1), priority=0xFC)   # starts at 0xF6
@@ -80,7 +85,7 @@ def testBoostedNewcomerRunsBeforeLessUrgentUsersAtBase():
 
 
 def testUserEndsAndFreesTheSlot():
-    system = System(userSlots=1)
+    system = System(userSlots=1, settings=SETTINGS)
     user = system.startUser("alpha", cruncher(1), priority=0xF8)
     system.run()
     assert user.state is UserState.FREE_SLOT
@@ -89,21 +94,21 @@ def testUserEndsAndFreesTheSlot():
 
 
 def testRunEndsInShutdownWhenTheLastUserEnds():
-    system = System()
+    system = System(settings=SETTINGS)
     system.startUser("alpha", cruncher(2, 40), priority=0xF8)
     assert system.run() == "shutdown"
     assert system.clock == 80
 
 
 def testGhostsKeptAtShutdownLetTheSystemShutDownEarly():
-    system = System()
+    system = System(settings=SETTINGS)
     system.scheduler.ghostsKeptAtShutdown = 1
     system.startUser("ghost", cruncher(1), priority=0xF0)
     assert system.scheduler.isShutDown()
 
 
 def testTickLimitStopsTheRun():
-    system = System()
+    system = System(settings=SETTINGS)
     system.startUser("alpha", cruncher(100, 10), priority=0xF8)
     assert system.run(tickLimit=50) == "tickLimit"
     assert system.clock == 50

@@ -35,3 +35,8 @@ class FutureEvents:
             dueTime, _, user, event = heapq.heappop(self.pending)
             return dueTime, user, event
         return None
+
+    @modelOnly("Drops a user's reports, when the user ends. CP-V's timers are in the JIT")
+    def cancelFor(self, user):
+        self.pending = [entry for entry in self.pending if entry[2] is not user]
+        heapq.heapify(self.pending)

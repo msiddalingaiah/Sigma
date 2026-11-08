@@ -17,7 +17,12 @@ counterpart. Source paths are in `c00co/`.
 | `User.basePriority` | attribute | `UB:PRIOB` | [SCHED.txt:1924](../../c00co/SCHED.txt#L1924) |  |
 | `User.inCore` | attribute | `RTR`, `UH:FLG` | [SCHED.txt:1147–1149](../../c00co/SCHED.txt#L1147-L1149) | Ready to run: in core. Always true until the swapper is modelled |
 | `User.ioInFlight` | attribute | `UB:MF` | [SCHED.txt:1574–1575](../../c00co/SCHED.txt#L1574-L1575) | The master function count: I/O requests the user has going |
+| `User.quantumLeft` | attribute | `J:DELTAT` | [ACCT.txt:27–43](../../c00co/ACCT.txt#L27-L43) | CP-V counts up from minus the quantum to zero |
+| `User.dispatchedAt` | attribute | `U:MISC` | [SCHED.txt:1194–1199](../../c00co/SCHED.txt#L1194-L1199) | The quantum mark saved at dispatch, for the minimum run |
+| `User.pendingSignals` | attribute | `UH:DL` | [SCHED.txt:905–912](../../c00co/SCHED.txt#L905-L912) | ABRT, ERR, EC and BRK flags, bits 0-3 |
 | `User.program` | attribute | *model only* |  | A generator standing in for the user's code |
+| `User.computeLeft` | attribute | *model only* |  | Ticks left in the program's current Compute step |
+| `User.pendingRequest` | attribute | *model only* |  | The step a program yielded from its break routine |
 | `User.isMoreUrgentThan` | method | `UB:PRIO`, `UB:PRIOB` | [SCHED.txt:1156–1160](../../c00co/SCHED.txt#L1156-L1160) | Lower values are more urgent |
 
 ## UserState
@@ -36,6 +41,12 @@ counterpart. Source paths are in `c00co/`.
 | `UserState.AWAITING_TERMINAL_INPUT` | member | `STI`, `STIO` | [SCHED.txt:277–318](../../c00co/SCHED.txt#L277-L318) | Terminal inputting |
 | `UserState.AWAITING_INTERRUPT` | member | `SQFI` | [SCHED.txt:277–318](../../c00co/SCHED.txt#L277-L318) | Queued for interrupt |
 | `UserState.FREE_SLOT` | member | `SNULL` | [SCHED.txt:277–318](../../c00co/SCHED.txt#L277-L318) | Empty user slot |
+
+## Break
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Break` | class | *model only* |  | Entering the user's break routine (M:INT) after a break key |
 
 ## Compute
 
@@ -71,6 +82,7 @@ counterpart. Source paths are in `c00co/`.
 | `FutureEvents.schedule` | method | *model only* |  | Adds a report to the calendar |
 | `FutureEvents.nextTime` | method | *model only* |  | When the next report is due, or None |
 | `FutureEvents.popDue` | method | *model only* |  | Removes and returns the next report due by ``time``, or None |
+| `FutureEvents.cancelFor` | method | *model only* |  | Drops a user's reports, when the user ends. CP-V's timers are in the JIT |
 
 ## NoFreeSlot
 
@@ -91,7 +103,12 @@ counterpart. Source paths are in `c00co/`.
 | `System.trace` | attribute | *model only* |  | What happened, for tests and for reading |
 | `System.startUser` | method | `LOGON`, `ADD1` | [SCHED.txt:1869–1980](../../c00co/SCHED.txt#L1869-L1980) | LOGON (on-line), MBS (batch) and T:GJOBSTRT (ghosts) take a slot from the SNULL queue and call ADD1 |
 | `System.endUser` | method | `STEP70` | [STEP.txt:117–150](../../c00co/STEP.txt#L117-L150) | Removal of a user from the system |
+| `System.reportAt` | method | *model only* |  | An event that something outside the users will report at ``time``, such as a break key |
 | `System.execute` | method | *model only* |  | The user's code runs; in CP-V the processor simply runs the user in slave mode |
+| `System.nextRequest` | method | *model only* |  | The program's next step, or None when the program has ended |
+| `System.compute` | method | *model only* |  | The user computes until the step is done, the quantum is used up, or an interrupt comes |
+| `System.call` | method | `TRAPEXIT` | [SCHED.txt:877–889](../../c00co/SCHED.txt#L877-L889) | A CAL enters the monitor; the user comes back through TRAPEXIT |
+| `System.reportDueEvents` | method | *model only* |  | Interrupts: every report due by now is made |
 | `System.advanceClock` | method | *model only* |  | Time passes; reports that come due on the way are made at their own time |
 | `System.idleUntil` | method | `C:IDLE`, `WAIT` | [SCHED.txt:1085–1126](../../c00co/SCHED.txt#L1085-L1126) | T:SE's idle loop: CP-V waits for an interrupt, then tries T:SE again |
 | `System.run` | method | *model only* |  | The simulation loop: dispatch, execute, repeat |
@@ -110,8 +127,10 @@ counterpart. Source paths are in `c00co/`.
 |---|---|---|---|---|
 | `Scheduler` | class | `SCHED` | [SCHED.txt:1–20](../../c00co/SCHED.txt#L1-L20) | SCHED - EXECUTION AND SWAP SCHEDULER; its data is in SSDAT |
 | `Scheduler.system` | attribute | *model only* |  | The system the scheduler belongs to; used for the trace |
+| `Scheduler.settings` | attribute | `SL:QUAN`, `SL:QMIN` | [CONMAIN.txt:1037–1047](../../c00co/CONMAIN.txt#L1037-L1047) |  |
 | `Scheduler.stateQueues` | attribute | `SB:HQ`, `SB:TQ` | [SSDAT.txt:390–394](../../c00co/SSDAT.txt#L390-L394) |  |
 | `Scheduler.router` | attribute | `RCE0` | [SCHED.txt:1371–1404](../../c00co/SCHED.txt#L1371-L1404) |  |
+| `Scheduler.exitPath` | attribute | `SSE0` | [SCHED.txt:889](../../c00co/SCHED.txt#L889) |  |
 | `Scheduler.currentUser` | attribute | `S:CUN` | [TCATCH.txt:173](../../c00co/TCATCH.txt#L173) |  |
 | `Scheduler.usersInSystem` | attribute | `S:CUIS` | [SSDAT.txt:51](../../c00co/SSDAT.txt#L51) |  |
 | `Scheduler.ghostsKeptAtShutdown` | attribute | `GOODNGT` | [SCHED.txt:1065–1084](../../c00co/SCHED.txt#L1065-L1084) | CP-V stores the negative: ZAP sets GOODNGT to -2 |
@@ -119,6 +138,9 @@ counterpart. Source paths are in `c00co/`.
 | `Scheduler.addUser` | method | `ADD1`, `S:CUIS`, `UB:PRIOB` | [SCHED.txt:1922–1980](../../c00co/SCHED.txt#L1922-L1980) | The JIT granule, flags and page count aren't modelled yet |
 | `Scheduler.removeUser` | method | `STEP70`, `S:CUIS`, `SNULL` | [STEP.txt:117–150](../../c00co/STEP.txt#L117-L150) | In CP-V this is in STEP, which also frees the JIT page and processor counts |
 | `Scheduler.dispatch` | method | `T:SE`, `SE1`, `S:CUN`, `S:PRIODEC` | [SCHED.txt:1021–1209](../../c00co/SCHED.txt#L1021-L1209) | Also does a swap schedule first, and loads the map and access locks |
+| `Scheduler.exitToUser` | method | `SSE0`, `TRAPEXIT`, `T:SSE` | [SCHED.txt:862–892](../../c00co/SCHED.txt#L862-L892) | Interrupts go in at T:SSE, CALs at TRAPEXIT |
+| `Scheduler.moreUrgentUserWaiting` | method | `S:HIR`, `S:CUP` | [SCHED.txt:1452–1466](../../c00co/SCHED.txt#L1452-L1466), [SSDAT.txt:45](../../c00co/SSDAT.txt#L45) | CP-V keeps a count, S:HIR, raised when a user more urgent than S:CUP becomes ready and lowered at each dispatch; the model just looks |
+| `Scheduler.requeue` | method | `CHSE0` | [SCHED.txt:1459–1466](../../c00co/SCHED.txt#L1459-L1466) |  |
 | `Scheduler.endQuantum` | method | `T:ACCTEX`, `T:CHSE0` | [SCHED.txt:980–1012](../../c00co/SCHED.txt#L980-L1012) | CP-V ends the quantum when the time in J:DELTAT runs out |
 | `Scheduler.isShutDown` | method | `S:CUIS`, `GOODNGT`, `X'404'` | [SCHED.txt:1065–1084](../../c00co/SCHED.txt#L1065-L1084) | Checked when nobody is ready; ends with SCREECH X'404' |
 | `Scheduler.log` | method | *model only* |  | Adds a line to the system's trace |
@@ -203,14 +225,15 @@ counterpart. Source paths are in `c00co/`.
 | `EventRouter.report` | method | `RCE0` | [SCHED.txt:1371–1404](../../c00co/SCHED.txt#L1371-L1404) | T:RUE reports for any user, T:RE for the current one, T:REG for the current one and then reschedules |
 | `EventRouter.changeState` | method | `RCE4`, `CHS1`, `S:EVF` | [SCHED.txt:1408–1433](../../c00co/SCHED.txt#L1408-L1433), [SCHED.txt:1606–1611](../../c00co/SCHED.txt#L1606-L1611) | Unlinks the user from the old state's queue and appends them to the new one |
 | `EventRouter.makeReady` | method | `T:CHSE`, `CHSE1`, `OPNBOOST` | [SCHED.txt:1452–1535](../../c00co/SCHED.txt#L1452-L1535) | The OPNBOOST for the open/close user isn't modelled yet |
+| `EventRouter.requeue` | method | `CHSE0` | [SCHED.txt:1459–1466](../../c00co/SCHED.txt#L1459-L1466) | Entered with the priority already chosen; the exit path uses it to park a preempted user |
 | `EventRouter.ignore` | method | `STNOP` | [SCHED.txt:1608](../../c00co/SCHED.txt#L1608) | Not every event matters in every state |
 | `EventRouter.waitForIo` | method | `STIIP`, `UB:MF`, `GRANT` | [SCHED.txt:1553–1572](../../c00co/SCHED.txt#L1553-L1572) | CP-V also marks the DCB as waited on, and later releases the user when that DCB's I/O is done; the model waits for all the user's I/O |
 | `EventRouter.completeIo` | method | `STIOC`, `UB:MF`, `STIOCC` | [SCHED.txt:1574–1605](../../c00co/SCHED.txt#L1574-L1605) |  |
 | `EventRouter.waitForIoToDrain` | method | `STIOMF` | [SCHED.txt:1553](../../c00co/SCHED.txt#L1553) |  |
 | `EventRouter.waitForTerminalInput` | method | `STCRD` | [SCHED.txt:1670–1673](../../c00co/SCHED.txt#L1670-L1673) | Waits unless the input already came (UH:FLG X'4000') |
 | `EventRouter.noteEarlyCompletion` | method | `STIRCU` | [SCHED.txt:1685–1688](../../c00co/SCHED.txt#L1685-L1688) | Input finished before the user blocked: sets UH:FLG X'4000' |
-| `EventRouter.signal` | method | `STBEEA`, `UH:DL` | [SCHED.txt:1630–1660](../../c00co/SCHED.txt#L1630-L1660) | Sets the break, control-Y, error or abort flag in UH:DL; the user acts on it next time they run |
-| `EventRouter.signalAndWake` | method | `STBEEAC`, `STIRC` | [SCHED.txt:1630–1660](../../c00co/SCHED.txt#L1630-L1660) | As STBEEA, and makes a waiting user interactive compute so they see it |
+| `EventRouter.signal` | method | `STBEEA`, `SETDL`, `UH:DL` | [SCHED.txt:1630–1660](../../c00co/SCHED.txt#L1630-L1660) | Picks the flag by event number. For an on-line user, an abort also marks the terminal line off (COCOFF); a user blocked on R:NQW is released |
+| `EventRouter.signalAndWake` | method | `STBEEAC`, `STIRC` | [SCHED.txt:1630–1660](../../c00co/SCHED.txt#L1630-L1660) | As STBEEA, and makes a waiting user interactive compute so they see it soon |
 | `EventRouter.waitForAccess` | method | `STQA` | [SCHED.txt:1674–1682](../../c00co/SCHED.txt#L1674-L1682) |  |
 | `EventRouter.grantAccess` | method | `STUQA` | [SCHED.txt:1683–1688](../../c00co/SCHED.txt#L1683-L1688) | Special compute if queued for access, otherwise remembered as early |
 | `EventRouter.kickOut` | method | `STKO`, `RTR` | [SCHED.txt:1697–1705](../../c00co/SCHED.txt#L1697-L1705) | Swapped out: RTR and JIC cleared |
@@ -222,3 +245,34 @@ counterpart. Source paths are in `c00co/`.
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
 | `NotModelledYet` | class | *model only* |  | Raised by the transitions that a later iteration will model |
+
+## ExitPath
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `ExitPath` | class | `SSE0`, `SSE1`, `TRAPEXIT`, `T:SSE` | [SCHED.txt:862–1012](../../c00co/SCHED.txt#L862-L1012) | Every interrupt, trap and CAL goes back to the user this way |
+| `ExitPath.scheduler` | attribute | *model only* |  | The scheduler this exit path belongs to |
+| `ExitPath.check` | method | `SSE11`, `T:DOLIST` | [SCHED.txt:893–1012](../../c00co/SCHED.txt#L893-L1012) |  |
+| `ExitPath.actOnSignals` | method | `T:DOLIST`, `SEABRT`, `SEERR`, `SE7`, `SE9` | [SCHED.txt:905–925](../../c00co/SCHED.txt#L905-L925) | CP-V clears all four flags and acts on the first of ABRT, ERR, EC, BRK. CP-V quirk: a break and a control-Y together act as one control-Y |
+| `ExitPath.deliverBreak` | method | `SE7`, `SE6A`, `J:INTENT`, `ALTENT` | [SCHED.txt:1291–1324](../../c00co/SCHED.txt#L1291-L1324) | CP-V enters the user's M:INT routine with the environment on the user's stack |
+| `ExitPath.backToCommandProcessor` | method | `SE9`, `T:ECCP` | [SCHED.txt:1306–1315](../../c00co/SCHED.txt#L1306-L1315) | Ignored while the command processor is in control. The model has no command processor yet, so the user ends |
+| `ExitPath.endQuantum` | method | `SSE6`, `T:ACCTEX`, `T:CHSE0` | [SCHED.txt:1000–1012](../../c00co/SCHED.txt#L1000-L1012) | J:DELTAT counts up from minus the quantum; at zero the quantum is over |
+| `ExitPath.preempt` | method | `SSE41`, `SSE43`, `S:HIR`, `CHSE0` | [SCHED.txt:794–846](../../c00co/SCHED.txt#L794-L846) | CP-V quirk: near the swap quantum, SL:SQPB is added to the priority, which makes the user less urgent, not more |
+
+## Signal
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Signal` | class | `ABRT`, `BRK` | [SCHED.txt:472–481](../../c00co/SCHED.txt#L472-L481) | Flags in the top four bits of UH:DL, beside the DO list's head |
+| `Signal.ABORT` | member | `ABRT` | [SCHED.txt:476](../../c00co/SCHED.txt#L476) | X'8000' |
+| `Signal.ERROR` | member | `ERR` | [SCHED.txt:477](../../c00co/SCHED.txt#L477) | X'4000' |
+| `Signal.CONTROL_Y` | member | `EC` | [SCHED.txt:478](../../c00co/SCHED.txt#L478) | X'2000' |
+| `Signal.BREAK` | member | `BRK` | [SCHED.txt:479](../../c00co/SCHED.txt#L479) | X'1000' |
+
+## SchedulerSettings
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `SchedulerSettings` | class | `SL:QUAN`, `SL:QMIN` | [CONMAIN.txt:1037–1047](../../c00co/CONMAIN.txt#L1037-L1047) | SYSGEN values that the operator can change through CONMAIN (0-5000) |
+| `SchedulerSettings.quantum` | attribute | `SL:QUAN` | [ACCT.txt:27–43](../../c00co/ACCT.txt#L27-L43) | T:ACCTEX gives a new quantum; a batch partition can set its own (PLH:QN) |
+| `SchedulerSettings.minimumRun` | attribute | `SL:QMIN`, `S:RTIR` | [SCHED.txt:794–800](../../c00co/SCHED.txt#L794-L800) | How long a user runs before a more urgent one can preempt them; 0 while a real-time user waits |

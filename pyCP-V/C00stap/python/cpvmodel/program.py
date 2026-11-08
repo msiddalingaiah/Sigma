@@ -31,3 +31,9 @@ class DoIo:
 @dataclass
 class Yield:
     """Go to the back of the queue."""
+
+
+@modelOnly("Entering the user's break routine (M:INT) after a break key")
+class Break(Exception):
+    """Thrown into a program when the user presses break. A program that catches it goes on;
+    one that doesn't goes back to the command processor."""

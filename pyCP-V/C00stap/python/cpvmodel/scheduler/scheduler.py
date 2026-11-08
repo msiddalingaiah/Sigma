@@ -4,6 +4,8 @@ from ..glossary import cpv, modelOnly
 from ..user import UserState
 from .eventrouter import EventRouter
 from .events import PriorityBoost
+from .exitpath import ExitPath
+from .settings import SchedulerSettings
 from .statequeues import StateQueues
 
 
@@ -16,24 +18,30 @@ class Scheduler:
     Its parts:
 
     - ``stateQueues``, the queues users wait in;
-    - ``router``, which turns event reports into state changes using the transition table.
+    - ``router``, which turns event reports into state changes using the transition table;
+    - ``exitPath``, which checks signals, quantum end and preemption on the way back to a
+      user.
 
-    Later iterations add the exit path (quanta and preemption) and the swap scheduler.
+    A later iteration adds the swap scheduler.
     In CP-V this is really the module SCHED, with its data cells in SSDAT.
     """
 
-    def __init__(self, system):
+    def __init__(self, system, settings=None):
         self.system = system
+        self.settings = settings or SchedulerSettings()
         self.stateQueues = StateQueues()
         self.router = EventRouter(self)
+        self.exitPath = ExitPath(self)
         self.currentUser = None
         self.usersInSystem = 0
         self.ghostsKeptAtShutdown = 0
 
     cpvNames = {
         "system": modelOnly("The system the scheduler belongs to; used for the trace"),
+        "settings": cpv("SL:QUAN", "SL:QMIN", source="CONMAIN.txt:1037-1047"),
         "stateQueues": cpv("SB:HQ", "SB:TQ", source="SSDAT.txt:390-394"),
         "router": cpv("RCE0", source="SCHED.txt:1371-1404"),
+        "exitPath": cpv("SSE0", source="SCHED.txt:889"),
         "currentUser": cpv("S:CUN", source="TCATCH.txt:173"),
         "usersInSystem": cpv("S:CUIS", source="SSDAT.txt:51"),
         "ghostsKeptAtShutdown": cpv("GOODNGT", source="SCHED.txt:1065-1084",
@@ -54,6 +62,8 @@ class Scheduler:
         user.basePriority = priority
         user.inCore = True
         user.ioInFlight = 0
+        user.quantumLeft = self.settings.quantum
+        user.pendingSignals = set()
         self.usersInSystem += 1
         self.router.makeReady(user, PriorityBoost.INTERACTIVE)
 
@@ -66,20 +76,45 @@ class Scheduler:
     @cpv("T:SE", "SE1", "S:CUN", "S:PRIODEC", source="SCHED.txt:1021-1209",
          note="Also does a swap schedule first, and loads the map and access locks")
     def dispatch(self):
-        """Pick the most urgent ready user and make them the current user, or return None."""
+        """Pick the most urgent ready user and make them the current user, or return None.
+        A user with signals pending goes through the exit path at once, so they may not
+        be the current user afterwards."""
         user = self.stateQueues.firstReady()
         if user is None:
             return None
         self.router.changeState(user, UserState.RUNNING)
         if user.priority < user.basePriority:
             user.priority += 1
+        user.dispatchedAt = self.system.clock
         self.log(user, f"dispatched at {user.priority:#04x}")
+        if user.pendingSignals:
+            self.exitPath.check(user)
         return user
+
+    @cpv("SSE0", "TRAPEXIT", "T:SSE", source="SCHED.txt:862-892",
+         note="Interrupts go in at T:SSE, CALs at TRAPEXIT")
+    def exitToUser(self, user):
+        """On the way back to the current user after an interrupt or a CAL: the exit path
+        decides whether they go on running."""
+        self.exitPath.check(user)
+
+    @cpv("S:HIR", "S:CUP", source="SCHED.txt:1452-1466, SSDAT.txt:45",
+         note="CP-V keeps a count, S:HIR, raised when a user more urgent than S:CUP becomes "
+              "ready and lowered at each dispatch; the model just looks")
+    def moreUrgentUserWaiting(self, user):
+        waiting = self.stateQueues.firstReady()
+        return waiting is not None and waiting.isMoreUrgentThan(user)
+
+    @cpv("CHSE0", source="SCHED.txt:1459-1466")
+    def requeue(self, user):
+        """Back in the queue at the current priority (a preempted user)."""
+        self.router.requeue(user)
 
     @cpv("T:ACCTEX", "T:CHSE0", source="SCHED.txt:980-1012",
          note="CP-V ends the quantum when the time in J:DELTAT runs out")
     def endQuantum(self, user):
-        """Back to the base priority, and to the tail of the band's queue."""
+        """A new quantum, back to the base priority, and to the tail of the band's queue."""
+        user.quantumLeft = self.settings.quantum
         self.router.makeReady(user, PriorityBoost.COMPUTE)
 
     @cpv("S:CUIS", "GOODNGT", "X'404'", source="SCHED.txt:1065-1084",

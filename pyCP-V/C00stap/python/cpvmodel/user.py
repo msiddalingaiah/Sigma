@@ -1,7 +1,7 @@
 """A user and the states a user can be in."""
 
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .glossary import cpv, modelOnly
 
@@ -65,7 +65,12 @@ class User:
     basePriority: int = 0xFF
     inCore: bool = True
     ioInFlight: int = 0
+    quantumLeft: int = 0
+    dispatchedAt: int = 0
+    pendingSignals: set = field(default_factory=set)
     program: object = None
+    computeLeft: int = 0
+    pendingRequest: object = None
 
     cpvNames = {
         "number": cpv("S:CUN", source="TCATCH.txt:173",
@@ -79,7 +84,15 @@ class User:
                       note="Ready to run: in core. Always true until the swapper is modelled"),
         "ioInFlight": cpv("UB:MF", source="SCHED.txt:1574-1575",
                           note="The master function count: I/O requests the user has going"),
+        "quantumLeft": cpv("J:DELTAT", source="ACCT.txt:27-43",
+                           note="CP-V counts up from minus the quantum to zero"),
+        "dispatchedAt": cpv("U:MISC", source="SCHED.txt:1194-1199",
+                            note="The quantum mark saved at dispatch, for the minimum run"),
+        "pendingSignals": cpv("UH:DL", source="SCHED.txt:905-912",
+                              note="ABRT, ERR, EC and BRK flags, bits 0-3"),
         "program": modelOnly("A generator standing in for the user's code"),
+        "computeLeft": modelOnly("Ticks left in the program's current Compute step"),
+        "pendingRequest": modelOnly("The step a program yielded from its break routine"),
     }
 
     @cpv("UB:PRIO", "UB:PRIOB", source="SCHED.txt:1156-1160",

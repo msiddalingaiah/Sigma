@@ -52,7 +52,7 @@ its parts.
 
 | Package | Front class | CP-V | Parts |
 |---|---|---|---|
-| `cpvmodel.scheduler` | `Scheduler` | SCHED, "execution and swap scheduler" | `StateQueues`, `EventRouter` and `TransitionTable`; later `ExitPath` and `SwapScheduler` |
+| `cpvmodel.scheduler` | `Scheduler` | SCHED, "execution and swap scheduler" | `StateQueues`, `EventRouter` and `TransitionTable`, `ExitPath`, `SchedulerSettings`; later `SwapScheduler` |
 | `cpvmodel.filesystem` (later) | `FileSystem` | the file management modules | directories, file kinds, `GranuleAllocator` |
 
 `System` (`cpvmodel/system.py`) puts the components together. It owns what's machine-wide: the
@@ -74,12 +74,27 @@ classDiagram
     class Scheduler {
         currentUser
         usersInSystem
+        settings
         report(user, event)
         addUser(user, priority)
         removeUser(user)
         dispatch()
+        exitToUser(user)
         endQuantum(user)
+        moreUrgentUserWaiting(user)
+        requeue(user)
         isShutDown()
+    }
+    class ExitPath {
+        check(user)
+        actOnSignals(user)
+        deliverBreak(user)
+        endQuantum(user)
+        preempt(user)
+    }
+    class SchedulerSettings {
+        quantum
+        minimumRun
     }
     class User {
         number
@@ -88,6 +103,9 @@ classDiagram
         basePriority
         inCore
         ioInFlight
+        quantumLeft
+        dispatchedAt
+        pendingSignals
         program
     }
     class StateQueues {
@@ -133,6 +151,8 @@ classDiagram
     System *-- FutureEvents
     Scheduler *-- StateQueues
     Scheduler *-- EventRouter : router
+    Scheduler *-- ExitPath
+    Scheduler *-- SchedulerSettings
     EventRouter *-- TransitionTable
     TransitionTable ..> Event
     TransitionTable ..> PriorityBoost
@@ -140,8 +160,9 @@ classDiagram
 ```
 
 A program is a generator that yields `Compute(ticks)`, `Sleep(ticks)`, `DoIo(ticks)` or
-`Yield()`. Each stands for what a user's code does in CP-V: run until the clock ends the quantum,
-or make a CAL that leads to an event report.
+`Yield()`. Each stands for what a user's code does in CP-V: compute, or make a CAL that leads
+to an event report. A tick is a clock-4 tick, 2 ms. A program can catch `Break`; that is its
+break routine (`M:INT`).
 
 ### Events and the transition table
 
@@ -188,6 +209,56 @@ sequenceDiagram
     Note over R: priority = base − 2, back in its band
 ```
 
+### The exit path
+
+Every interrupt, trap and CAL goes back to the user through the **exit path** (`SSE0`–`SSE6`).
+That is where CP-V acts on signals, ends quanta and preempts. `scheduler.exitToUser(user)`
+runs it:
+
+```mermaid
+flowchart TD
+    enter(["exitToUser: after an interrupt, a CAL,<br/>or the clock ending the quantum"]) --> signals{"signals pending?<br/>(UH:DL)"}
+    signals -->|ABORT| aborted(["user ends: aborted (T:OFF)"])
+    signals -->|ERROR| error(["user ends: error (SEERR)"])
+    signals -->|CONTROL_Y| cp(["back to the command processor (T:ECCP)"])
+    signals -->|BREAK| brk{"program catches Break?<br/>(M:INT)"}
+    brk -->|yes| routine(["user goes on in its break routine"])
+    brk -->|no| cp
+    signals -->|none| quantum{"quantum used up?<br/>(J:DELTAT)"}
+    quantum -->|yes| newq(["new quantum, base priority,<br/>tail of band (T:ACCTEX, T:CHSE0)"])
+    quantum -->|no| qmin{"run at least minimumRun<br/>since dispatch? (SL:QMIN)"}
+    qmin -->|no| goon(["user goes on (T:PULLE)"])
+    qmin -->|yes| hir{"a more urgent user ready?<br/>(S:HIR)"}
+    hir -->|no| goon
+    hir -->|yes| preempt(["preempted: back in the queue<br/>at the current priority (CHSE0)"])
+```
+
+Signals are reported like any other event. For a running or I/O-waiting user, `BREAK`,
+`CONTROL_Y`, `ERROR` and `ABORT` only set a flag (`STBEEA`). The user acts on it the next time
+they run. A user who is asleep, waiting for terminal input, or ready is also made ready with
+the interactive boost (`STBEEAC`), so they see the signal soon.
+
+A preemption, from the demo:
+
+```mermaid
+sequenceDiagram
+    participant D as I/O device
+    participant S as System
+    participant C as Scheduler
+    participant E as ExitPath
+    Note over S: beta computes at X'F8'
+    D-->>S: interrupt: editor's I/O done (t=235)
+    S->>C: report(editor, IO_COMPLETE)
+    C->>C: editor ready at X'F6' (IO_DONE boost)
+    S->>C: exitToUser(beta)  (T:SSE)
+    C->>E: check(beta)
+    E->>E: no signals, quantum left,<br/>beta has run at least minimumRun
+    E->>C: moreUrgentUserWaiting(beta)? yes
+    E->>C: requeue(beta) at X'F8'
+    S->>C: dispatch()
+    C-->>S: editor
+```
+
 ### The run loop
 
 In CP-V, `T:SE` is entered again after every quantum, block and interrupt exit. Here it is a
@@ -195,43 +266,48 @@ plain loop:
 
 ```mermaid
 flowchart TD
-    run([run]) --> current{"scheduler.currentUser<br/>still running?"}
+    run([run]) --> current{"scheduler.currentUser?"}
     current -->|yes| execute
     current -->|no| dispatch["scheduler.dispatch: first in-core user,<br/>most urgent band first (T:SE)<br/>boost decays 1 (SE1)"]
-    dispatch -->|user| execute["execute: next program step"]
+    dispatch -->|user| run
     dispatch -->|nobody ready| check{"scheduler.isShutDown?<br/>S:CUIS + GOODNGT ≤ 0"}
     check -->|yes| shutdown(["shutdown (SCREECH X'404')"])
     check -->|no| pending{"future events?"}
     pending -->|yes| idle["idleUntil the next one (WAIT)"]
     pending -->|no| stuck(["stuck"])
     idle --> run
-    execute -->|"Compute(n)"| quantum["advanceClock(n): due events are reported<br/>endQuantum: base priority, tail of band"]
-    execute -->|"Sleep, DoIo, Yield"| report["scheduler.report(...)"]
+    execute{"execute: go on with the<br/>Compute step, or take the next"} -->|Compute| compute["compute until the step is done, the<br/>quantum runs out, or an event is due"]
+    compute -->|"event or quantum end"| exit["scheduler.exitToUser"]
+    compute -->|step done| run
+    execute -->|"Sleep, DoIo, Yield (a CAL)"| report["scheduler.report(...),<br/>then exitToUser if still running"]
     execute -->|program ended| endUser["endUser: free the slot (STEP70)"]
-    quantum --> run
+    exit --> run
     report --> run
     endUser --> run
 ```
 
 ### What it shows
 
-From the demo (`python -m cpvmodel`). `editor` alternates computing and I/O, `clock` sleeps, and
-`alpha` and `beta` crunch at the same base, X'F8':
+From the demo (`python -m cpvmodel`), with a quantum of 100 ticks. `editor` alternates
+computing and I/O, `clock` sleeps, and `alpha` and `beta` crunch at the same base, X'F8':
 
 ```
-   165  editor     IO_STARTED: RUNNING -> IO_WAIT
-   165  alpha      dispatched at 0xf8
-   165  alpha      computes 40
-   185  clock      WAKE_UP: ASLEEP -> READY
-   195  editor     IO_COMPLETE: IO_WAIT -> READY
-   205  editor     dispatched at 0xf7
+   100  alpha      quantum ended
+   100  beta       dispatched at 0xf3
+   ...
+   225  beta       dispatched at 0xf8
+   235  editor     IO_COMPLETE: IO_WAIT -> READY
+   235  beta       preempted
+   235  editor     dispatched at 0xf7
 ```
 
-- `editor`'s I/O boost puts it at X'F6'. It runs as soon as `alpha`'s quantum ends, ahead of
-  `beta`, which has been waiting longer.
-- `clock` woke at 185 with the special-compute boost. But its base is X'FC', so X'FC' − 3 =
-  X'F9' is still less urgent than the crunchers. It waits until they finish at 250.
-- With everyone waiting, the system idles until the next event.
+- The crunchers' 120-tick programs are cut into quanta, and they take turns at each quantum end.
+- When `editor`'s I/O ends at 235, its I/O boost makes it X'F6', more urgent than `beta` at
+  X'F8'. `beta` has run more than the minimum, so it is preempted at the interrupt.
+- A newcomer's boost can outrank an I/O boost. A cruncher still at X'F3' isn't preempted by an
+  editor at X'F6' (`testANewcomersBoostCanOutrankAnIoBoost`).
+- `clock` wakes with the special-compute boost. But its base is X'FC', so X'FC' − 3 = X'F9' is
+  still less urgent than the crunchers.
 
 What is CP-V's so far:
 
@@ -242,13 +318,22 @@ What is CP-V's so far:
   - An event that makes a user ready gives the `SH:PINC` boost for that kind of event.
   - The boost decays by 1 at each dispatch (`SE1`, `S:PRIODEC`).
   - At quantum end the user goes back to their base, at the tail of the queue (`T:CHSE0`).
+  - A preempted user keeps their current priority (`CHSE0`).
   - A real-time user always runs at their base ("DONT FLOAT RT").
 - **Events.** CP-V's whole state-and-event table, checked against the source.
-- **Shutdown.** When nobody is ready and `usersInSystem − ghostsKeptAtShutdown ≤ 0`, the run ends
-  ("shutdown"). This is the idle check, `S:CUIS`+`GOODNGT` ≤ 0, which ends in `SCREECH X'404'`.
+- **The exit path.** Signals are acted on in CP-V's order of importance, and all four are
+  cleared at once, so a break that comes with a control-Y is lost. Then quantum end, the
+  minimum run and preemption.
+- **Shutdown.** When nobody is ready and `usersInSystem − ghostsKeptAtShutdown ≤ 0`, the run
+  ends ("shutdown"). This is the idle check, `S:CUIS`+`GOODNGT` ≤ 0, which ends in
+  `SCREECH X'404'`.
 
-Not yet: each `Compute` is a whole quantum and isn't interrupted, nobody is preempted, and
-nobody is swapped, so every user stays in core.
+Not yet:
+
+- No swapping, so every user stays in core. That also leaves out the swap quantum
+  (`SL:SQUAN`, `SL:SQNT`, `SL:SQPB`).
+- No DO list and no command processor. Control-Y and an uncaught break end the user instead
+  of returning to TEL.
 
 ## Iterations
 
@@ -257,10 +342,10 @@ nobody is swapped, so every user stays in core.
    `InconsistentEvent`, `EventRouter`, `FutureEvents`. Programs that sleep, do I/O and yield.
    The generated state diagram. Then the refactor into components: `Scheduler` in front of
    SCHED's parts, with `System` putting the components together.
-3. **The exit path.** Real quanta cut by the clock, preemption by a more urgent user (`S:HIR`,
-   `QMIN`), and signals (break, control-Y, error, abort), which replace the first
-   `NotModelledYet` stubs.
+3. **The exit path** (done). `ExitPath`, `SchedulerSettings` and `Signal`. Quanta cut by the
+   clock, preemption at interrupts after the minimum run, and signals, with `Break` thrown
+   into programs.
 4. **Resources.** Blocking on and releasing `R:*` resources, and their events.
 5. **Swapping.** `inCore`, pages, the swap scheduler choosing who comes in and who goes out,
-   kick-out.
+   kick-out, and the swap quantum.
 6. **Terminals and log-on.** Terminal read and output blocking, and log-on from a break.
