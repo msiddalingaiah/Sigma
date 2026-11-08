@@ -16,3 +16,6 @@ test:
 
 modeltest:
 	$(PYTHON) -m pytest cpvmodel/tests
+
+model:
+	$(PYTHON) -m cpvmodel
