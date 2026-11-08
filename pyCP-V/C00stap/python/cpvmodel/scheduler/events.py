@@ -35,7 +35,8 @@ class Event(enum.Enum):
     """Something that happened to a user.
 
     In CP-V an event is a number, the index of its entry in ``S:SET``, and the reporter
-    passes it in R6. The resource events (``E:NSYMF`` onwards) come with resources.
+    passes it in R6. CP-V has a block event and a release event for each resource
+    (``E:NSYMF`` onwards); the model has one of each, with the resource as the detail.
     """
     IO_STARTED = enum.auto()
     TOO_MUCH_IO = enum.auto()
@@ -57,6 +58,8 @@ class Event(enum.Enum):
     YIELD = enum.auto()
     IO_COMPLETE = enum.auto()
     WAIT_FOR_INTERRUPT = enum.auto()
+    RESOURCE_BLOCK = enum.auto()
+    RESOURCE_RELEASE = enum.auto()
 
 
 cpv("ESTS", "ESTS1", source="SCHED.txt:398-431",
@@ -88,6 +91,12 @@ Event.cpvNames = {
                  note="The user's time is up and they give up the processor (RDL TIMSUP)"),
     "IO_COMPLETE": cpv("E:IC", source="SCHED.txt:667", note="From IOQ REQCOM"),
     "WAIT_FOR_INTERRUPT": cpv("E:QFI", source="SCHED.txt:668", note="From RTROOT"),
+    "RESOURCE_BLOCK": cpv("E:NSYMF", "E:NSYMD", "E:OCR", "E:CFB", "E:ND", "E:QFAC", "E:NQW",
+                          source="SCHED.txt:670-676",
+                          note="The even event of each RESOURCE pair; reported through T:REG"),
+    "RESOURCE_RELEASE": cpv("E:SYMF", "E:SYMD", "E:NOCR", "E:CBA", "E:DPA", "E:UQFAC", "E:NQR",
+                            source="SCHED.txt:670-676",
+                            note="The odd event of each RESOURCE pair"),
 }
 
 
@@ -133,7 +142,7 @@ def _rule(event, states, action):
     return Rule(event, tuple(states), action)
 
 
-# The rules in CP-V's order (SCHED.txt:513-668). For one event, the first rule that lists the
+# The rules in CP-V's order (SCHED.txt:513-676). For one event, the first rule that lists the
 # user's state wins, as in RCE0. The tests check this table against the ESTS lines themselves.
 RULES = [
     _rule(Event.IO_STARTED, [RUNNING], "waitForIo"),
@@ -179,6 +188,9 @@ RULES = [
     _rule(Event.YIELD, [RUNNING], PriorityBoost.COMPUTE),
     _rule(Event.IO_COMPLETE, ALL_STATES, "completeIo"),
     _rule(Event.WAIT_FOR_INTERRUPT, [RUNNING], AWAITING_INTERRUPT),
+    # RESOURCE (SCHED.txt:454-466): the block from SCU, the release from any state.
+    _rule(Event.RESOURCE_BLOCK, [RUNNING], "blockOnResource"),
+    _rule(Event.RESOURCE_RELEASE, ALL_STATES, "releaseResource"),
 ]
 
 

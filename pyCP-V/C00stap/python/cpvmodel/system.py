@@ -14,7 +14,8 @@ from dataclasses import dataclass
 from .futureevents import FutureEvents
 from .glossary import cpv, modelOnly
 from .memory import Memory
-from .program import Compute, DoIo, Sleep, Yield
+from .program import (Compute, DoIo, OpenClose, OpenCloseDone, Release, Sleep, WaitFor,
+                      Yield)
 from .scheduler import Event, Scheduler
 from .user import User
 
@@ -95,8 +96,9 @@ class System:
 
     @modelOnly("An event that something outside the users will report at ``time``, such as "
                "a break key")
-    def reportAt(self, time, user, event):
-        self.futureEvents.schedule(time, lambda: self.scheduler.report(user, event), user)
+    def reportAt(self, time, user, event, detail=None):
+        self.futureEvents.schedule(time, lambda: self.scheduler.report(user, event, detail),
+                                   user)
 
     @modelOnly("The user's code runs; in CP-V the processor simply runs the user in slave mode")
     def execute(self, user):
@@ -143,8 +145,8 @@ class System:
     @cpv("TRAPEXIT", source="SCHED.txt:877-889",
          note="A CAL enters the monitor; the user comes back through TRAPEXIT")
     def call(self, user, request):
-        """A step that asks the monitor for something: sleep, I/O, or giving up the
-        processor."""
+        """A step that asks the monitor for something: sleep, I/O, giving up the processor,
+        a resource, or opening and closing a file."""
         if isinstance(request, Sleep):
             self.reportAt(self.clock + request.ticks, user, Event.WAKE_UP)
             self.scheduler.report(user, Event.SLEEP)
@@ -154,6 +156,20 @@ class System:
             self.scheduler.report(user, Event.IO_STARTED)
         elif isinstance(request, Yield):
             self.scheduler.report(user, Event.YIELD)
+        elif isinstance(request, WaitFor):
+            self.scheduler.report(user, Event.RESOURCE_BLOCK, request.resource)
+        elif isinstance(request, Release):
+            self.scheduler.report(user, Event.RESOURCE_RELEASE, request.resource)
+        elif isinstance(request, OpenClose):
+            if self.scheduler.claimOpenClose(user):
+                self.log(user, "open/close starts")
+                user.computeLeft = request.ticks
+                user.pendingRequest = OpenCloseDone()
+            else:
+                user.pendingRequest = request       # try again when released (CLS 1F1)
+        elif isinstance(request, OpenCloseDone):
+            self.log(user, "open/close done")
+            self.scheduler.endOpenClose(user)
         else:
             raise TypeError(f"{user.name}: unknown request {request!r}")
         if user is self.scheduler.currentUser:

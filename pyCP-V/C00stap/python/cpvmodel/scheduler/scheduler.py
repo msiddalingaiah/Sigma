@@ -3,8 +3,9 @@
 from ..glossary import cpv, modelOnly
 from ..user import UserState
 from .eventrouter import EventRouter
-from .events import PriorityBoost
+from .events import Event, PriorityBoost
 from .exitpath import ExitPath
+from .resources import Resource, ResourceManager
 from .settings import SchedulerSettings
 from .statequeues import StateQueues
 from .swapscheduler import SwapScheduler
@@ -22,7 +23,8 @@ class Scheduler:
     - ``router``, which turns event reports into state changes using the transition table;
     - ``exitPath``, which checks signals, quantum end and preemption on the way back to a
       user;
-    - ``swapScheduler``, which decides who is in core.
+    - ``swapScheduler``, which decides who is in core;
+    - ``resources``, the users blocked on resources.
     In CP-V this is really the module SCHED, with its data cells in SSDAT.
     """
 
@@ -33,6 +35,7 @@ class Scheduler:
         self.router = EventRouter(self)
         self.exitPath = ExitPath(self)
         self.swapScheduler = SwapScheduler(self)
+        self.resources = ResourceManager(self)
         self.currentUser = None
         self.usersInSystem = 0
         self.ghostsKeptAtShutdown = 0
@@ -44,6 +47,7 @@ class Scheduler:
         "router": cpv("RCE0", source="SCHED.txt:1371-1404"),
         "exitPath": cpv("SSE0", source="SCHED.txt:889"),
         "swapScheduler": cpv("T:SS", source="SCHED.txt:2109"),
+        "resources": cpv("T:RES", "T:REL", source="SCHED.txt:1755-1771"),
         "currentUser": cpv("S:CUN", source="TCATCH.txt:173"),
         "usersInSystem": cpv("S:CUIS", source="SSDAT.txt:51"),
         "ghostsKeptAtShutdown": cpv("GOODNGT", source="SCHED.txt:1065-1084",
@@ -131,6 +135,25 @@ class Scheduler:
         """A new quantum, back to the base priority, and to the tail of the band's queue."""
         user.quantumLeft = self.settings.quantum
         self.router.makeReady(user, PriorityBoost.COMPUTE)
+
+    @cpv("OPNCLSUS", "E:OCR", source="CLS.txt:1068-1085",
+         note="In CP-V this is in CLS, OPNF and FIX1, not SCHED: wait with E:OCR until "
+              "nobody else is the open/close user")
+    def claimOpenClose(self, user):
+        """Become the open/close user, or block until released. Returns True if claimed."""
+        holder = self.resources.openCloseUser
+        if holder is None or holder is user:
+            self.resources.openCloseUser = user
+            return True
+        self.report(user, Event.RESOURCE_BLOCK, Resource.OPEN_CLOSE)
+        return False
+
+    @cpv("OPNCLSUS", "E:NOCR", "R:OCR", source="IORT.txt:1050-1062",
+         note="Clear OPNCLSUS and, if anyone waits, report E:NOCR (OPNUNBLOCK picks one)")
+    def endOpenClose(self, user):
+        self.resources.openCloseUser = None
+        if self.resources.queues[Resource.OPEN_CLOSE]:
+            self.report(user, Event.RESOURCE_RELEASE, Resource.OPEN_CLOSE)
 
     @cpv("S:CUIS", "GOODNGT", "X'404'", source="SCHED.txt:1065-1084",
          note="Checked when nobody is ready; ends with SCREECH X'404'")

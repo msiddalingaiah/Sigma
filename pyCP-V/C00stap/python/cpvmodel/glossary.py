@@ -33,6 +33,7 @@ MODEL_MODULES = [
     "cpvmodel.scheduler.exitpath",
     "cpvmodel.scheduler.settings",
     "cpvmodel.scheduler.swapscheduler",
+    "cpvmodel.scheduler.resources",
 ]
 
 

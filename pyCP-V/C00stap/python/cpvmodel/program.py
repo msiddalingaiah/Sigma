@@ -37,3 +37,30 @@ class Yield:
 class Break(Exception):
     """Thrown into a program when the user presses break. A program that catches it goes on;
     one that doesn't goes back to the command processor."""
+
+
+@modelOnly("Stands for a CAL that reports a resource's block event through T:REG")
+@dataclass
+class WaitFor:
+    """Block until ``resource`` (a scheduler ``Resource``) is released."""
+    resource: object
+
+
+@modelOnly("Stands for monitor code that reports a resource's release event (T:RE)")
+@dataclass
+class Release:
+    """Report that ``resource`` is available again."""
+    resource: object
+
+
+@modelOnly("Stands for the open/close part of an M:OPEN or M:CLOSE (CLS, OPNF)")
+@dataclass
+class OpenClose:
+    """Open or close a file: ``ticks`` of work that only one user at a time may do."""
+    ticks: int
+
+
+@modelOnly("The end of an OpenClose: give up being the open/close user")
+@dataclass
+class OpenCloseDone:
+    pass

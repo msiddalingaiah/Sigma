@@ -20,6 +20,7 @@ counterpart. Source paths are in `c00co/`.
 | `User.swapQuantumPending` | attribute | `SQUAN`, `UH:FLG2` | [SCHED.txt:986–997](../../c00co/SCHED.txt#L986-L997) | Set at swap-in; while set, a ready user isn't swapped out |
 | `User.justSwappedIn` | attribute | `SWAPD` | [SCHED.txt:1182–1190](../../c00co/SCHED.txt#L1182-L1190) | Set at swap-in; the first dispatch gives a new quantum |
 | `User.ioInFlight` | attribute | `UB:MF` | [SCHED.txt:1574–1575](../../c00co/SCHED.txt#L1574-L1575) | The master function count: I/O requests the user has going |
+| `User.blockedOn` | attribute | `U:MISC` | [SCHED.txt:1808–1812](../../c00co/SCHED.txt#L1808-L1812) | The resource a user in SQR waits for (U:MISC byte 0) |
 | `User.quantumLeft` | attribute | `J:DELTAT` | [ACCT.txt:27–43](../../c00co/ACCT.txt#L27-L43) | CP-V counts up from minus the quantum to zero |
 | `User.dispatchedAt` | attribute | `U:MISC` | [SCHED.txt:1194–1199](../../c00co/SCHED.txt#L1194-L1199) | The quantum mark saved at dispatch, for the minimum run |
 | `User.pendingSignals` | attribute | `UH:DL` | [SCHED.txt:905–912](../../c00co/SCHED.txt#L905-L912) | ABRT, ERR, EC and BRK flags, bits 0-3 |
@@ -63,11 +64,35 @@ counterpart. Source paths are in `c00co/`.
 |---|---|---|---|---|
 | `DoIo` | class | *model only* |  | Stands for a read or write CAL: IOQ starts the I/O (UB:MF + 1), the monitor reports E:IIP, and the device's completion reports E:IC |
 
+## OpenClose
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `OpenClose` | class | *model only* |  | Stands for the open/close part of an M:OPEN or M:CLOSE (CLS, OPNF) |
+
+## OpenCloseDone
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `OpenCloseDone` | class | *model only* |  | The end of an OpenClose: give up being the open/close user |
+
+## Release
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Release` | class | *model only* |  | Stands for monitor code that reports a resource's release event (T:RE) |
+
 ## Sleep
 
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
 | `Sleep` | class | *model only* |  | Stands for a wait CAL: the monitor reports E:SL, and CLOCK4 reports E:WU later |
+
+## WaitFor
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `WaitFor` | class | *model only* |  | Stands for a CAL that reports a resource's block event through T:REG |
 
 ## Yield
 
@@ -147,6 +172,7 @@ counterpart. Source paths are in `c00co/`.
 | `Scheduler.router` | attribute | `RCE0` | [SCHED.txt:1371–1404](../../c00co/SCHED.txt#L1371-L1404) |  |
 | `Scheduler.exitPath` | attribute | `SSE0` | [SCHED.txt:889](../../c00co/SCHED.txt#L889) |  |
 | `Scheduler.swapScheduler` | attribute | `T:SS` | [SCHED.txt:2109](../../c00co/SCHED.txt#L2109) |  |
+| `Scheduler.resources` | attribute | `T:RES`, `T:REL` | [SCHED.txt:1755–1771](../../c00co/SCHED.txt#L1755-L1771) |  |
 | `Scheduler.currentUser` | attribute | `S:CUN` | [TCATCH.txt:173](../../c00co/TCATCH.txt#L173) |  |
 | `Scheduler.usersInSystem` | attribute | `S:CUIS` | [SSDAT.txt:51](../../c00co/SSDAT.txt#L51) |  |
 | `Scheduler.ghostsKeptAtShutdown` | attribute | `GOODNGT` | [SCHED.txt:1065–1084](../../c00co/SCHED.txt#L1065-L1084) | CP-V stores the negative: ZAP sets GOODNGT to -2 |
@@ -159,6 +185,8 @@ counterpart. Source paths are in `c00co/`.
 | `Scheduler.moreUrgentUserWaiting` | method | `S:HIR`, `S:CUP` | [SCHED.txt:1452–1466](../../c00co/SCHED.txt#L1452-L1466), [SSDAT.txt:45](../../c00co/SSDAT.txt#L45) | CP-V keeps a count, S:HIR, raised when a user more urgent than S:CUP becomes ready and lowered at each dispatch; the model just looks |
 | `Scheduler.requeue` | method | `CHSE0` | [SCHED.txt:1459–1466](../../c00co/SCHED.txt#L1459-L1466) |  |
 | `Scheduler.endQuantum` | method | `T:ACCTEX`, `T:CHSE0` | [SCHED.txt:980–1012](../../c00co/SCHED.txt#L980-L1012) | CP-V ends the quantum when the time in J:DELTAT runs out |
+| `Scheduler.claimOpenClose` | method | `OPNCLSUS`, `E:OCR` | [CLS.txt:1068–1085](../../c00co/CLS.txt#L1068-L1085) | In CP-V this is in CLS, OPNF and FIX1, not SCHED: wait with E:OCR until nobody else is the open/close user |
+| `Scheduler.endOpenClose` | method | `OPNCLSUS`, `E:NOCR`, `R:OCR` | [IORT.txt:1050–1062](../../c00co/IORT.txt#L1050-L1062) | Clear OPNCLSUS and, if anyone waits, report E:NOCR (OPNUNBLOCK picks one) |
 | `Scheduler.isShutDown` | method | `S:CUIS`, `GOODNGT`, `X'404'` | [SCHED.txt:1065–1084](../../c00co/SCHED.txt#L1065-L1084) | Checked when nobody is ready; ends with SCREECH X'404' |
 | `Scheduler.log` | method | *model only* |  | Adds a line to the system's trace |
 
@@ -202,6 +230,8 @@ counterpart. Source paths are in `c00co/`.
 | `Event.YIELD` | member | `E:QE` | [SCHED.txt:662](../../c00co/SCHED.txt#L662), [RDL.txt:799–811](../../c00co/RDL.txt#L799-L811) | The user's time is up and they give up the processor (RDL TIMSUP) |
 | `Event.IO_COMPLETE` | member | `E:IC` | [SCHED.txt:667](../../c00co/SCHED.txt#L667) | From IOQ REQCOM |
 | `Event.WAIT_FOR_INTERRUPT` | member | `E:QFI` | [SCHED.txt:668](../../c00co/SCHED.txt#L668) | From RTROOT |
+| `Event.RESOURCE_BLOCK` | member | `E:NSYMF`, `E:NSYMD`, `E:OCR`, `E:CFB`, `E:ND`, `E:QFAC`, `E:NQW` | [SCHED.txt:670–676](../../c00co/SCHED.txt#L670-L676) | The even event of each RESOURCE pair; reported through T:REG |
+| `Event.RESOURCE_RELEASE` | member | `E:SYMF`, `E:SYMD`, `E:NOCR`, `E:CBA`, `E:DPA`, `E:UQFAC`, `E:NQR` | [SCHED.txt:670–676](../../c00co/SCHED.txt#L670-L676) | The odd event of each RESOURCE pair |
 
 ## InconsistentEvent
 
@@ -254,6 +284,8 @@ counterpart. Source paths are in `c00co/`.
 | `EventRouter.noteEarlyCompletion` | method | `STIRCU` | [SCHED.txt:1685–1688](../../c00co/SCHED.txt#L1685-L1688) | Input finished before the user blocked: sets UH:FLG X'4000' |
 | `EventRouter.signal` | method | `STBEEA`, `SETDL`, `UH:DL` | [SCHED.txt:1630–1660](../../c00co/SCHED.txt#L1630-L1660) | Picks the flag by event number. For an on-line user, an abort also marks the terminal line off (COCOFF); a user blocked on R:NQW is released |
 | `EventRouter.signalAndWake` | method | `STBEEAC`, `STIRC` | [SCHED.txt:1630–1660](../../c00co/SCHED.txt#L1630-L1660) | As STBEEA, and makes a waiting user interactive compute so they see it soon |
+| `EventRouter.blockOnResource` | method | `T:RES` | [SCHED.txt:1755–1768](../../c00co/SCHED.txt#L1755-L1768) | The user blocks on the resource in the event's detail |
+| `EventRouter.releaseResource` | method | `T:REL` | [SCHED.txt:1771–1802](../../c00co/SCHED.txt#L1771-L1802) | Reported for any user; who is released depends on the resource |
 | `EventRouter.waitForAccess` | method | `STQA` | [SCHED.txt:1674–1682](../../c00co/SCHED.txt#L1674-L1682) |  |
 | `EventRouter.grantAccess` | method | `STUQA` | [SCHED.txt:1683–1688](../../c00co/SCHED.txt#L1683-L1688) | Special compute if queued for access, otherwise remembered as early |
 | `EventRouter.kickOut` | method | `STKO`, `RTR`, `JIC` | [SCHED.txt:1697–1702](../../c00co/SCHED.txt#L1697-L1702) | A ready user is requeued at their current priority (CHSE1) |
@@ -322,3 +354,42 @@ counterpart. Source paths are in `c00co/`.
 | `SwapScheduler.startSwap` | method | `PROUT4`, `E:KO`, `SWAPOUT`, `SWAPIN` | [SCHED.txt:2567–2579](../../c00co/SCHED.txt#L2567-L2579), [SCHED.txt:2388–2392](../../c00co/SCHED.txt#L2388-L2392) | Each user going out is reported E:KO; then the swapper does the I/O |
 | `SwapScheduler.finishSwap` | method | `SIU13`, `JIC`, `RTR`, `X'18'` | [SWAPPER.txt:1427–1510](../../c00co/SWAPPER.txt#L1427-L1510) | The swap-in sets X'18' in UH:FLG2 (just swapped in, swap quantum pending) |
 | `SwapScheduler.giveUp` | method | `GIVEUP`, `C:NSP` | [SCHED.txt:2580–2625](../../c00co/SCHED.txt#L2580-L2625) | CP-V also sets BYPASS and asks the page stealer for the shortfall |
+
+## Resource
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Resource` | class | `RESOURCE`, `SH:RFLG` | [SCHED.txt:454–466](../../c00co/SCHED.txt#L454-L466) | Each RESOURCE call defines a block and a release event; the index is (event - E:REL)/2 |
+| `Resource.SYMBIONT_FILE_SLOT` | member | `R:SYMF`, `E:NSYMF` | [SCHED.txt:670](../../c00co/SCHED.txt#L670), [COOP.txt:1309](../../c00co/COOP.txt#L1309) | No symbiont file slot (COOP); released by COOP, RBBAT |
+| `Resource.SYMBIONT_DISC_SPACE` | member | `R:SYMD`, `E:NSYMD` | [SCHED.txt:671](../../c00co/SCHED.txt#L671), [COOP.txt:933](../../c00co/COOP.txt#L933) | No granule to open a COOP file; released by CLOCK4 |
+| `Resource.OPEN_CLOSE` | member | `R:OCR`, `E:OCR` | [SCHED.txt:672](../../c00co/SCHED.txt#L672), [CLS.txt:1068–1078](../../c00co/CLS.txt#L1068-L1078) | Only one user at a time opens or closes files (OPNCLSUS) |
+| `Resource.TERMINAL_BUFFER` | member | `R:CBA`, `E:CFB` | [SCHED.txt:673](../../c00co/SCHED.txt#L673), [COC.txt:3127–3129](../../c00co/COC.txt#L3127-L3129) | No COC buffer; released when buffers are free |
+| `Resource.DISC_PAGE` | member | `E:ND`, `E:DPA` | [SCHED.txt:674](../../c00co/SCHED.txt#L674), [MM.txt:718](../../c00co/MM.txt#L718) | No disc page (MM); also log-on with no JIT granule |
+| `Resource.ALLOCATOR` | member | `E:QFAC`, `UQFAC` | [SCHED.txt:675](../../c00co/SCHED.txt#L675), [GRAN.txt:308](../../c00co/GRAN.txt#L308) | Queued for ALLOCAT (GRAN); released by the swapper |
+| `Resource.ENQUEUE` | member | `R:NQW`, `E:NQW` | [SCHED.txt:676](../../c00co/SCHED.txt#L676), [ENQUE.txt:352](../../c00co/ENQUE.txt#L352) | Waiting in ENQ; a specific user is resumed (ENQO) |
+
+## ResourceKind
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `ResourceKind` | class | `SH:RFLG`, `FLUSH`, `SPECIFIC` | [SCHED.txt:472–482](../../c00co/SCHED.txt#L472-L482) | A halfword per resource: the release routine's index and the flags |
+| `ResourceKind.flush` | attribute | `FLUSH` | [SCHED.txt:481](../../c00co/SCHED.txt#L481) | Release everyone waiting |
+| `ResourceKind.specific` | attribute | `SPECIFIC` | [SCHED.txt:480](../../c00co/SCHED.txt#L480) | Release only the user the release is reported for |
+| `ResourceKind.actOnEmpty` | attribute | `NULL` | [SCHED.txt:482](../../c00co/SCHED.txt#L482) | Run the release routine even when nobody waits |
+| `ResourceKind.wakingSignals` | attribute | `ERR`, `ABRT`, `EC`, `BRK` | [SCHED.txt:476–479](../../c00co/SCHED.txt#L476-L479) | Signals that take a user out of the queue (SETDL) |
+| `ResourceKind.releaseRoutine` | attribute | `T:RELV` | [SCHED.txt:1835–1844](../../c00co/SCHED.txt#L1835-L1844) |  |
+
+## ResourceManager
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `ResourceManager` | class | `T:RES`, `T:REL`, `SB:RQ` | [SCHED.txt:1745–1844](../../c00co/SCHED.txt#L1745-L1844) | BLOCK AND RELEASE FOR RESOURCES |
+| `ResourceManager.scheduler` | attribute | *model only* |  | The scheduler this resource manager belongs to |
+| `ResourceManager.queues` | attribute | `SB:RQ`, `U:MISC` | [SSDAT.txt:396–397](../../c00co/SSDAT.txt#L396-L397), [SCHED.txt:1808–1812](../../c00co/SCHED.txt#L1808-L1812) | Head per resource; U:MISC holds the forward link and resource index |
+| `ResourceManager.openCloseUser` | attribute | `OPNCLSUS` | [SCHED.txt:1837–1844](../../c00co/SCHED.txt#L1837-L1844) |  |
+| `ResourceManager.block` | method | `T:RES`, `SQR` | [SCHED.txt:1755–1768](../../c00co/SCHED.txt#L1755-L1768) |  |
+| `ResourceManager.release` | method | `T:REL`, `T:REL1`, `SPECIFIC`, `FLUSH` | [SCHED.txt:1771–1802](../../c00co/SCHED.txt#L1771-L1802) |  |
+| `ResourceManager.unqueue` | method | `T:UQR` | [SCHED.txt:1814–1821](../../c00co/SCHED.txt#L1814-L1821) | Unqueues from the user's own resource, whatever resource was released |
+| `ResourceManager.chooseOpenCloseUser` | method | `OPNUNBLOCK`, `OPNCLSUS`, `OPNCLSUSR` | [SCHED.txt:1837–1844](../../c00co/SCHED.txt#L1837-L1844) | Returns False to release nobody |
+| `ResourceManager.updateAllocator` | method | `UQFAC`, `STUQFAC` | [SCHED.txt:1707–1745](../../c00co/SCHED.txt#L1707-L1745), [SCHED.txt:1836](../../c00co/SCHED.txt#L1836) | CP-V updates ALLOCAT's four buffers; the model doesn't have them |
+| `ResourceManager.releaseForSignal` | method | `SETDL`, `SH:RFLG`, `T:UQR` | [SCHED.txt:1630–1647](../../c00co/SCHED.txt#L1630-L1647) |  |

@@ -1,6 +1,7 @@
-"""The model's transition table is CP-V's: parse the ESTS lines in SCHED.txt and check every
-entry against TransitionTable.lookup, with CP-V's paired states merged as the model merges
-them. The symbol-to-model mapping comes from the glossary refs, so this also checks those."""
+"""The model's transition table is CP-V's: parse the ESTS and RESOURCE lines in SCHED.txt and
+check every entry against TransitionTable.lookup, with CP-V's paired states merged as the model
+merges them. The symbol-to-model mapping comes from the glossary refs, so this also checks
+those."""
 
 import pytest
 
@@ -12,7 +13,7 @@ from cpvmodel.glossary import SOURCE_ROOT
 needsSource = pytest.mark.skipif(not (SOURCE_ROOT / "SCHED.txt").exists(),
                                  reason="the CP-V source listings (c00co/) aren't here")
 
-FIRST_LINE, LAST_LINE = 513, 668        # E:IIP through E:QFI
+FIRST_LINE, LAST_LINE = 513, 676        # E:IIP through the last RESOURCE
 EXECUTABLE = ["SRT"] + [f"SC{n}" for n in range(11)]
 CPV_STATES = EXECUTABLE + ["SCU", "STOB", "STOBO", "SIOW", "SIOMF", "SW", "SQA", "SQR", "SQRO",
                            "STI", "STIO", "SQFI", "SNULL"]
@@ -28,6 +29,13 @@ def cpvEntries():
         fields = line.split()
         if pending is not None:                 # continuation of the operand field
             operands = pending + fields[0]
+        elif len(fields) > 1 and fields[1].startswith("RESOURCE"):
+            # E:BLK,E:REL RESOURCE ...: ESTS T:RES,SCU for the block, ESTS T:RES,ALL for the
+            # release (SCHED.txt:454-466). T:RES branches to T:REL for a release.
+            block, release = fields[0].split(",")
+            entries.append((block, "T:RES", ["SCU"]))
+            entries.append((release, "T:REL", ["ALL"]))
+            continue
         elif "ESTS" in fields[:2] or "ESTS1" in fields[:2]:
             if not line[0].isspace():
                 event = fields[0].split(",")[0]
@@ -76,8 +84,8 @@ for name, value in vars(EventRouter).items():
 @needsSource
 def testTheParserFindsEveryEvent():
     events = {event for event, _, _ in cpvEntries()}
-    assert len(events) == len(Event)
-    assert events <= set(EVENTS)
+    assert len(events) == 20 + 2 * 7               # 20 ESTS events, 7 resources
+    assert {EVENTS[event] for event in events} == set(Event)
 
 
 @needsSource

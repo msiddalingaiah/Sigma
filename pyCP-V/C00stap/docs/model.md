@@ -26,8 +26,8 @@ for, in the [glossary](model/glossary.md).
 - **Glossary.** A `cpv(...)` ref ties each class, method, attribute and enum member to CP-V.
   `modelOnly(...)` marks a name with no counterpart. The tests fail when a public name has no
   ref, or when a cited symbol isn't in the cited source lines.
-- **The transition table is checked against CP-V's.** A test parses the `ESTS` lines in
-  `SCHED.txt` (30 entries, 255 event and state combinations). It checks every one against
+- **The transition table is checked against CP-V's.** A test parses the `ESTS` and `RESOURCE`
+  lines in `SCHED.txt` (44 entries, 437 event and state combinations). It checks every one against
   `TransitionTable.lookup`, with the in-core and out-of-core twin states merged as the model
   merges them. It also checks that the model adds no entries CP-V doesn't have.
 - **Generated docs.** [`model/glossary.md`](model/glossary.md) and the state diagram in
@@ -52,7 +52,7 @@ its parts.
 
 | Package | Front class | CP-V | Parts |
 |---|---|---|---|
-| `cpvmodel.scheduler` | `Scheduler` | SCHED, "execution and swap scheduler" | `StateQueues`, `EventRouter` and `TransitionTable`, `ExitPath`, `SwapScheduler`, `SchedulerSettings` |
+| `cpvmodel.scheduler` | `Scheduler` | SCHED, "execution and swap scheduler" | `StateQueues`, `EventRouter` and `TransitionTable`, `ExitPath`, `SwapScheduler`, `ResourceManager`, `SchedulerSettings` |
 | `cpvmodel.filesystem` (later) | `FileSystem` | the file management modules | directories, file kinds, `GranuleAllocator` |
 
 `System` (`cpvmodel/system.py`) puts the components together. It owns what's machine-wide: the
@@ -84,7 +84,24 @@ classDiagram
         endQuantum(user)
         moreUrgentUserWaiting(user)
         requeue(user)
+        claimOpenClose(user)
+        endOpenClose(user)
         isShutDown()
+    }
+    class ResourceManager {
+        queues
+        openCloseUser
+        block(user, resource)
+        release(resource, reportedFor)
+        unqueue(user)
+        releaseForSignal(user, signal)
+    }
+    class Resource {
+        <<enumeration>>
+        OPEN_CLOSE
+        DISC_PAGE
+        ENQUEUE
+        ...
     }
     class ExitPath {
         check(user)
@@ -124,6 +141,7 @@ classDiagram
         pages
         swapQuantumPending
         ioInFlight
+        blockedOn
         quantumLeft
         dispatchedAt
         pendingSignals
@@ -179,6 +197,8 @@ classDiagram
     Scheduler *-- EventRouter : router
     Scheduler *-- ExitPath
     Scheduler *-- SwapScheduler
+    Scheduler *-- ResourceManager : resources
+    ResourceManager ..> Resource
     Scheduler *-- SchedulerSettings
     EventRouter *-- TransitionTable
     TransitionTable ..> Event
@@ -186,8 +206,8 @@ classDiagram
     StateQueues o-- User : 12 bands, waiting queues
 ```
 
-A program is a generator that yields `Compute(ticks)`, `Sleep(ticks)`, `DoIo(ticks)` or
-`Yield()`. Each stands for what a user's code does in CP-V: compute, or make a CAL that leads
+A program is a generator that yields `Compute(ticks)`, `Sleep(ticks)`, `DoIo(ticks)`,
+`Yield()`, `WaitFor(resource)`, `Release(resource)` or `OpenClose(ticks)`. Each stands for what a user's code does in CP-V: compute, or make a CAL that leads
 to an event report. A tick is a clock-4 tick, 2 ms. A program can catch `Break`; that is its
 break routine (`M:INT`).
 
@@ -347,6 +367,56 @@ sequenceDiagram
     W->>W: clock in core, swap quantum pending
 ```
 
+### Resources
+
+When something a user needs is short (a disc page, a terminal buffer, a symbiont file slot),
+the monitor **blocks** them on that resource: the user waits in `AWAITING_RESOURCE`. When it
+comes free, the resource is **released** and waiting users are made ready with the
+special-compute boost. Each resource has its own release rule (`SH:RFLG`):
+
+| Resource | CP-V | Release |
+|---|---|---|
+| `SYMBIONT_FILE_SLOT` | `R:SYMF` | everyone (FLUSH) |
+| `SYMBIONT_DISC_SPACE` | `R:SYMD` | everyone |
+| `OPEN_CLOSE` | `R:OCR` | one user, and only if nobody is the open/close user (`OPNUNBLOCK`) |
+| `TERMINAL_BUFFER` | `R:CBA` | everyone |
+| `DISC_PAGE` | `E:ND`/`E:DPA` | everyone |
+| `ALLOCATOR` | `E:QFAC`/`E:UQFAC` | everyone, after updating ALLOCAT's buffers (not modelled) |
+| `ENQUEUE` | `R:NQW` | only the user the release is reported for (SPECIFIC); a signal also releases |
+
+Open/close is a lock built from a resource. Only one user at a time may open or close files
+(`OPNCLSUS`), so `OpenClose(ticks)` does what CLS does. If someone else is the open/close
+user, it blocks on `OPEN_CLOSE` and tries again when released. At the end it gives the lock
+up and, if anyone is waiting, reports the release (`E:NOCR`, from IORT).
+
+```mermaid
+sequenceDiagram
+    participant A as a (open/close user)
+    participant C as Scheduler
+    participant R as ResourceManager
+    participant B as b, c (blocked)
+    Note over A: a holds the open/close
+    B->>C: claimOpenClose: someone else has it
+    C->>R: block(b), then block(c)  (head of the queue)
+    A->>C: endOpenClose(a)
+    C->>R: release(OPEN_CLOSE)  (E:NOCR)
+    R->>R: OPNUNBLOCK: nobody holds it, c becomes the open/close user
+    R->>C: makeReady(c, SPECIAL_COMPUTE)
+    Note over B: c runs, claims again (it's c's), opens; b waits for c
+```
+
+Two CP-V quirks show here:
+
+- **Last in, first out.** Blocking pushes the user on the *head* of the resource's queue
+  (`T:RES`), and release takes the head (`T:REL`). In `testOpenCloseWaitersAreReleasedLastInFirstOut`,
+  `c` blocks after `b` but gets in first.
+- **The released user is usually more urgent than the releaser.** With the special-compute
+  boost, `c` preempts `a` on `a`'s way back from the CAL that released it.
+
+A signal for a blocked user is only noted, and acted on when they next run, after the
+release. The exception is `ENQUEUE`, whose flags list the signals (`SETDL`): there the user
+is released at once to act on the signal.
+
 ### The run loop
 
 In CP-V, `T:SE` is entered again after every quantum, block and interrupt exit. Here it is a
@@ -423,6 +493,8 @@ What is CP-V's so far:
   quantum end, the minimum run and preemption.
 - **Swapping.** Who comes in, the swap-out walk in `SB:SWP` order with its exclusions, the
   swap quantum, swapping out idle waiters, and kick-out (`STKO`, `STKOT`).
+- **Resources.** The seven resources with their release flags, last in first out, the
+  open/close lock (`OPNCLSUS`, `OPNUNBLOCK`), and signals releasing ENQ waiters.
 - **Shutdown.** When nobody is ready and `usersInSystem − ghostsKeptAtShutdown ≤ 0`, the run
   ends ("shutdown"). This is the idle check, `S:CUIS`+`GOODNGT` ≤ 0, which ends in
   `SCREECH X'404'`.
@@ -432,6 +504,8 @@ Not yet:
 - **Swapping detail.** Pages are only counted: no shared processors (their use counts and
   pages), no page stealer, no locks in core. A failed swap-in is retried at every schedule;
   CP-V waits until the swap set changes (`S:SEVF`).
+- **Resource detail.** ALLOCAT's buffers (`STUQFAC`) aren't modelled, and nothing in the
+  model is short of disc pages, buffers or symbiont space yet; programs block with `WaitFor`.
 - No DO list and no command processor. Control-Y and an uncaught break end the user instead
   of returning to TEL.
 
@@ -447,5 +521,6 @@ Not yet:
    into programs.
 4. **Swapping** (done). `Memory`, `SwapScheduler`, waiting-state queues in `StateQueues`,
    kick-out, the swap quantum, and swap time.
-5. **Resources.** Blocking on and releasing `R:*` resources, and their events.
+5. **Resources** (done). `Resource`, `ResourceManager`, the resource events, and `WaitFor`,
+   `Release` and `OpenClose` in programs.
 6. **Terminals and log-on.** Terminal read and output blocking, and log-on from a break.

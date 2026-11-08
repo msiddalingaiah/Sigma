@@ -68,6 +68,7 @@ class User:
     swapQuantumPending: bool = False
     justSwappedIn: bool = False
     ioInFlight: int = 0
+    blockedOn: object = None
     quantumLeft: int = 0
     dispatchedAt: int = 0
     pendingSignals: set = field(default_factory=set)
@@ -96,6 +97,8 @@ class User:
                              note="Set at swap-in; the first dispatch gives a new quantum"),
         "ioInFlight": cpv("UB:MF", source="SCHED.txt:1574-1575",
                           note="The master function count: I/O requests the user has going"),
+        "blockedOn": cpv("U:MISC", source="SCHED.txt:1808-1812",
+                         note="The resource a user in SQR waits for (U:MISC byte 0)"),
         "quantumLeft": cpv("J:DELTAT", source="ACCT.txt:27-43",
                            note="CP-V counts up from minus the quantum to zero"),
         "dispatchedAt": cpv("U:MISC", source="SCHED.txt:1194-1199",

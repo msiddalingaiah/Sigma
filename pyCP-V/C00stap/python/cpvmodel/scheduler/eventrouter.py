@@ -63,10 +63,11 @@ class EventRouter:
             self.makeReady(user, action)
         else:
             getattr(self, action)(user, event, detail)
+        name = event.name + (f"({detail.name})" if hasattr(detail, "name") else "")
         if user.state is oldState:
-            self.scheduler.log(user, f"{event.name} in {oldState.name}")
+            self.scheduler.log(user, f"{name} in {oldState.name}")
         else:
-            self.scheduler.log(user, f"{event.name}: {oldState.name} -> {user.state.name}")
+            self.scheduler.log(user, f"{name}: {oldState.name} -> {user.state.name}")
 
     @cpv("RCE4", "CHS1", "S:EVF", source="SCHED.txt:1408-1433, SCHED.txt:1606-1611",
          note="Unlinks the user from the old state's queue and appends them to the new one")
@@ -147,12 +148,17 @@ class EventRouter:
     def noteEarlyCompletion(self, user, event, detail):
         raise NotModelledYet("STIRCU: terminals come later")
 
+    @leadsTo(READY, fromStates=[UserState.AWAITING_RESOURCE])
     @cpv("STBEEA", "SETDL", "UH:DL", source="SCHED.txt:1630-1660",
          note="Picks the flag by event number. For an on-line user, an abort also marks the "
               "terminal line off (COCOFF); a user blocked on R:NQW is released")
     def signal(self, user, event, detail):
-        """Note the signal; the user acts on it the next time they run."""
+        """Note the signal; the user acts on it the next time they run. A user blocked on a
+        resource that is released by signals (ENQ) is released now, to act on it."""
         user.pendingSignals.add(SIGNAL_FOR[event])
+        if (user.state is UserState.AWAITING_RESOURCE
+                and self.scheduler.resources.releaseForSignal(user, SIGNAL_FOR[event])):
+            self.makeReady(user, PriorityBoost.INTERACTIVE)
 
     @leadsTo(READY)
     @cpv("STBEEAC", "STIRC", source="SCHED.txt:1630-1660",
@@ -160,6 +166,18 @@ class EventRouter:
     def signalAndWake(self, user, event, detail):
         user.pendingSignals.add(SIGNAL_FOR[event])
         self.makeReady(user, PriorityBoost.INTERACTIVE)
+
+    @leadsTo(UserState.AWAITING_RESOURCE)
+    @cpv("T:RES", source="SCHED.txt:1755-1768", note="The user blocks on the resource in "
+         "the event's detail")
+    def blockOnResource(self, user, event, resource):
+        self.scheduler.resources.block(user, resource)
+
+    @leadsTo(READY, fromStates=[UserState.AWAITING_RESOURCE])
+    @cpv("T:REL", source="SCHED.txt:1771-1802",
+         note="Reported for any user; who is released depends on the resource")
+    def releaseResource(self, user, event, resource):
+        self.scheduler.resources.release(resource, user)
 
     @leadsTo(AWAITING_ACCESS)
     @cpv("STQA", source="SCHED.txt:1674-1682")
