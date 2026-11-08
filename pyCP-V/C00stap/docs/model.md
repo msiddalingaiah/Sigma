@@ -55,7 +55,7 @@ its parts.
 |---|---|---|---|
 | `cpvmodel.scheduler` | `Scheduler` | SCHED, "execution and swap scheduler" | `StateQueues`, `EventRouter` and `TransitionTable`, `ExitPath`, `SwapScheduler`, `ResourceManager`, `SchedulerSettings` |
 | `cpvmodel.terminals` | `TerminalController` | COC, "character-oriented communications" | `Line`, `TerminalSettings`; `echoSession` stands in for TEL |
-| `cpvmodel.filesystem` | `FileSystem` | OPNF, CLS, RDF, WRTF: the file management modules | `Disc`, `Directory`, `FileHeader`, `ConsecutiveFile`, `OpenFile`, `FileHandle`, `FileSystemSettings` |
+| `cpvmodel.filesystem` | `FileSystem` | OPNF, CLS, RDF, WRTF: the file management modules | `Disc`, `Directory`, `FileHeader`, `File`, `ConsecutiveFile`, `FileHandle`, `FileSystemSettings` |
 
 `System` (`cpvmodel/system.py`) puts the components together. It owns what's machine-wide: the
 user slots, `Memory`, the clock, `FutureEvents`, the run loop and the trace. The components talk
@@ -514,11 +514,10 @@ classDiagram
         insert(key, value)
         remove(key)
     }
-    class OpenFile {
+    class File {
         header
-        file
-        users
-        isNew
+        openCount
+        inDirectory
     }
     class FileHandle {
         user
@@ -549,11 +548,11 @@ classDiagram
     FileSystem *-- Disc
     FileSystem *-- Directory : accounts
     Directory o-- Directory : an account's files
-    Directory o-- ConsecutiveFile : by name
-    FileSystem o-- OpenFile : open files (CFU)
-    FileHandle --> OpenFile : DCB to CFU
-    OpenFile --> ConsecutiveFile
-    ConsecutiveFile --> FileHeader : FIT
+    Directory o-- File : by name
+    FileSystem o-- File : open files
+    FileHandle --> File : DCB
+    File <|-- ConsecutiveFile
+    File --> FileHeader : FIT
     ConsecutiveFile o-- Granule : chain
 ```
 
@@ -565,9 +564,11 @@ classDiagram
   modern idea is an inode) takes 320 bytes of the first. Records follow one another, each with
   a 4-byte control word, and a record that doesn't fit is split into segments continued in the
   next granule.
-- **Open** first looks among the open files (CP-V's CFUs), so a second reader shares the
-  `OpenFile` and reads no directories. Each program gets its own `FileHandle` (the DCB), with
-  its own position. **A file opened OUT is new**: it goes into its directory only at close,
+- **Open** first looks among the open files, so a second reader shares the `File` and reads no
+  directories. Each program gets its own `FileHandle` (the DCB), with its own position. In
+  CP-V an open file's state is a separate table in core, the CFU, which exists only while the
+  file is open. The model's files are in memory anyway, so that state is on the `File`:
+  `openCount` and `inDirectory`. **A file opened OUT is new**: it goes into its directory only at close,
   replacing any file of the same name and releasing its granules. Until then, opening the name
   IN finds the old file, or nothing.
 - **Open and close take the open/close lock** (`OPNCLSUS`), the resource from the scheduler,
@@ -717,7 +718,7 @@ Not yet:
 ### The file system
 
 1. **A shallow file system** (done). `FileSystem`, `Directory`, `Disc`, consecutive files,
-   open and close (IN and OUT) under the open/close lock, files shared through `OpenFile`, a
+   open and close (IN and OUT) under the open/close lock, open files shared, a
    new file entered at close, disc time, and `Open`, `ReadRecord`, `WriteRecord` and `Close` in
    programs.
 2. **Index chains and keyed files.** Blocks, slides, splits and the pyramid built at close,

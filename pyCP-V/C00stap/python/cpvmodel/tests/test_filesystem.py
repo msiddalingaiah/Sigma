@@ -52,7 +52,7 @@ def testALongRecordIsSplitAcrossGranules():
     out = files.openFile(user, "BIG", FileMode.OUT)
     files.writeRecord(out, "X" * 5000)
     files.closeFile(out)
-    file = files.lookUp("GUEST", "BIG")[1]
+    file = files.lookUp("GUEST", "BIG")
     assert len(file.granules) == 3                 # 1728 + 2048 + the rest
     assert file.granules[0].capacity == GRANULE_BYTES - 320
     handle = files.openFile(user, "BIG", FileMode.IN)
@@ -93,7 +93,7 @@ def testReadersShareTheOpenFileButNotThePosition():
     files.closeFile(out)
     first = files.openFile(user, "S", FileMode.IN)
     second = files.openFile(user, "S", FileMode.IN)
-    assert first.openFile is second.openFile and first.openFile.users == 2
+    assert first.file is second.file and first.file.openCount == 2
     assert second.takeDiscAccesses() == 0          # found among the open files
     assert files.readRecord(first) == "A"
     assert files.readRecord(second) == "A"

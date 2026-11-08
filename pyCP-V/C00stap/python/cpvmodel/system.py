@@ -232,7 +232,7 @@ class System:
         if handle is not None:
             accesses += handle.takeDiscAccesses()
             verb = "opens" if isinstance(request, Open) else "closes"
-            self.log(user, f"{verb} {handle.openFile.header.name} {handle.mode.name}")
+            self.log(user, f"{verb} {handle.file.header.name} {handle.mode.name}")
         user.pendingRequest = OpenCloseDone()
         self.waitForDisc(user, accesses)
 

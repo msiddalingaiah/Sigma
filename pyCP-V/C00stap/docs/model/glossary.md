@@ -542,14 +542,22 @@ counterpart. Source paths are in `c00co/`.
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
 | `ConsecutiveFile` | class | `SEQ0`, `SEQPOS` | [WRTF.txt:273–276](../../c00co/WRTF.txt#L273-L276), [RDF.txt:3136–3138](../../c00co/RDF.txt#L3136-L3138) | CP-V writes control words between the segments, with back pointers, flags for blocked and unblocked segments, and the FIT as a dummy first segment |
-| `ConsecutiveFile.header` | attribute | `FITSIZE` | [WRTF.txt:44–46](../../c00co/WRTF.txt#L44-L46) |  |
-| `ConsecutiveFile.disc` | attribute | *model only* |  | Where the granules come from |
 | `ConsecutiveFile.granules` | attribute | `FDA`, `LDA`, `FLINK` | [UTS.txt:448–486](../../c00co/UTS.txt#L448-L486) | CP-V chains them on the disc, from FDA (first) to LDA (last) |
 | `ConsecutiveFile.recordCount` | attribute | `TDA` | [UTS.txt:462](../../c00co/UTS.txt#L462) | A consecutive file's CFU keeps the record count in TDA |
 | `ConsecutiveFile.append` | method | `SEQ0`, `GETDGRAN` | [WRTF.txt:273–505](../../c00co/WRTF.txt#L273-L505) | Returns the number of granules written |
 | `ConsecutiveFile.newGranule` | method | `GETDGRAN` | [WRTF.txt:1176–1180](../../c00co/WRTF.txt#L1176-L1180) |  |
 | `ConsecutiveFile.read` | method | `SEQ0`, `SEQFRD` | [RDF.txt:3136–3268](../../c00co/RDF.txt#L3136-L3268), [RDF.txt:2896](../../c00co/RDF.txt#L2896) | Returns the record (None at the end of the file), the next position, and the granules read |
 | `ConsecutiveFile.release` | method | `SEQ3`, `REL` | [DLT.txt:488](../../c00co/DLT.txt#L488), [DLT.txt:665–674](../../c00co/DLT.txt#L665-L674) | The whole-file delete: every granule goes back |
+
+## File
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `File` | class | `FITSIZE`, `NOU` | [WRTF.txt:44–46](../../c00co/WRTF.txt#L44-L46), [UTS.txt:450](../../c00co/UTS.txt#L450) | CP-V keeps a file on the disc, with its header (the FIT) in its first granule, and the state of an open file in core, in a CFU that exists only while it is open |
+| `File.header` | attribute | `FITSIZE` | [WRTF.txt:44–46](../../c00co/WRTF.txt#L44-L46) |  |
+| `File.disc` | attribute | *model only* |  | Where the granules come from |
+| `File.openCount` | attribute | `NOU`, `CFU` | [UTS.txt:446–452](../../c00co/UTS.txt#L446-L452) | The CFU's number of users |
+| `File.inDirectory` | attribute | `CLSFIL4` | [CLS.txt:1994–1998](../../c00co/CLS.txt#L1994-L1998) | False for a file opened OUT: it is entered at close |
 
 ## FileHeader
 
@@ -581,7 +589,7 @@ counterpart. Source paths are in `c00co/`.
 |---|---|---|---|---|
 | `FileHandle` | class | `DCB` | [UTS.txt:448–530](../../c00co/UTS.txt#L448-L530) | The data control block: the program's own record of an open file |
 | `FileHandle.user` | attribute | *model only* |  | The user whose program holds the handle |
-| `FileHandle.openFile` | attribute | `CFU` | [UTS.txt:446–452](../../c00co/UTS.txt#L446-L452) | DCB word 1 has the CFU |
+| `FileHandle.file` | attribute | `CFU` | [UTS.txt:446–452](../../c00co/UTS.txt#L446-L452) | DCB word 1 points at the file's CFU |
 | `FileHandle.mode` | attribute | `FUNCTION` | [UTS.txt:448–460](../../c00co/UTS.txt#L448-L460) |  |
 | `FileHandle.position` | attribute | `SEQPOS` | [RDF.txt:3136–3138](../../c00co/RDF.txt#L3136-L3138) | CP-V keeps the record number and the disc address |
 | `FileHandle.discAccesses` | attribute | *model only* |  | Disc accesses not yet charged to the user |
@@ -605,7 +613,7 @@ counterpart. Source paths are in `c00co/`.
 | `FileSystem.settings` | attribute | *model only* |  | Disc size and timing |
 | `FileSystem.disc` | attribute | *model only* |  | The file area's granules |
 | `FileSystem.accounts` | attribute | `ACNCFU` | [UTS.txt:464](../../c00co/UTS.txt#L464) | The account directory |
-| `FileSystem.openFiles` | attribute | `CFU` | [OPNF.txt:616–620](../../c00co/OPNF.txt#L616-L620) | OPEN scans the CFUs for the file before the directories |
+| `FileSystem.openFiles` | attribute | `CFU` | [OPNF.txt:616–620](../../c00co/OPNF.txt#L616-L620) | The files open now. OPEN scans the CFUs for the file before the directories |
 | `FileSystem.handles` | attribute | *model only* |  | Each user's open handles, so they can be closed at the end |
 | `FileSystem.openFile` | method | `OPNFIL`, `TFCHKOPN` | [OPNF.txt:115](../../c00co/OPNF.txt#L115), [OPNF.txt:503–620](../../c00co/OPNF.txt#L503-L620) | CP-V also takes the open/close lock (OPNCLSUS); the system does that around this call |
 | `FileSystem.lookUp` | method | `FNDKEY`, `SETUPUB` | [FIX1.txt:2194](../../c00co/FIX1.txt#L2194), [RDF.txt:1575](../../c00co/RDF.txt#L1575) | The account directory, then the file directory |
@@ -624,13 +632,3 @@ counterpart. Source paths are in `c00co/`.
 | `FileSystemSettings` | class | *model only* |  | Disc timing; CP-V's comes from the RADs and disc packs |
 | `FileSystemSettings.discTime` | attribute | *model only* |  | Ticks per disc access |
 | `FileSystemSettings.discGranules` | attribute | *model only* |  | Granules in the file area |
-
-## OpenFile
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `OpenFile` | class | `CFU`, `NOU` | [UTS.txt:446–452](../../c00co/UTS.txt#L446-L452) | CURRENT FILE USAGE: one per open file, shared by every DCB that has it open |
-| `OpenFile.header` | attribute | `FITSIZE` | [WRTF.txt:44–46](../../c00co/WRTF.txt#L44-L46) |  |
-| `OpenFile.file` | attribute | `FDA` | [UTS.txt:448–460](../../c00co/UTS.txt#L448-L460) |  |
-| `OpenFile.users` | attribute | `NOU` | [UTS.txt:450](../../c00co/UTS.txt#L450) | Number of users |
-| `OpenFile.isNew` | attribute | `CLSFIL4` | [CLS.txt:1994–1998](../../c00co/CLS.txt#L1994-L1998) | Opened OUT: not in the directory until it is closed |

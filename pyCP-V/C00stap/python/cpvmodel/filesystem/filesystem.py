@@ -1,12 +1,12 @@
 """The file system's front: open, close, read and write."""
 
 import enum
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from ..glossary import cpv, modelOnly
 from .directory import Directory
 from .disc import Disc
-from .files import ConsecutiveFile, FileHeader
+from .files import ConsecutiveFile, File, FileHeader
 
 NO_SUCH_FILE = 0x03             # as FIX1 handles it; OPEN's own codes weren't read
 END_OF_FILE = 0x06
@@ -52,32 +52,13 @@ class FileSystemSettings:
     }
 
 
-@cpv("CFU", "NOU", source="UTS.txt:446-452",
-     note="CURRENT FILE USAGE: one per open file, shared by every DCB that has it open")
-@dataclass(eq=False)
-class OpenFile:
-    """A file that is open, shared by everyone who has it open."""
-    header: FileHeader
-    file: ConsecutiveFile
-    users: int = 0
-    isNew: bool = False
-
-    cpvNames = {
-        "header": cpv("FITSIZE", source="WRTF.txt:44-46"),
-        "file": cpv("FDA", source="UTS.txt:448-460"),
-        "users": cpv("NOU", source="UTS.txt:450", note="Number of users"),
-        "isNew": cpv("CLSFIL4", source="CLS.txt:1994-1998",
-                     note="Opened OUT: not in the directory until it is closed"),
-    }
-
-
 @cpv("DCB", source="UTS.txt:448-530",
      note="The data control block: the program's own record of an open file")
 @dataclass(eq=False)
 class FileHandle:
     """A program's open file: how it was opened, and where it is in the file."""
     user: object
-    openFile: OpenFile
+    file: File
     mode: FileMode
     position: tuple = (0, 0)
     discAccesses: int = 0
@@ -85,7 +66,8 @@ class FileHandle:
 
     cpvNames = {
         "user": modelOnly("The user whose program holds the handle"),
-        "openFile": cpv("CFU", source="UTS.txt:446-452", note="DCB word 1 has the CFU"),
+        "file": cpv("CFU", source="UTS.txt:446-452",
+                    note="DCB word 1 points at the file's CFU"),
         "mode": cpv("FUNCTION", source="UTS.txt:448-460"),
         "position": cpv("SEQPOS", source="RDF.txt:3136-3138",
                         note="CP-V keeps the record number and the disc address"),
@@ -107,6 +89,7 @@ class FileSystem:
     - **Directories:** the account directory maps an account to its file directory, which
       maps a file name to the file.
     - **Open** finds a file already open and shares it, or looks it up in the directories.
+      Every program has its own handle, with its own position.
       A file opened OUT is new, and goes into its directory only when it is closed,
       replacing any file of the same name.
     - **Read and write** go through a handle. Every granule touched, and every directory
@@ -131,7 +114,8 @@ class FileSystem:
         "disc": modelOnly("The file area's granules"),
         "accounts": cpv("ACNCFU", source="UTS.txt:464", note="The account directory"),
         "openFiles": cpv("CFU", source="OPNF.txt:616-620",
-                         note="OPEN scans the CFUs for the file before the directories"),
+                         note="The files open now. OPEN scans the CFUs for the file before "
+                              "the directories"),
         "handles": modelOnly("Each user's open handles, so they can be closed at the end"),
     }
 
@@ -141,22 +125,19 @@ class FileSystem:
     def openFile(self, user, name, mode, account=None):
         """Open the file ``name`` in ``account`` (the user's own by default)."""
         account = account or user.account
-        handle = None
         if mode is FileMode.IN:
-            openFile = self.openFiles.get((account, name))
-            if openFile is None:
-                header, file = self.lookUp(account, name)
-                openFile = OpenFile(header, file)
-                self.openFiles[(account, name)] = openFile
+            file = self.openFiles.get((account, name))
+            if file is None:
+                file = self.lookUp(account, name)
+                self.openFiles[(account, name)] = file
                 accesses = 3                        # account entry, file entry, header
             else:
                 accesses = 0
         else:
-            header = FileHeader(name, account)
-            openFile = OpenFile(header, ConsecutiveFile(header, self.disc), isNew=True)
+            file = ConsecutiveFile(FileHeader(name, account), self.disc)
             accesses = 1
-        openFile.users += 1
-        handle = FileHandle(user, openFile, mode, discAccesses=accesses)
+        file.openCount += 1
+        handle = FileHandle(user, file, mode, discAccesses=accesses)
         self.handles.setdefault(user, []).append(handle)
         return handle
 
@@ -167,34 +148,34 @@ class FileSystem:
         file = files.find(name) if files is not None else None
         if file is None:
             raise FileError(NO_SUCH_FILE, f"no file {name} in {account}")
-        return file.header, file
+        return file
 
     @cpv("SEQ0", source="RDF.txt:3136-3268",
          note="At the end of the file CP-V returns TYC 7, code X'06'")
     def readRecord(self, handle):
         """The next record, or None at the end of the file."""
         self.checkMode(handle, FileMode.IN)
-        text, handle.position, touched = handle.openFile.file.read(handle.position)
+        text, handle.position, touched = handle.file.read(handle.position)
         handle.discAccesses += touched
         return text
 
     @cpv("SEQ0", source="WRTF.txt:273-505")
     def writeRecord(self, handle, text):
         self.checkMode(handle, FileMode.OUT)
-        handle.discAccesses += handle.openFile.file.append(text)
+        handle.discAccesses += handle.file.append(text)
 
     @cpv("CLSFIL", "CLSFIL4", source="CLS.txt:1443-1530, CLS.txt:1994-1998",
          note="A new file goes into its directory at close")
     def closeFile(self, handle):
         handle.isOpen = False
         self.handles[handle.user].remove(handle)
-        openFile = handle.openFile
-        openFile.users -= 1
-        if openFile.isNew:
-            self.enter(openFile.file)
+        file = handle.file
+        file.openCount -= 1
+        if not file.inDirectory:
+            self.enter(file)
             handle.discAccesses += 2                # the header and the directory entry
-        elif openFile.users == 0:
-            del self.openFiles[(openFile.header.account, openFile.header.name)]
+        elif file.openCount == 0:
+            del self.openFiles[(file.header.account, file.header.name)]
 
     @modelOnly("CP-V closes a program's open DCBs when its job step ends; where wasn't traced")
     def closeAll(self, user):
@@ -215,11 +196,12 @@ class FileSystem:
         if old is not None:
             old.release()
         files.insert(header.name, file)
+        file.inDirectory = True
 
     @cpv("K15", source="WRTF.txt:15, WRTF.txt:244", note="OPERATION ERROR: the DCB isn't open for it")
     def checkMode(self, handle, mode):
         if not handle.isOpen or handle.mode is not mode:
-            raise FileError(WRONG_MODE, f"{handle.openFile.header.name} isn't open {mode.name}")
+            raise FileError(WRONG_MODE, f"{handle.file.header.name} isn't open {mode.name}")
 
     @modelOnly("The names of an account's files, in order")
     def fileNames(self, account):

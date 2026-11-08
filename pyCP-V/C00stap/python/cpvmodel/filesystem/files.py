@@ -1,4 +1,4 @@
-"""Files: the header every file has, and consecutive files."""
+"""Files: what every file has, and consecutive files."""
 
 import enum
 from dataclasses import dataclass
@@ -44,10 +44,37 @@ class FileHeader:
     }
 
 
+@cpv("FITSIZE", "NOU", source="WRTF.txt:44-46, UTS.txt:450",
+     note="CP-V keeps a file on the disc, with its header (the FIT) in its first granule, and "
+          "the state of an open file in core, in a CFU that exists only while it is open")
+class File:
+    """A file: its header, its granules, and whether it is open and in its directory.
+
+    In CP-V the open state is a separate in-core table, the CFU ("current file usage"), one
+    per open file and shared by every program that has the file open. The model's files are
+    already in memory, so that state is kept on the file itself.
+    """
+
+    def __init__(self, header, disc):
+        self.header = header
+        self.disc = disc
+        self.openCount = 0
+        self.inDirectory = False
+
+    cpvNames = {
+        "header": cpv("FITSIZE", source="WRTF.txt:44-46"),
+        "disc": modelOnly("Where the granules come from"),
+        "openCount": cpv("NOU", "CFU", source="UTS.txt:446-452",
+                         note="The CFU's number of users"),
+        "inDirectory": cpv("CLSFIL4", source="CLS.txt:1994-1998",
+                           note="False for a file opened OUT: it is entered at close"),
+    }
+
+
 @cpv("SEQ0", "SEQPOS", source="WRTF.txt:273-276, RDF.txt:3136-3138",
      note="CP-V writes control words between the segments, with back pointers, flags for "
           "blocked and unblocked segments, and the FIT as a dummy first segment")
-class ConsecutiveFile:
+class ConsecutiveFile(File):
     """Records one after another in a chain of granules. A record that doesn't fit in the
     rest of a granule is split into segments, continued in the next. The header takes the
     start of the first granule.
@@ -58,14 +85,11 @@ class ConsecutiveFile:
     """
 
     def __init__(self, header, disc):
-        self.header = header
-        self.disc = disc
+        super().__init__(header, disc)
         self.granules = []
         self.recordCount = 0
 
     cpvNames = {
-        "header": cpv("FITSIZE", source="WRTF.txt:44-46"),
-        "disc": modelOnly("Where the granules come from"),
         "granules": cpv("FDA", "LDA", "FLINK", source="UTS.txt:448-486",
                         note="CP-V chains them on the disc, from FDA (first) to LDA (last)"),
         "recordCount": cpv("TDA", source="UTS.txt:462",
