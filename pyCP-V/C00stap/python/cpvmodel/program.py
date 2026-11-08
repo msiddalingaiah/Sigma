@@ -90,15 +90,20 @@ class Open:
     mode: object
     account: str = None
     organization: object = None
+    size: int = None
+    password: str = None
+    protection: object = None
 
 
 @modelOnly("Stands for an M:READ on a file DCB (RDF)")
 @dataclass
 class ReadRecord:
-    """Read the record with ``key`` (a keyed file), or the next record; None is sent back
-    at the end of the file."""
+    """Read the record with ``key`` (a keyed file; a granule number in a random file), or
+    the next record; None is sent back at the end of the file. ``size`` is the bytes wanted
+    from a random file."""
     handle: object
-    key: str = None
+    key: object = None
+    size: int = None
 
 
 @modelOnly("Stands for an M:WRITE on a file DCB (WRTF)")
@@ -110,7 +115,8 @@ class WriteRecord:
     key: str = None
 
 
-@modelOnly("Stands for an M:CLOSE (CLS)")
+@modelOnly("Stands for an M:CLOSE (CLS); release=True is its REL option, which deletes the file")
 @dataclass
 class Close:
     handle: object
+    release: bool = False

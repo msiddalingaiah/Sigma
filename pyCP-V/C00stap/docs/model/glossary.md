@@ -13,6 +13,7 @@ counterpart. Source paths are in `c00co/`.
 | `User.number` | attribute | `S:CUN` | [TCATCH.txt:173](../../c00co/TCATCH.txt#L173) | User numbers start at 1; 0 is the null link in the queues |
 | `User.name` | attribute | *model only* |  | For traces; CP-V knows the account and name from the JIT |
 | `User.account` | attribute | `J:ACCN` | [JIT.txt:308–310](../../c00co/JIT.txt#L308-L310) | The user's account |
+| `User.privilege` | attribute | `JB:PRIV` | [JIT.txt:470](../../c00co/JIT.txt#L470) | X'C0' or more opens any file and creates files anywhere |
 | `User.state` | attribute | `UB:US` | [SSDAT.txt:336](../../c00co/SSDAT.txt#L336) |  |
 | `User.priority` | attribute | `UB:PRIO` | [SCHED.txt:1156–1160](../../c00co/SCHED.txt#L1156-L1160) | Current priority; events lower it below the base |
 | `User.basePriority` | attribute | `UB:PRIOB` | [SCHED.txt:1924](../../c00co/SCHED.txt#L1924) |  |
@@ -61,7 +62,7 @@ counterpart. Source paths are in `c00co/`.
 
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
-| `Close` | class | *model only* |  | Stands for an M:CLOSE (CLS) |
+| `Close` | class | *model only* |  | Stands for an M:CLOSE (CLS); release=True is its REL option, which deletes the file |
 
 ## Compute
 
@@ -498,6 +499,27 @@ counterpart. Source paths are in `c00co/`.
 |---|---|---|---|---|
 | `FileError` | class | *model only* |  | CP-V reports file errors with a code in the DCB and goes to the program's error address, or aborts it; the model throws this into the program |
 
+## AccessCheck
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `AccessCheck` | class | `SECCHK`, `OPENER03` | [OBSE.txt:212–213](../../c00co/OBSE.txt#L212-L213), [OBSE.txt:310–409](../../c00co/OBSE.txt#L310-L409) | CHECK SECURITY: a refusal is code X'14' |
+| `AccessCheck.check` | method | `SECCHK`, `SECCHK1`, `SECCHK4` | [OBSE.txt:310–409](../../c00co/OBSE.txt#L310-L409) |  |
+| `AccessCheck.listed` | method | `CLM`, `SECCHK2B` | [OBSE.txt:344–357](../../c00co/OBSE.txt#L344-L357) | CLM compares an entry with NONE and ALL at once |
+| `AccessCheck.refuse` | method | `OPENER03`, `CLRFIB` | [OBSE.txt:212–213](../../c00co/OBSE.txt#L212-L213), [OBSE.txt:415](../../c00co/OBSE.txt#L415) |  |
+| `AccessCheck.checkCreate` | method | `OP71`, `JB:PRIV` | [OPNF.txt:1319–1325](../../c00co/OPNF.txt#L1319-L1325) | ALLOW C0 PRIV TO CREATE FILES IN OTHERS ACCOUNT |
+| `AccessCheck.mayDelete` | method | *model only* |  | Whether the user may delete a file they have open IN (CLSFIL, CLS.txt:1528) |
+
+## Protection
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Protection` | class | `FIL9`, `FIL3` | [CLS.txt:2288–2335](../../c00co/CLS.txt#L2288-L2335) | CLOSE copies these from the DCB's VLPs into a new file's FIT |
+| `Protection.password` | attribute | `SECCHK0`, `SECCHK05` | [OBSE.txt:316–334](../../c00co/OBSE.txt#L316-L334) | VLP X'03' |
+| `Protection.readAccounts` | attribute | `SEC0` | [OBSE.txt:358–367](../../c00co/OBSE.txt#L358-L367) | VLP X'05' |
+| `Protection.writeAccounts` | attribute | `SECCHK2`, `SECCHK3` | [OBSE.txt:342–357](../../c00co/OBSE.txt#L342-L357) | VLP X'06' |
+| `Protection.executeAccounts` | attribute | `SEC0`, `SEC99` | [OBSE.txt:365–394](../../c00co/OBSE.txt#L365-L394) | VLP X'14', with the execute vehicle in X'15' |
+
 ## AllocationMap
 
 | Model name | Kind | CP-V | Source | Notes |
@@ -507,6 +529,7 @@ counterpart. Source paths are in `c00co/`.
 | `AllocationMap.position` | attribute | `GBIT5` | [GRANSUB.txt:296](../../c00co/GRANSUB.txt#L296) | Word 3 of the HGP: where the last search stopped |
 | `AllocationMap.dualAllocations` | attribute | `LOGDUAL` | [GRANSUB.txt:465](../../c00co/GRANSUB.txt#L465) |  |
 | `AllocationMap.take` | method | `CMNGG`, `GETBIT`, `GBIT5` | [GRANSUB.txt:87–95](../../c00co/GRANSUB.txt#L87-L95), [GRANSUB.txt:258–296](../../c00co/GRANSUB.txt#L258-L296) |  |
+| `AllocationMap.takeRun` | method | `CMNGNG` | [GRANSUB.txt:105](../../c00co/GRANSUB.txt#L105) | Searches from the end of the map backward for N free granules in a row |
 | `AllocationMap.give` | method | `CMNRG`, `LOGDUAL` | [GRANSUB.txt:362](../../c00co/GRANSUB.txt#L362), [GRANSUB.txt:465](../../c00co/GRANSUB.txt#L465) |  |
 | `AllocationMap.freeCount` | method | *model only* |  | How many granules are free in the map |
 
@@ -520,9 +543,14 @@ counterpart. Source paths are in `c00co/`.
 | `GranuleAllocator.stack` | attribute | `HGPSTK` | [HGPSTK.txt:1–36](../../c00co/HGPSTK.txt#L1-L36) |  |
 | `GranuleAllocator.allocatRunning` | attribute | `BUFLAGS` | [HGPSTK.txt:14](../../c00co/HGPSTK.txt#L14) | X'0001': ALLOCAT is working on the stack |
 | `GranuleAllocator.allocatRuns` | attribute | `GRAJST` | [GRAN.txt:243](../../c00co/GRAN.txt#L243) | # TIMES ADJUSTED |
+| `GranuleAllocator.runRequests` | attribute | `GNBG`, `QUEMSG` | [GRAN.txt:253](../../c00co/GRAN.txt#L253), [GRAN.txt:319](../../c00co/GRAN.txt#L319) | Messages to ALLOCAT for N granules in a row (COMBUF) |
+| `GranuleAllocator.runAnswers` | attribute | `GNBG` | [GRAN.txt:253](../../c00co/GRAN.txt#L253) | ALLOCAT leaves the answer in the message buffer |
 | `GranuleAllocator.ensure` | method | `GETGRAN`, `REG4CAT` | [GRAN.txt:193–202](../../c00co/GRAN.txt#L193-L202) | Checked before a user's file operation starts, so it never stops half done |
 | `GranuleAllocator.get` | method | `GBG`, `GETGRAN`, `RELX` | [GRAN.txt:101–102](../../c00co/GRAN.txt#L101-L102), [GRAN.txt:160](../../c00co/GRAN.txt#L160), [GRAN.txt:193](../../c00co/GRAN.txt#L193) | A user with the stack empty waits (ensure); the monitor takes from the map |
 | `GranuleAllocator.release` | method | `RBG`, `ROOM`, `NORELROM` | [GRAN.txt:95](../../c00co/GRAN.txt#L95), [GRAN.txt:169–186](../../c00co/GRAN.txt#L169-L186) |  |
+| `GranuleAllocator.requestRun` | method | `GNBG` | [GRAN.txt:253](../../c00co/GRAN.txt#L253) | The user waits on E:QFAC until ALLOCAT has answered |
+| `GranuleAllocator.takeRunAnswer` | method | *model only* |  | ALLOCAT's answer to a user's request: the addresses, [] for none, or None if not answered yet |
+| `GranuleAllocator.releaseRun` | method | `RNBG` | [GRAN.txt:281](../../c00co/GRAN.txt#L281) | Release N granules: a message to ALLOCAT |
 | `GranuleAllocator.checkThresholds` | method | `CHKTHRSH`, `THRESH` | [GRAN.txt:230–243](../../c00co/GRAN.txt#L230-L243), [GRAN.txt:337](../../c00co/GRAN.txt#L337) | At or above HITHRSH, or at or below LOTHRSH while the map isn't empty |
 | `GranuleAllocator.startAllocat` | method | `T:GJOBSTRT`, `THRESH` | [GRAN.txt:337–340](../../c00co/GRAN.txt#L337-L340) | CP-V wakes the ALLOCAT ghost; the model starts it as a new user |
 | `GranuleAllocator.adjust` | method | `ADJBUFS`, `FILL`, `EMPTY1` | [ALLYCAT.txt:330–410](../../c00co/ALLYCAT.txt#L330-L410) | Returns the granules moved, for the ghost's computing time |
@@ -561,6 +589,8 @@ counterpart. Source paths are in `c00co/`.
 | `Disc.getGranule` | method | `GETDGRAN`, `GBG` | [WRTF.txt:1176–1180](../../c00co/WRTF.txt#L1176-L1180), [GRAN.txt:95–117](../../c00co/GRAN.txt#L95-L117) |  |
 | `Disc.releaseGranule` | method | `RELRBG`, `RBG` | [DLT.txt:915–990](../../c00co/DLT.txt#L915-L990), [GRAN.txt:95–117](../../c00co/GRAN.txt#L95-L117) |  |
 | `Disc.releaseGranuleAt` | method | `RELRBG` | [DLT.txt:915–990](../../c00co/DLT.txt#L915-L990) |  |
+| `Disc.claimRun` | method | `GNBG`, `CMNGNG` | [GRAN.txt:253](../../c00co/GRAN.txt#L253), [GRANSUB.txt:105](../../c00co/GRANSUB.txt#L105) | A random file's run, found by ALLOCAT |
+| `Disc.releaseRun` | method | `RNBG`, `RELRAND` | [GRAN.txt:281](../../c00co/GRAN.txt#L281), [CLS.txt:1729](../../c00co/CLS.txt#L1729) |  |
 | `Disc.freeCount` | method | *model only* |  | How many granules are free |
 
 ## DiscFull
@@ -679,6 +709,7 @@ counterpart. Source paths are in `c00co/`.
 | `FileHeader.name` | attribute | `FITCHK` | [FIX1.txt:1758–1789](../../c00co/FIX1.txt#L1758-L1789) | TEXTC, compared with the directory's entry |
 | `FileHeader.account` | attribute | `J:ACCN` | [JIT.txt:308–310](../../c00co/JIT.txt#L308-L310) | The owner's account |
 | `FileHeader.organization` | attribute | `FITCHK` | [FIX1.txt:1758–1789](../../c00co/FIX1.txt#L1758-L1789) |  |
+| `FileHeader.protection` | attribute | `FIL9` | [CLS.txt:2288–2335](../../c00co/CLS.txt#L2288-L2335) | The password and account lists, VLPs X'03', X'05', X'06', X'14' |
 
 ## Organization
 
@@ -687,7 +718,7 @@ counterpart. Source paths are in `c00co/`.
 | `Organization` | class | `ORG`, `FITCHK` | [FIX1.txt:1758–1789](../../c00co/FIX1.txt#L1758-L1789), [FIX1.txt:1848–1850](../../c00co/FIX1.txt#L1848-L1850) | Byte 0 of the FIT's X'09' entry: 0 or 1 consecutive, 2 keyed, 3 random |
 | `Organization.CONSECUTIVE` | member | `SEQ0` | [WRTF.txt:273](../../c00co/WRTF.txt#L273) | Records one after another |
 | `Organization.KEYED` | member | `SETUPUB` | [RDF.txt:1575](../../c00co/RDF.txt#L1575) | Records found by key |
-| `Organization.RANDOM` | member | `RWRAND` | [WRTF.txt:1928](../../c00co/WRTF.txt#L1928) | Granules by number (iteration 4) |
+| `Organization.RANDOM` | member | `RWRAND` | [WRTF.txt:1928](../../c00co/WRTF.txt#L1928) | Granules by number |
 
 ## KeyedFile
 
@@ -715,6 +746,21 @@ counterpart. Source paths are in `c00co/`.
 | `RecordLocation.segments` | attribute | `FAK` | [WRTF.txt:1745](../../c00co/WRTF.txt#L1745) | CP-V has an index entry per segment; the first has FAK |
 | `RecordLocation.granules` | attribute | `SREC` | [UTS.txt:463](../../c00co/UTS.txt#L463) |  |
 
+## RandomFile
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `RandomFile` | class | `RWRAND`, `GRANDPUB` | [WRTF.txt:1928](../../c00co/WRTF.txt#L1928), [GRAND.txt:102](../../c00co/GRAND.txt#L102) | ORG 3. The run's first address and size are in the FIT's X'0C' VLP |
+| `RandomFile.size` | attribute | `RSTORE`, `TDA` | [GRAND.txt:63](../../c00co/GRAND.txt#L63), [CLS.txt:1729–1732](../../c00co/CLS.txt#L1729-L1732) | The number of granules; the CFU keeps it in TDA |
+| `RandomFile.headerGranule` | attribute | `SREC` | [UTS.txt:463](../../c00co/UTS.txt#L463) | The FIT's own granule |
+| `RandomFile.run` | attribute | `CMNGNG`, `GNBG` | [GRANSUB.txt:105](../../c00co/GRANSUB.txt#L105), [GRAN.txt:253](../../c00co/GRAN.txt#L253) | Contiguous granules from ALLOCAT, found from the end of the map |
+| `RandomFile.contents` | attribute | *model only* |  | Each granule's text |
+| `RandomFile.allocate` | method | *model only* |  | Takes the run ALLOCAT found |
+| `RandomFile.write` | method | `RWRAND`, `RWRDUN`, `E5744` | [WRTF.txt:1928–2087](../../c00co/WRTF.txt#L1928-L2087) | Returns the granules moved, for the position and the disc accesses |
+| `RandomFile.read` | method | `RWRAND`, `RWRDUN` | [WRTF.txt:1928–2067](../../c00co/WRTF.txt#L1928-L2067) | At most what is left in the file is moved |
+| `RandomFile.checkStart` | method | `ERR01` | [WRTF.txt:2081](../../c00co/WRTF.txt#L2081) | A granule number past the end: X'42' |
+| `RandomFile.release` | method | `RELRAND`, `RNBG` | [CLS.txt:1729–1732](../../c00co/CLS.txt#L1729-L1732), [GRAN.txt:281](../../c00co/GRAN.txt#L281) | The run goes back as a message to ALLOCAT. Whether the FIT's granule is released too wasn't found; the model releases it |
+
 ## FileHandle
 
 | Model name | Kind | CP-V | Source | Notes |
@@ -726,6 +772,7 @@ counterpart. Source paths are in `c00co/`.
 | `FileHandle.position` | attribute | `SEQPOS` | [RDF.txt:3136–3138](../../c00co/RDF.txt#L3136-L3138) | Where the next sequential read starts: (granule, segment), or (index block, entry) in a keyed file |
 | `FileHandle.discAccesses` | attribute | *model only* |  | Disc accesses not yet charged to the user |
 | `FileHandle.isOpen` | attribute | *model only* |  | False once closed |
+| `FileHandle.ownFile` | attribute | `USR`, `CHKFLACN` | [OBSE.txt:190](../../c00co/OBSE.txt#L190), [OBSE.txt:293–304](../../c00co/OBSE.txt#L293-L304) | The DCB's USR bit X'4000' clear: the user's own file, or as good as (write access, or :SYS with an empty password) |
 | `FileHandle.takeDiscAccesses` | method | *model only* |  | The disc accesses since last asked, for the system to charge as I/O time |
 
 ## FileMode
@@ -747,12 +794,17 @@ counterpart. Source paths are in `c00co/`.
 | `FileSystem.accounts` | attribute | `ACNCFU` | [UTS.txt:464](../../c00co/UTS.txt#L464) | The account directory |
 | `FileSystem.openFiles` | attribute | `CFU` | [OPNF.txt:616–620](../../c00co/OPNF.txt#L616-L620) | The files open now. OPEN scans the CFUs for the file before the directories |
 | `FileSystem.handles` | attribute | *model only* |  | Each user's open handles, so they can be closed at the end |
+| `FileSystem.access` | attribute | `SECCHK` | [OBSE.txt:310](../../c00co/OBSE.txt#L310) |  |
 | `FileSystem.openFile` | method | `OPNFIL`, `TFCHKOPN` | [OPNF.txt:115](../../c00co/OPNF.txt#L115), [OPNF.txt:503–620](../../c00co/OPNF.txt#L503-L620) | CP-V also takes the open/close lock (OPNCLSUS); the system does that around this call |
 | `FileSystem.newFile` | method | `ORG` | [OPNF.txt:1015–1038](../../c00co/OPNF.txt#L1015-L1038) | The organization picks the code that reads and writes the file |
+| `FileSystem.newRandomFile` | method | `GRANDPUB`, `GNBG` | [GRAND.txt:102–117](../../c00co/GRAND.txt#L102-L117), [GRAN.txt:253](../../c00co/GRAN.txt#L253) | The run is asked of ALLOCAT; the user waits for the answer (E:QFAC) and opens again |
+| `FileSystem.checkReplace` | method | `3D1`, `OPENER03` | [OPNF.txt:545–563](../../c00co/OPNF.txt#L545-L563) | Random may not replace keyed or consecutive, nor the other way round |
+| `FileSystem.search` | method | `FNDKEY` | [FIX1.txt:2194](../../c00co/FIX1.txt#L2194) | The account directory, then the file directory |
 | `FileSystem.lookUp` | method | `FNDKEY`, `SETUPUB` | [FIX1.txt:2194](../../c00co/FIX1.txt#L2194), [RDF.txt:1575](../../c00co/RDF.txt#L1575) | The account directory, then the file directory, then the header |
 | `FileSystem.readRecord` | method | `SEQ0`, `SETUPUB` | [RDF.txt:3136–3268](../../c00co/RDF.txt#L3136-L3268), [RDF.txt:1575](../../c00co/RDF.txt#L1575) | At the end of the file CP-V returns TYC 7, code X'06' |
 | `FileSystem.writeRecord` | method | `SEQ0`, `ENTKEYUB` | [WRTF.txt:273–505](../../c00co/WRTF.txt#L273-L505), [WRTF.txt:1532](../../c00co/WRTF.txt#L1532) |  |
 | `FileSystem.closeFile` | method | `CLSFIL`, `CLSFIL4` | [CLS.txt:1443–1530](../../c00co/CLS.txt#L1443-L1530), [CLS.txt:1994–1998](../../c00co/CLS.txt#L1994-L1998) | A new file goes into its directory at close |
+| `FileSystem.deleteOnClose` | method | `CLSFIL`, `CLSFIL2`, `DELF` | [CLS.txt:1443–1672](../../c00co/CLS.txt#L1443-L1672) | Returns True if the close released the file |
 | `FileSystem.closeAll` | method | *model only* |  | CP-V closes a program's open DCBs when its job step ends; where wasn't traced |
 | `FileSystem.enter` | method | `INST` | [WRTF.txt:608](../../c00co/WRTF.txt#L608) | CP-V releases the file it replaces as well; when another user still has that file open isn't modelled |
 | `FileSystem.checkMode` | method | `K15` | [WRTF.txt:15](../../c00co/WRTF.txt#L15), [WRTF.txt:244](../../c00co/WRTF.txt#L244) | OPERATION ERROR: the DCB isn't open for it |

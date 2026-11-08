@@ -8,6 +8,9 @@ NO_KEY = 0x17                   # a keyed write with no key
 WRONG_MODE = 0x15               # an operation error
 KEY_NOT_FOUND = 0x43            # KEYER3
 DISC_FULL = 0x00                # the code CP-V uses wasn't traced
+ACCESS_REFUSED = 0x14           # OPENER03
+BEYOND_END = 0x42               # a random file's granule number past the end (ERR01)
+SHORT_TRANSFER = 0x44           # a random transfer cut short by the end (E5744)
 
 
 @modelOnly("CP-V reports file errors with a code in the DCB and goes to the program's error "

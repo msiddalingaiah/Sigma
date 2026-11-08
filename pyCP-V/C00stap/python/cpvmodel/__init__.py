@@ -10,8 +10,8 @@ later ``filesystem.FileSystem`` and others). ``System`` puts them together.
 
 from .program import (Break, Close, Compute, DoIo, Open, OpenClose, ReadRecord, ReadTerminal,
                       Release, Sleep, WaitFor, WriteRecord, WriteTerminal, Yield)
-from .filesystem import (FileError, FileHandle, FileMode, FileSystem, FileSystemSettings,
-                         Organization)
+from .filesystem import (ALL, NONE, FileError, FileHandle, FileMode, FileSystem,
+                         FileSystemSettings, Organization, Protection)
 from .memory import Memory
 from .scheduler import (Event, EventRouter, ExitPath, ImpossibleSwap, InconsistentEvent,
                         NotModelledYet, PriorityBoost, Resource, ResourceManager, Scheduler,

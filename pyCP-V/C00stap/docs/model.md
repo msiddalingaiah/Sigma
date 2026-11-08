@@ -55,7 +55,7 @@ its parts.
 |---|---|---|---|
 | `cpvmodel.scheduler` | `Scheduler` | SCHED, "execution and swap scheduler" | `StateQueues`, `EventRouter` and `TransitionTable`, `ExitPath`, `SwapScheduler`, `ResourceManager`, `SchedulerSettings` |
 | `cpvmodel.terminals` | `TerminalController` | COC, "character-oriented communications" | `Line`, `TerminalSettings`; `echoSession` stands in for TEL |
-| `cpvmodel.filesystem` | `FileSystem` | OPNF, CLS, RDF, WRTF: the file management modules | `Disc`, `GranuleAllocator` (with `AllocationMap`, `GranuleStack`, the ALLOCAT ghost), `IndexChain` (with `IndexBlock`, `Pyramid`), `Directory`, `FileHeader`, `File`, `ConsecutiveFile`, `KeyedFile`, `FileHandle`, `FileSystemSettings` |
+| `cpvmodel.filesystem` | `FileSystem` | OPNF, CLS, RDF, WRTF: the file management modules | `Disc`, `GranuleAllocator` (with `AllocationMap`, `GranuleStack`, the ALLOCAT ghost), `IndexChain` (with `IndexBlock`, `Pyramid`), `Directory`, `FileHeader`, `File`, `ConsecutiveFile`, `KeyedFile`, `RandomFile`, `FileHandle`, `AccessCheck`, `Protection`, `FileSystemSettings` |
 
 `System` (`cpvmodel/system.py`) puts the components together. It owns what's machine-wide: the
 user slots, `Memory`, the clock, `FutureEvents`, the run loop and the trace. The components talk
@@ -234,8 +234,8 @@ classDiagram
 
 A program is a generator that yields `Compute(ticks)`, `Sleep(ticks)`, `DoIo(ticks)`,
 `Yield()`, `WaitFor(resource)`, `Release(resource)`, `OpenClose(ticks)`, `ReadTerminal()` or
-`WriteTerminal(text)`, `Open(name, mode)`, `ReadRecord(handle, key)`, `WriteRecord(handle, text, key)` or
-`Close(handle)`. What a step returns is sent back into the program, such as
+`WriteTerminal(text)`, `Open(name, mode, ...)`, `ReadRecord(handle, key)`, `WriteRecord(handle, text, key)` or
+`Close(handle, release)`. What a step returns is sent back into the program, such as
 `text = yield ReadTerminal()` or `handle = yield Open("DATA", FileMode.IN)`. An error is thrown into
 the program, so a program can catch a `FileError`. Each stands for what a user's code does in CP-V: compute, or make a CAL that leads
 to an event report. A tick is a clock-4 tick, 2 ms. A program can catch `Break`; that is its
@@ -502,11 +502,27 @@ classDiagram
     class FileSystem {
         accounts
         openFiles
-        openFile(user, name, mode, account, organization)
+        openFile(user, name, mode, account, organization, size, password, protection)
         readRecord(handle, key)
         writeRecord(handle, text, key)
-        closeFile(handle)
+        closeFile(handle, release)
         closeAll(user)
+    }
+    class AccessCheck {
+        check(user, header, readOnly, password)
+        checkCreate(user, account, name)
+    }
+    class Protection {
+        password
+        readAccounts
+        writeAccounts
+        executeAccounts
+    }
+    class RandomFile {
+        size
+        run
+        write(granuleNumber, text)
+        read(granuleNumber, size)
     }
     class IndexChain {
         blocks
@@ -601,6 +617,9 @@ classDiagram
     FileHandle --> File : DCB
     File <|-- ConsecutiveFile
     File <|-- KeyedFile
+    File <|-- RandomFile
+    FileSystem *-- AccessCheck
+    FileHeader --> Protection
     KeyedFile *-- IndexChain : master index
     File --> FileHeader : FIT
     ConsecutiveFile o-- Granule : chain
@@ -618,6 +637,12 @@ classDiagram
   key → where the record is; its first block shares the first granule with the header. The
   records go into data granules, packed one after another and split across granules when
   they don't fit. A program reads by key, or in key order.
+- **A random file** is a run of contiguous granules, fixed when it is created, read and written
+  by granule number. Its header has a granule of its own. The run is a request to ALLOCAT
+  (`GNBG`), found from the end of the map, so the program waits on `ALLOCATOR` while ALLOCAT
+  answers, then opens again. A transfer starts at a granule and goes on through the next ones,
+  and the position moves past them. A granule number past the end is X'42'; a write that
+  runs off the end moves what fits and is X'44'.
 - **Open** first looks among the open files, so a second reader shares the `File` and reads no
   directories. Each program gets its own `FileHandle` (the DCB), with its own position. In
   CP-V an open file's state is a separate table in core, the CFU, which exists only while the
@@ -625,6 +650,24 @@ classDiagram
   `openCount` and `inDirectory`. **A file opened OUT is new**: it goes into its directory only at close,
   replacing any file of the same name and releasing its granules. Until then, opening the name
   IN finds the old file, or nothing.
+- **Who may open a file** (`SECCHK`). A file's `Protection` is set when it is created: a
+  password, and lists of read, write and execute accounts (each may also hold `ALL` or `NONE`).
+  OPEN checks, in order:
+  1. Privilege X'C0' opens anything.
+  2. A password must match; an empty one is for the `:SYS` account only.
+  3. The owner opens the file for anything, and so does a write account.
+  4. Anyone else may only read: anyone at all if there are no read or execute accounts, else
+     the read accounts.
+  5. Execute access, through a processor, isn't modelled.
+
+  A refusal is X'14'. Creating a file in another account needs privilege X'C0' (`OP71`), and a
+  random file can't replace a keyed or consecutive one, nor the other way round.
+- **Deleting** is closing with release (`Close(handle, release=True)`, CLOSE's REL). Nothing
+  is deleted while someone else has the file open, or when the user isn't its owner (or as good
+  as) and lacks privilege X'C0'; that is an ordinary close. A new file opened OUT isn't in the
+  directory yet, so releasing it discards it and the old file stays. A deleted file's entry is
+  slid out of its directory (`DEL1`), and its granules go back: a random file's run as a
+  message to ALLOCAT (`RNBG`).
 - **Open and close take the open/close lock** (`OPNCLSUS`), the resource from the scheduler,
   and hold it while they wait for the disc. A second user opening at the same time blocks on
   `OPEN_CLOSE`.
@@ -866,4 +909,9 @@ Not yet:
 3. **Granule allocation** (done). `GranuleAllocator`, `GranuleStack`, `AllocationMap`, and the
    ALLOCAT ghost. Users wait on `ALLOCATOR` (`E:QFAC`) until ALLOCAT's fill is committed
    (`E:UQFAC`, `STUQFAC`). A full disc is a `FileError`.
-4. **Random files, deleting files, and OPEN's access checks.**
+4. **Random files, deleting files, and OPEN's access checks** (done). `RandomFile`,
+   `AccessCheck` and `Protection`, user privilege, and `Close(handle, release=True)`.
+
+Not modelled in the file system: opening UPDATE, INOUT or OUTIN; synonyms; expiration dates;
+execute access through a processor; private packs; the directories' dual copies; and FIX1,
+the start-up check and repair of every file.

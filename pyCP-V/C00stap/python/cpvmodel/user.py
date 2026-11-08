@@ -61,6 +61,7 @@ class User:
     number: int
     name: str = ""
     account: str = "GUEST"
+    privilege: int = 0
     state: UserState = UserState.FREE_SLOT
     priority: int = 0xFF
     basePriority: int = 0xFF
@@ -86,6 +87,8 @@ class User:
                       note="User numbers start at 1; 0 is the null link in the queues"),
         "name": modelOnly("For traces; CP-V knows the account and name from the JIT"),
         "account": cpv("J:ACCN", source="JIT.txt:308-310", note="The user's account"),
+        "privilege": cpv("JB:PRIV", source="JIT.txt:470",
+                         note="X'C0' or more opens any file and creates files anywhere"),
         "state": cpv("UB:US", source="SSDAT.txt:336"),
         "priority": cpv("UB:PRIO", source="SCHED.txt:1156-1160",
                         note="Current priority; events lower it below the base"),

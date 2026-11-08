@@ -51,6 +51,19 @@ class AllocationMap:
                 return index + 1
         return None
 
+    @cpv("CMNGNG", source="GRANSUB.txt:105",
+         note="Searches from the end of the map backward for N free granules in a row")
+    def takeRun(self, count):
+        """``count`` contiguous free granules' addresses, or None."""
+        length = 0
+        for index in range(len(self.free) - 1, -1, -1):
+            length = length + 1 if self.free[index] else 0
+            if length == count:
+                for taken in range(index, index + count):
+                    self.free[taken] = False
+                return list(range(index + 1, index + count + 1))
+        return None
+
     @cpv("CMNRG", "LOGDUAL", source="GRANSUB.txt:362, GRANSUB.txt:465")
     def give(self, address):
         if self.free[address - 1]:
@@ -131,6 +144,8 @@ class GranuleAllocator:
         self.stack = GranuleStack()
         self.allocatRunning = False
         self.allocatRuns = 0
+        self.runRequests = []
+        self.runAnswers = {}
 
     cpvNames = {
         "system": modelOnly("The system: ALLOCAT is started as a user"),
@@ -139,6 +154,10 @@ class GranuleAllocator:
         "allocatRunning": cpv("BUFLAGS", source="HGPSTK.txt:14",
                               note="X'0001': ALLOCAT is working on the stack"),
         "allocatRuns": cpv("GRAJST", source="GRAN.txt:243", note="# TIMES ADJUSTED"),
+        "runRequests": cpv("GNBG", "QUEMSG", source="GRAN.txt:253, GRAN.txt:319",
+                           note="Messages to ALLOCAT for N granules in a row (COMBUF)"),
+        "runAnswers": cpv("GNBG", source="GRAN.txt:253",
+                          note="ALLOCAT leaves the answer in the message buffer"),
     }
 
     @cpv("GETGRAN", "REG4CAT", source="GRAN.txt:193-202",
@@ -173,6 +192,22 @@ class GranuleAllocator:
             self.stack.pendingReleases.append(address)
         self.checkThresholds()
 
+    @cpv("GNBG", source="GRAN.txt:253",
+         note="The user waits on E:QFAC until ALLOCAT has answered")
+    def requestRun(self, user, count):
+        self.runRequests.append((user, count))
+        self.startAllocat()
+
+    @modelOnly("ALLOCAT's answer to a user's request: the addresses, [] for none, or None "
+               "if not answered yet")
+    def takeRunAnswer(self, user):
+        return self.runAnswers.pop(user, None)
+
+    @cpv("RNBG", source="GRAN.txt:281", note="Release N granules: a message to ALLOCAT")
+    def releaseRun(self, addresses):
+        self.stack.pendingReleases.extend(addresses)
+        self.startAllocat()
+
     @cpv("CHKTHRSH", "THRESH", source="GRAN.txt:230-243, GRAN.txt:337",
          note="At or above HITHRSH, or at or below LOTHRSH while the map isn't empty")
     def checkThresholds(self):
@@ -195,6 +230,10 @@ class GranuleAllocator:
     def adjust(self):
         """ALLOCAT's work: the queued releases into the map, then fill or empty the stack."""
         stack, moved = self.stack, 0
+        for user, count in self.runRequests:
+            self.runAnswers[user] = self.map.takeRun(count) or []
+            moved += count
+        self.runRequests = []
         for address in stack.pendingReleases:
             self.map.give(address)
             moved += 1

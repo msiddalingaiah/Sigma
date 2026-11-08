@@ -90,6 +90,20 @@ class Disc:
     def releaseGranuleAt(self, address):
         self.releaseGranule(self.granules[address])
 
+    @cpv("GNBG", "CMNGNG", source="GRAN.txt:253, GRANSUB.txt:105",
+         note="A random file's run, found by ALLOCAT")
+    def claimRun(self, addresses):
+        granules = [Granule(address) for address in addresses]
+        for granule in granules:
+            self.granules[granule.address] = granule
+        return granules
+
+    @cpv("RNBG", "RELRAND", source="GRAN.txt:281, CLS.txt:1729")
+    def releaseRun(self, granules):
+        for granule in granules:
+            del self.granules[granule.address]
+        self.allocator.releaseRun([granule.address for granule in granules])
+
     @modelOnly("How many granules are free")
     def freeCount(self):
         return self.allocator.freeCount()

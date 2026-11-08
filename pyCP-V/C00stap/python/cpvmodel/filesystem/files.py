@@ -1,9 +1,10 @@
 """Files: what every file has, and consecutive files."""
 
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..glossary import cpv, modelOnly
+from .access import Protection
 from .disc import SEGMENT_OVERHEAD, Segment
 
 HEADER_BYTES = 320              # FITSIZE: 80 words
@@ -22,7 +23,7 @@ cpv("ORG", "FITCHK", source="FIX1.txt:1758-1789, FIX1.txt:1848-1850",
 Organization.cpvNames = {
     "CONSECUTIVE": cpv("SEQ0", source="WRTF.txt:273", note="Records one after another"),
     "KEYED": cpv("SETUPUB", source="RDF.txt:1575", note="Records found by key"),
-    "RANDOM": cpv("RWRAND", source="WRTF.txt:1928", note="Granules by number (iteration 4)"),
+    "RANDOM": cpv("RWRAND", source="WRTF.txt:1928", note="Granules by number"),
 }
 
 
@@ -35,12 +36,15 @@ class FileHeader:
     name: str
     account: str
     organization: Organization = Organization.CONSECUTIVE
+    protection: Protection = field(default_factory=Protection)
 
     cpvNames = {
         "name": cpv("FITCHK", source="FIX1.txt:1758-1789",
                     note="TEXTC, compared with the directory's entry"),
         "account": cpv("J:ACCN", source="JIT.txt:308-310", note="The owner's account"),
         "organization": cpv("FITCHK", source="FIX1.txt:1758-1789"),
+        "protection": cpv("FIL9", source="CLS.txt:2288-2335",
+                          note="The password and account lists, VLPs X'03', X'05', X'06', X'14'"),
     }
 
 

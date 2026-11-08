@@ -74,7 +74,7 @@ class System:
     @cpv("LOGON", "ADD1", source="SCHED.txt:1869-1980",
          note="LOGON (on-line), MBS (batch) and T:GJOBSTRT (ghosts) take a slot from the "
               "SNULL queue and call ADD1")
-    def startUser(self, name, program, priority, pages=4, account="GUEST"):
+    def startUser(self, name, program, priority, pages=4, account="GUEST", privilege=0):
         """Start a user at base ``priority`` (CP-V numbering: lower is more urgent), who
         needs ``pages`` pages in core."""
         if not self.freeSlots:
@@ -84,6 +84,7 @@ class System:
         user.program = program
         user.pages = pages
         user.account = account
+        user.privilege = privilege
         self.scheduler.addUser(user, priority)
         self.log(user, "started")
         return user
@@ -202,7 +203,8 @@ class System:
             self.openOrClose(user, request)
         elif isinstance(request, ReadRecord):
             self.fileStep(user, request,
-                          lambda: self.files.readRecord(request.handle, request.key))
+                          lambda: self.files.readRecord(request.handle, request.key,
+                                                        request.size))
         elif isinstance(request, WriteRecord):
             self.fileStep(user, request,
                           lambda: self.files.writeRecord(request.handle, request.text,
@@ -229,10 +231,13 @@ class System:
                     user, lambda: self.files.openFile(user, request.name, request.mode,
                                                       request.account,
                                                       request.organization
-                                                      or Organization.CONSECUTIVE))
+                                                      or Organization.CONSECUTIVE,
+                                                      request.size, request.password,
+                                                      request.protection))
                 handle = user.stepResult[0] if user.stepResult is not None else None
             else:
-                accesses = self.fileWork(user, lambda: self.files.closeFile(request.handle))
+                accesses = self.fileWork(
+                    user, lambda: self.files.closeFile(request.handle, request.release))
                 handle = request.handle
         except GranuleShortage:
             self.scheduler.endOpenClose(user)

@@ -36,12 +36,14 @@ MODEL_MODULES = [
     "cpvmodel.scheduler.resources",
     "cpvmodel.terminals.terminals",
     "cpvmodel.filesystem.errors",
+    "cpvmodel.filesystem.access",
     "cpvmodel.filesystem.allocation",
     "cpvmodel.filesystem.disc",
     "cpvmodel.filesystem.indexchain",
     "cpvmodel.filesystem.directory",
     "cpvmodel.filesystem.files",
     "cpvmodel.filesystem.keyedfile",
+    "cpvmodel.filesystem.randomfile",
     "cpvmodel.filesystem.filesystem",
 ]
 

@@ -113,7 +113,8 @@ def testReadingAFileOpenedOutIsAnError():
 
 def testAccountsKeepTheirOwnFiles():
     system = System()
-    files, user = system.files, userOf(system)
+    files = system.files
+    user = system.startUser("operator", program(), priority=0xF8, privilege=0xC0)
     for account in ("ALPHA", "BETA"):
         out = files.openFile(user, "SAME", FileMode.OUT, account)
         files.writeRecord(out, account)
@@ -162,13 +163,14 @@ def testAProgramCanCatchAFileError():
 
 
 def testFileOperationsTakeDiscTime():
-    """Open OUT: one access; three one-granule writes; close: the account directory
-    searched and written (3, creating the account's entry), the new file directory searched
-    and written (3), and the header (1). At 10 ticks an access that is 110 ticks."""
+    """Open OUT: the account directory searched for an existing file (1) and the first
+    granule (1); three one-granule writes; close: the account directory searched and
+    written (3, creating the account's entry), the new file directory searched and written
+    (3), and the header (1). At 10 ticks an access that is 120 ticks."""
     system = System(fileSettings=FileSystemSettings(discTime=10))
     system.startUser("writer", writer("T", ["A", "B", "C"]), priority=0xF8)
     system.run()
-    assert happened(system, "writer", "ended") == [110]
+    assert happened(system, "writer", "ended") == [120]
     assert len(happened(system, "writer", "IO_STARTED: RUNNING -> IO_WAIT")) == 5
 
 
