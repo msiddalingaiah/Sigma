@@ -107,13 +107,10 @@ class ExitPath:
     @cpv("SE7", "SE6A", "J:INTENT", "ALTENT", source="SCHED.txt:1291-1324",
          note="CP-V enters the user's M:INT routine with the environment on the user's stack")
     def deliverBreak(self, user):
-        user.computeLeft = 0            # the interrupted step is abandoned for the routine
-        try:
-            user.pendingRequest = user.program.throw(Break())
-        except Break:
-            self.backToCommandProcessor(user, "break with no break routine")
-        except StopIteration:
-            self.scheduler.system.endUser(user)
+        """``Break`` is raised in the program where it was suspended. A program that
+        doesn't catch it ends, and goes back to the command processor (System.finish)."""
+        user.computeLeft = 0            # the interrupted computing is abandoned
+        self.scheduler.system.throwInto(user, Break())
 
     @cpv("SE9", "T:ECCP", source="SCHED.txt:1306-1315",
          note="Ignored while the command processor is in control. The model has no command "

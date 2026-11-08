@@ -2,12 +2,10 @@
 
 import pytest
 
-from cpvmodel import (Compute, DoIo, ImpossibleSwap, SchedulerSettings, Sleep, System,
-                      UserState)
+from cpvmodel import ImpossibleSwap, SchedulerSettings, System, UserState
 
+from .scripts import Script, compute, io, sleep
 
-def program(*steps):
-    yield from steps
 
 
 def happened(system, name, what):
@@ -16,7 +14,7 @@ def happened(system, name, what):
 
 def testANewUserIsSwappedInBeforeRunning():
     system = System()
-    user = system.startUser("alpha", program(Compute(10)), priority=0xF8, pages=4)
+    user = system.startUser("alpha", Script(compute(10)), priority=0xF8, pages=4)
     assert not user.inCore
     system.scheduler.dispatch()
     assert user.inCore
@@ -27,7 +25,7 @@ def testANewUserIsSwappedInBeforeRunning():
 
 def testASleeperIsSwappedOutWhenNobodyNeedsToComeIn():
     system = System()
-    user = system.startUser("sleeper", program(Sleep(100), Compute(1)), priority=0xF8)
+    user = system.startUser("sleeper", Script(sleep(100), compute(1)), priority=0xF8)
     system.run(tickLimit=50)
     assert user.state is UserState.ASLEEP
     assert not user.inCore
@@ -37,8 +35,8 @@ def testASleeperIsSwappedOutWhenNobodyNeedsToComeIn():
 
 def testAUserWaitingForIoIsNeverSwappedOut():
     system = System(memoryPages=8)
-    reader = system.startUser("reader", program(DoIo(100), Compute(1)), priority=0xF8, pages=4)
-    system.startUser("big", program(Compute(10)), priority=0xF8, pages=8)
+    reader = system.startUser("reader", Script(io(100), compute(1)), priority=0xF8, pages=4)
+    system.startUser("big", Script(compute(10)), priority=0xF8, pages=8)
     system.run(tickLimit=50)
     assert reader.state is UserState.IO_WAIT and reader.inCore
     assert happened(system, "big", "no room to swap in") == [0]
@@ -53,8 +51,8 @@ def testAReadyUserIsProtectedUntilTheSwapQuantumIsMet():
     quantum end, when it has met the swap quantum."""
     settings = SchedulerSettings(quantum=250, swapQuantum=200)
     system = System(settings=settings, memoryPages=6)
-    system.startUser("alpha", program(Compute(400)), priority=0xF8, pages=5)
-    system.startUser("beta", program(Compute(400)), priority=0xF8, pages=5)
+    system.startUser("alpha", Script(compute(400)), priority=0xF8, pages=5)
+    system.startUser("beta", Script(compute(400)), priority=0xF8, pages=5)
     system.run()
     assert happened(system, "alpha", "swap quantum met") == [250]
     assert happened(system, "alpha", "swapped out") == [250]
@@ -67,10 +65,10 @@ def swapChoice(incomingPriority):
     """A ready user in core at X'F2' that has met its swap quantum, and a newcomer that
     needs its pages."""
     system = System(memoryPages=10)
-    resident = system.startUser("resident", program(Compute(1)), priority=0xF8, pages=6)
+    resident = system.startUser("resident", Script(compute(1)), priority=0xF8, pages=6)
     system.scheduler.swapSchedule()
     resident.swapQuantumPending = False
-    newcomer = system.startUser("newcomer", program(Compute(1)), priority=incomingPriority,
+    newcomer = system.startUser("newcomer", Script(compute(1)), priority=incomingPriority,
                                 pages=6)
     return system.scheduler.swapScheduler.chooseUsersToSwapOut(newcomer, 2), resident
 
@@ -88,24 +86,24 @@ def testALessUrgentNewcomerCantSwapOutAMoreUrgentUser():
 
 def testARunningUserIsNeverSwappedOut():
     system = System(memoryPages=10)
-    system.startUser("cruncher", program(Compute(300)), priority=0xFC, pages=6)
+    system.startUser("cruncher", Script(compute(300)), priority=0xFC, pages=6)
     system.run(tickLimit=10)
-    system.startUser("urgent", program(Compute(1)), priority=0x80, pages=6)
+    system.startUser("urgent", Script(compute(1)), priority=0x80, pages=6)
     system.scheduler.swapSchedule()
     assert happened(system, "urgent", "no room to swap in") == [10]
 
 
 def testAUserTooBigForMemoryIsAnImpossibleSwap():
     system = System(memoryPages=8)
-    system.startUser("huge", program(Compute(1)), priority=0xF8, pages=9)
+    system.startUser("huge", Script(compute(1)), priority=0xF8, pages=9)
     with pytest.raises(ImpossibleSwap):
         system.run()
 
 
 def testSwapsTakeTheSwapDevicesTime():
     system = System(settings=SchedulerSettings(swapTime=10))
-    system.startUser("alpha", program(Compute(5)), priority=0xF8)
-    system.startUser("beta", program(Compute(5)), priority=0xF8)
+    system.startUser("alpha", Script(compute(5)), priority=0xF8)
+    system.startUser("beta", Script(compute(5)), priority=0xF8)
     system.run()
     assert happened(system, "alpha", "swapped in") == [10]
     assert happened(system, "beta", "swapped in") == [20]      # one swap at a time (S:SIP)
@@ -117,8 +115,8 @@ def testPreemptedNearTheSwapQuantumGoesBackLessUrgent():
     less urgent."""
     settings = SchedulerSettings(quantum=300, swapQuantum=250, minimumRun=10)
     system = System(settings=settings)
-    system.startUser("b", program(DoIo(200), Compute(5)), priority=0xE0)
-    a = system.startUser("a", program(Compute(1000)), priority=0xF8)
+    system.startUser("b", Script(io(200), compute(5)), priority=0xE0)
+    a = system.startUser("a", Script(compute(1000)), priority=0xF8)
     system.run(tickLimit=201)
     assert happened(system, "a", "preempted") == [200]
     assert a.priority == 0xF3 + 2

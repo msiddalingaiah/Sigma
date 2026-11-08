@@ -3,10 +3,12 @@
 from collections import deque
 from dataclasses import dataclass, field
 
+from ..dcb import TERMINAL, DCB
 from ..glossary import cpv, modelOnly
-from ..program import Compute, ReadTerminal, WriteTerminal
+from ..program import Program
 from ..scheduler import Event
 from ..user import UserState
+from ..usercontext import UserContext
 
 
 @cpv("SL:TB", "SL:UB", "S:OUAIS", "SL:OPRIO", source="CONMAIN.txt:1041-1087",
@@ -47,6 +49,7 @@ class Line:
     outputCount: int = 0
     outputCountAt: int = 0
     transcript: list = field(default_factory=list)
+    dcb: DCB = None
 
     cpvNames = {
         "number": cpv("LB:UN", source="SCHED.txt:1859", note="The line number indexes LB:UN"),
@@ -57,6 +60,7 @@ class Line:
                            note="Characters waiting to go out"),
         "outputCountAt": modelOnly("When outputCount was last brought up to date"),
         "transcript": modelOnly("What the terminal printed, for tests and for reading"),
+        "dcb": cpv("M:UC", source="UCAL.txt:1172", note="The terminal DCB of the line's user"),
     }
 
     @modelOnly("What the terminal printed, as text")
@@ -65,14 +69,22 @@ class Line:
 
 
 @modelOnly("A stand-in for TEL: a prompt, a command, an echo; OFF logs off")
-def echoSession(line):
-    while True:
-        yield WriteTerminal("!")
-        command = yield ReadTerminal()
-        if command.strip().upper() == "OFF":
-            return
-        yield Compute(10)
-        yield WriteTerminal(command + "\n")
+class EchoSession(Program):
+    """What a logged-on user runs: prompt with ``!``, read a command, echo it; ``OFF``
+    ends the session."""
+
+    def __init__(self, line=None):
+        self.line = line
+
+    @modelOnly("TEL reads a command line and acts on it; the model echoes it")
+    def run(self, m):
+        while True:
+            m.write(m.uc, "!")
+            command = m.read(m.uc)
+            if command.strip().upper() == "OFF":
+                return
+            self.compute(10)
+            m.write(m.uc, command + "\n")
 
 
 @cpv("COC", "T:RCE", source="SCHED.txt:1846-1868",
@@ -95,10 +107,11 @@ class TerminalController:
     TEL, the command processor a logged-on user starts in.
     """
 
-    def __init__(self, system, lineCount=4, settings=None, session=echoSession):
+    def __init__(self, system, lineCount=4, settings=None, session=EchoSession):
         self.system = system
         self.settings = settings or TerminalSettings()
-        self.lines = [Line(number) for number in range(lineCount)]
+        self.lines = [Line(number, dcb=DCB("M:UC", device=TERMINAL))
+                      for number in range(lineCount)]
         self.session = session
         self.onlineUsers = 0
 
@@ -106,7 +119,8 @@ class TerminalController:
         "system": modelOnly("The system the terminals belong to"),
         "settings": cpv("SL:TB", "SL:UB", source="COC.txt:2028, COC.txt:2872"),
         "lines": cpv("LB:UN", source="SCHED.txt:1859"),
-        "session": modelOnly("The program a logged-on user runs; stands for TEL"),
+        "session": modelOnly("Makes the program a logged-on user runs, given the line; "
+                             "stands for TEL"),
         "onlineUsers": cpv("S:OUIS", source="SSDAT.txt:53, STEP.txt:159",
                            note="Counted up at log-on, down when the user is removed"),
     }
@@ -185,37 +199,49 @@ class TerminalController:
 
     # --- What the user's program asks for -----------------------------------------------
 
-    @cpv("COCRD", "E:CRD", source="COC.txt:2287-2606",
+    @cpv("M:UC", source="UCAL.txt:1172")
+    def terminalDcb(self, user):
+        """The user's terminal DCB (``M:UC``)."""
+        if user.line is None:
+            raise RuntimeError(f"{user.name} has no terminal")
+        return user.line.dcb
+
+    @cpv("COCRD", "E:CRD", "C:REG", source="COC.txt:2287-2606",
          note="CP-V echoes type-ahead when the read starts, then waits for an activation")
     def read(self, user):
-        """The typed line, or None when the user must wait for one (they are then
-        waiting, or, if the input came early, still running)."""
+        """The next typed line. With none typed yet, the user waits for one
+        (``AWAITING_TERMINAL_INPUT``), unless the input comes before they block."""
         line = user.line
-        if line.typedLines:
-            text = line.typedLines.popleft()
-            line.transcript.append(text + "\n")
-            return text
-        line.readPending = True
-        self.system.scheduler.report(user, Event.TERMINAL_READ)
-        return None
+        while True:
+            if line.typedLines:
+                text = line.typedLines.popleft()
+                line.transcript.append(text + "\n")
+                return text
+            line.readPending = True
+            self.system.scheduler.report(user, Event.TERMINAL_READ)
+            if not UserContext.inUser():
+                return None
+            if user is not self.system.scheduler.currentUser:
+                self.system.contexts[user].suspend()
 
     @cpv("COCWR", "SL:TB", "E:CBL", source="COC.txt:2864-2890",
          note="The limit is checked before the record goes into the buffers")
     def write(self, user, text):
-        """Send ``text`` to the user's terminal. Returns False if the user was blocked
-        instead, to write once the output has drained."""
+        """Send ``text`` to the user's terminal. With ``outputBlockLimit`` characters still
+        to go out, the user waits (``OUTPUT_BLOCKED``) until the output has drained."""
         line = user.line
-        self.drain(line)
-        if line.outputCount >= self.settings.outputBlockLimit:
+        while True:
+            self.drain(line)
+            if line.outputCount < self.settings.outputBlockLimit or not UserContext.inUser():
+                line.outputCount += len(text)
+                line.transcript.append(text)
+                return
             self.system.scheduler.report(user, Event.OUTPUT_BLOCKED)
             waitFor = (line.outputCount - self.settings.outputUnblockLimit) \
                 * self.settings.ticksPerCharacter
             self.system.futureEvents.schedule(self.system.clock + waitFor,
                                               lambda: self.outputDrained(line), user)
-            return False
-        line.outputCount += len(text)
-        line.transcript.append(text)
-        return True
+            self.system.contexts[user].suspend()
 
     @cpv("SL:UB", "E:CUB", source="COC.txt:2020-2044",
          note="The output interrupt sends a character; at SL:UB a blocked user is released")

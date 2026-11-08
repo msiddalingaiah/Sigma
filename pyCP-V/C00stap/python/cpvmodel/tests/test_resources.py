@@ -2,12 +2,10 @@
 
 import pytest
 
-from cpvmodel import (Compute, Event, InconsistentEvent, OpenClose, Release, Resource,
-                      SchedulerSettings, System, UserState, WaitFor)
+from cpvmodel import Event, InconsistentEvent, Resource, SchedulerSettings, System, UserState
 
+from .scripts import Script, compute, monitorEvent, openClose
 
-def program(*steps):
-    yield from steps
 
 
 def happened(system, name, what):
@@ -20,9 +18,9 @@ def releaseOrder(system):
 
 def testAUserBlocksAndAFlushReleasesEveryone():
     system = System()
-    a = system.startUser("a", program(WaitFor(Resource.DISC_PAGE), Compute(1)), priority=0xF8)
-    b = system.startUser("b", program(WaitFor(Resource.DISC_PAGE), Compute(1)), priority=0xF8)
-    system.startUser("mm", program(Compute(50), Release(Resource.DISC_PAGE)), priority=0xFC)
+    a = system.startUser("a", Script(monitorEvent(Event.RESOURCE_BLOCK, Resource.DISC_PAGE), compute(1)), priority=0xF8)
+    b = system.startUser("b", Script(monitorEvent(Event.RESOURCE_BLOCK, Resource.DISC_PAGE), compute(1)), priority=0xF8)
+    system.startUser("mm", Script(compute(50), monitorEvent(Event.RESOURCE_RELEASE, Resource.DISC_PAGE)), priority=0xFC)
     system.run(tickLimit=10)
     assert a.state is b.state is UserState.AWAITING_RESOURCE
     assert a.blockedOn is Resource.DISC_PAGE
@@ -33,7 +31,7 @@ def testAUserBlocksAndAFlushReleasesEveryone():
 
 def testAReleasedUserGetsTheSpecialComputeBoost():
     system = System()
-    a = system.startUser("a", program(WaitFor(Resource.DISC_PAGE), Compute(1)), priority=0xF8)
+    a = system.startUser("a", Script(monitorEvent(Event.RESOURCE_BLOCK, Resource.DISC_PAGE), compute(1)), priority=0xF8)
     system.run(tickLimit=1)
     system.scheduler.report(a, Event.RESOURCE_RELEASE, Resource.DISC_PAGE)
     assert a.state is UserState.READY
@@ -42,14 +40,14 @@ def testAReleasedUserGetsTheSpecialComputeBoost():
 
 def testReleaseWithNobodyWaitingDoesNothing():
     system = System()
-    user = system.startUser("a", program(Release(Resource.DISC_PAGE), Compute(1)), priority=0xF8)
+    user = system.startUser("a", Script(monitorEvent(Event.RESOURCE_RELEASE, Resource.DISC_PAGE), compute(1)), priority=0xF8)
     assert system.run() == "shutdown"
     assert releaseOrder(system) == []
 
 
 def testBlockingIsOnlyForTheRunningUser():
     system = System()
-    user = system.startUser("a", program(), priority=0xF8)
+    user = system.startUser("a", Script(), priority=0xF8)
     with pytest.raises(InconsistentEvent):
         system.scheduler.report(user, Event.RESOURCE_BLOCK, Resource.DISC_PAGE)
 
@@ -59,7 +57,7 @@ def openCloseContention():
     and block, while a holds the open/close."""
     system = System(settings=SchedulerSettings(quantum=20))
     for name in ("a", "b", "c"):
-        system.startUser(name, program(OpenClose(50)), priority=0xF8)
+        system.startUser(name, Script(openClose(50)), priority=0xF8)
     assert system.run() == "shutdown"
     return system
 
@@ -87,8 +85,8 @@ def testOpenCloseWaitersAreReleasedLastInFirstOut():
 
 def testASpecificReleaseReleasesOnlyThatUser():
     system = System()
-    a = system.startUser("a", program(WaitFor(Resource.ENQUEUE), Compute(1)), priority=0xF8)
-    b = system.startUser("b", program(WaitFor(Resource.ENQUEUE), Compute(1)), priority=0xF8)
+    a = system.startUser("a", Script(monitorEvent(Event.RESOURCE_BLOCK, Resource.ENQUEUE), compute(1)), priority=0xF8)
+    b = system.startUser("b", Script(monitorEvent(Event.RESOURCE_BLOCK, Resource.ENQUEUE), compute(1)), priority=0xF8)
     system.run(tickLimit=1)
     system.scheduler.report(a, Event.RESOURCE_RELEASE, Resource.ENQUEUE)
     assert a.state is UserState.READY
@@ -97,8 +95,8 @@ def testASpecificReleaseReleasesOnlyThatUser():
 
 def testASpecificReleaseForAUserWhoIsntBlockedDoesNothing():
     system = System()
-    a = system.startUser("a", program(WaitFor(Resource.ENQUEUE), Compute(1)), priority=0xF8)
-    other = system.startUser("other", program(Compute(5)), priority=0xFC)
+    a = system.startUser("a", Script(monitorEvent(Event.RESOURCE_BLOCK, Resource.ENQUEUE), compute(1)), priority=0xF8)
+    other = system.startUser("other", Script(compute(5)), priority=0xFC)
     system.run(tickLimit=1)
     system.scheduler.report(other, Event.RESOURCE_RELEASE, Resource.ENQUEUE)
     assert a.state is UserState.AWAITING_RESOURCE
@@ -106,7 +104,7 @@ def testASpecificReleaseForAUserWhoIsntBlockedDoesNothing():
 
 def testAnAbortReleasesAUserWaitingInEnq():
     system = System()
-    a = system.startUser("a", program(WaitFor(Resource.ENQUEUE), Compute(1)), priority=0xF8)
+    a = system.startUser("a", Script(monitorEvent(Event.RESOURCE_BLOCK, Resource.ENQUEUE), compute(1)), priority=0xF8)
     system.reportAt(30, a, Event.ABORT)
     assert system.run() == "shutdown"
     assert happened(system, "a", "ended: aborted") == [30]
@@ -114,7 +112,7 @@ def testAnAbortReleasesAUserWaitingInEnq():
 
 def testAnAbortWaitsForTheReleaseOfOtherResources():
     system = System()
-    a = system.startUser("a", program(WaitFor(Resource.DISC_PAGE), Compute(1)), priority=0xF8)
+    a = system.startUser("a", Script(monitorEvent(Event.RESOURCE_BLOCK, Resource.DISC_PAGE), compute(1)), priority=0xF8)
     system.reportAt(30, a, Event.ABORT)
     system.run(tickLimit=60)
     assert a.state is UserState.AWAITING_RESOURCE           # flagged, still blocked

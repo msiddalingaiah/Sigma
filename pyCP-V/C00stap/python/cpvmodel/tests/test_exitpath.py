@@ -1,11 +1,9 @@
 """The exit path: quanta, preemption, the minimum run, and signals."""
 
-from cpvmodel import (Break, Compute, DoIo, Event, SchedulerSettings, Sleep, System,
-                      UserState)
+from cpvmodel import Break, Event, Program, SchedulerSettings, System, UserState
 
+from .scripts import Script, compute, io, sleep
 
-def program(*steps):
-    yield from steps
 
 
 def happened(system, name, what):
@@ -19,7 +17,7 @@ def dispatchTimes(system, name):
 
 def testALongComputeIsCutIntoQuanta():
     system = System(settings=SchedulerSettings(quantum=100))
-    system.startUser("cruncher", program(Compute(250)), priority=0xF8)
+    system.startUser("cruncher", Script(compute(250)), priority=0xF8)
     assert system.run() == "shutdown"
     assert happened(system, "cruncher", "quantum ended") == [100, 200]
     assert system.clock == 250
@@ -27,8 +25,8 @@ def testALongComputeIsCutIntoQuanta():
 
 def testEqualUsersAlternateAtQuantumEnds():
     system = System(settings=SchedulerSettings(quantum=100))
-    system.startUser("alpha", program(Compute(200)), priority=0xF8)
-    system.startUser("beta", program(Compute(200)), priority=0xF8)
+    system.startUser("alpha", Script(compute(200)), priority=0xF8)
+    system.startUser("beta", Script(compute(200)), priority=0xF8)
     system.run()
     # Each finishes its step exactly as its second quantum ends, so it is dispatched once
     # more only to end (its exit CAL).
@@ -40,8 +38,8 @@ def preemptionScenario(minimumRun, ioTicks):
     """The cruncher's first quantum ends at 100. The editor then starts I/O and the cruncher
     runs again, now at its base X'F8'. When the I/O ends the editor is ready at X'F6'."""
     system = System(settings=SchedulerSettings(quantum=100, minimumRun=minimumRun))
-    system.startUser("cruncher", program(Compute(1000)), priority=0xF8)
-    system.startUser("editor", program(DoIo(ioTicks), Compute(5)), priority=0xF8)
+    system.startUser("cruncher", Script(compute(1000)), priority=0xF8)
+    system.startUser("editor", Script(io(ioTicks), compute(5)), priority=0xF8)
     system.run()
     return system
 
@@ -65,12 +63,22 @@ def testWithNoMinimumRunThePreemptionIsImmediate():
     assert happened(system, "cruncher", "preempted") == [205]
 
 
+class BreakCatcher(Program):
+    """Computes, and has a break routine: it catches Break and computes a little more."""
+
+    def __init__(self, log):
+        self.log = log
+
+    def run(self, m):
+        try:
+            self.compute(1000)
+        except Break:
+            self.log.append("caught")
+            self.compute(5)
+
+
 def breakCatcher(log):
-    try:
-        yield Compute(1000)
-    except Break:
-        log.append("caught")
-        yield Compute(5)
+    return BreakCatcher(log)
 
 
 def testABreakIsThrownIntoTheProgram():
@@ -86,7 +94,7 @@ def testABreakIsThrownIntoTheProgram():
 
 def testAnUncaughtBreakGoesBackToTheCommandProcessor():
     system = System()
-    user = system.startUser("plain", program(Compute(1000)), priority=0xF8)
+    user = system.startUser("plain", Script(compute(1000)), priority=0xF8)
     system.reportAt(50, user, Event.BREAK)
     system.run()
     assert happened(system, "plain",
@@ -95,7 +103,7 @@ def testAnUncaughtBreakGoesBackToTheCommandProcessor():
 
 def testAbortWakesASleeper():
     system = System()
-    user = system.startUser("sleeper", program(Sleep(500), Compute(5)), priority=0xF8)
+    user = system.startUser("sleeper", Script(sleep(500), compute(5)), priority=0xF8)
     system.reportAt(100, user, Event.ABORT)
     assert system.run() == "shutdown"
     assert happened(system, "sleeper", "ABORT: ASLEEP -> READY") == [100]
@@ -105,7 +113,7 @@ def testAbortWakesASleeper():
 
 def testAnErrorWaitsForTheIoToFinish():
     system = System()
-    user = system.startUser("reader", program(DoIo(100), Compute(5)), priority=0xF8)
+    user = system.startUser("reader", Script(io(100), compute(5)), priority=0xF8)
     system.reportAt(20, user, Event.ERROR)
     system.run(tickLimit=50)
     assert user.state is UserState.IO_WAIT      # flagged, not woken

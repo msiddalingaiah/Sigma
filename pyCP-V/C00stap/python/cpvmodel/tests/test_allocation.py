@@ -1,26 +1,14 @@
 """Granule allocation: the bit map, the stack and its thresholds, and the ALLOCAT ghost."""
 
-import pytest
-
-from cpvmodel import (Close, Compute, FileMode, FileSystemSettings, Open, Sleep, System,
-                      UserState, WriteRecord)
-from cpvmodel.filesystem import DISC_FULL, AllocationMap, Disc, GranuleShortage
+from cpvmodel import FileMode, FileSystemSettings, Program, System, UserState
+from cpvmodel.filesystem import AllocationMap, Disc
 from cpvmodel.scheduler.statequeues import REAL_TIME_BAND
 
-
-def program(*steps):
-    yield from steps
-
-
-def happened(system, name, what):
-    return [entry.time for entry in system.trace if entry.user == name and entry.what == what]
+from .scripts import Script, Writer, compute, fileDcb, happened
 
 
 def bigWriter(records, size=2000):
-    handle = yield Open("BIG", FileMode.OUT)
-    for _ in range(records):
-        yield WriteRecord(handle, "X" * size)
-    yield Close(handle)
+    return Writer("BIG", ["X" * size] * records)
 
 
 # --- The map --------------------------------------------------------------------------------
@@ -92,14 +80,20 @@ def testAReleaseWithTheStackFullGoesToAllocat():
     assert disc.freeCount() == 400
 
 
-def testAUserWhoNeedsMoreThanTheStackHasMustWait():
+def testAUserWithTheStackEmptyWaitsInTheMiddleOfAWrite():
+    """GETGRAN finds the stack empty partway through a write: the user waits for ALLOCAT's
+    fill (E:QFAC), then the write goes on where it stopped."""
     system = System()
     allocator = system.files.disc.allocator
-    while allocator.stack.count() > 2:
-        allocator.get()
-    with pytest.raises(GranuleShortage):
-        allocator.ensure(3)
-    assert allocator.allocatRunning
+    writer = system.startUser("writer", Writer("BIG", ["X" * 5000]), priority=0xF8)
+    for address in allocator.stack.addresses:          # empty, without waking ALLOCAT
+        allocator.map.give(address)
+    allocator.stack.addresses.clear()
+    assert system.run() == "shutdown"
+    assert happened(system, "writer", "waits for granules")
+    assert happened(system, "writer", "released from ALLOCATOR")
+    file, _ = system.files.lookUp("GUEST", "BIG")
+    assert len(file.granules) == 3
 
 
 # --- With the scheduler -----------------------------------------------------------------------
@@ -138,8 +132,8 @@ def testABoostBelowX_C0_QueuesABackgroundUserAsRealTime():
     """CP-V quirk (CHSE1, CHSRT): the test is on the boosted priority. A user with base
     X'C2' starts 6 below it, at X'BC': real time, so into the real-time band, at the base."""
     system = System()
-    early = system.startUser("early", program(Compute(10)), priority=0xE0)
-    late = system.startUser("late", program(Compute(10)), priority=0xC2)
+    early = system.startUser("early", Script(compute(10)), priority=0xE0)
+    late = system.startUser("late", Script(compute(10)), priority=0xC2)
     queues = system.scheduler.stateQueues
     assert queues.bandOf[late] == REAL_TIME_BAND and late.priority == 0xC2
     assert system.scheduler.dispatch() is late
@@ -148,14 +142,16 @@ def testABoostBelowX_C0_QueuesABackgroundUserAsRealTime():
 def testAFileLeftOpenIsClosedEvenWithTheStackShort():
     """The program ends with its file open and the stack empty: the monitor closes it at
     step end without waiting, taking the directory's granule from the map."""
-    def leaver():
-        handle = yield Open("LEFT", FileMode.OUT)
-        yield WriteRecord(handle, "data")
-        yield Sleep(100)
+    class Leaver(Program):
+        def run(self, m):
+            out = fileDcb("LEFT", FileMode.OUT)
+            m.open(out)
+            m.write(out, "data")
+            m.wait(100)
 
     system = System()
     allocator = system.files.disc.allocator
-    leaverUser = system.startUser("leaver", leaver(), priority=0xF8)
+    leaverUser = system.startUser("leaver", Leaver(), priority=0xF8)
     system.run(tickLimit=50)
     assert leaverUser.state is UserState.ASLEEP
     while allocator.stack.count() > 0:

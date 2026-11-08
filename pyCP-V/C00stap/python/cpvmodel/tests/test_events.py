@@ -2,12 +2,10 @@
 
 import pytest
 
-from cpvmodel import (Compute, DoIo, Event, InconsistentEvent, Sleep, System, UserState,
-                      Yield)
+from cpvmodel import Event, InconsistentEvent, System, UserState
 
+from .scripts import Script, compute, io, monitorEvent, sleep
 
-def program(*steps):
-    yield from steps
 
 
 def statesOf(system, name):
@@ -16,7 +14,7 @@ def statesOf(system, name):
 
 def testSleepThenWakeUpWithTheSpecialComputeBoost():
     system = System()
-    user = system.startUser("sleeper", program(Sleep(50), Compute(1)), priority=0xF8)
+    user = system.startUser("sleeper", Script(sleep(50), compute(1)), priority=0xF8)
     system.scheduler.dispatch()
     system.execute(user)
     assert user.state is UserState.ASLEEP
@@ -28,7 +26,7 @@ def testSleepThenWakeUpWithTheSpecialComputeBoost():
 
 def testIoWaitEndsWhenTheIoCompletesWithTheIoBoost():
     system = System()
-    user = system.startUser("reader", program(DoIo(20), Compute(1)), priority=0xF8)
+    user = system.startUser("reader", Script(io(20), compute(1)), priority=0xF8)
     system.scheduler.dispatch()
     system.execute(user)
     assert user.state is UserState.IO_WAIT
@@ -41,7 +39,7 @@ def testIoWaitEndsWhenTheIoCompletesWithTheIoBoost():
 
 def testIoAlreadyDoneMeansNoWait():
     system = System()
-    user = system.startUser("fast", program(), priority=0xF8)
+    user = system.startUser("fast", Script(), priority=0xF8)
     system.scheduler.dispatch()
     system.scheduler.report(user, Event.IO_STARTED)        # UB:MF is 0: GRANT
     assert user.state is UserState.RUNNING
@@ -50,22 +48,22 @@ def testIoAlreadyDoneMeansNoWait():
 
 def testWakeUpForAUserWhoIsNotAsleepIsIgnored():
     system = System()
-    user = system.startUser("alpha", program(), priority=0xF8)
+    user = system.startUser("alpha", Script(), priority=0xF8)
     system.scheduler.report(user, Event.WAKE_UP)
     assert user.state is UserState.READY
 
 
 def testSleepWhileReadyIsInconsistent():
     system = System()
-    user = system.startUser("alpha", program(), priority=0xF8)
+    user = system.startUser("alpha", Script(), priority=0xF8)
     with pytest.raises(InconsistentEvent):
         system.scheduler.report(user, Event.SLEEP)
 
 
 def testYieldGoesBehindEqualPriorities():
     system = System()
-    system.startUser("polite", program(Yield(), Compute(1)), priority=0xF8)
-    system.startUser("other", program(Compute(1)), priority=0xF8)
+    system.startUser("polite", Script(monitorEvent(Event.YIELD), compute(1)), priority=0xF8)
+    system.startUser("other", Script(compute(1)), priority=0xF8)
     system.run()
     order = [entry.user for entry in system.trace if entry.what.startswith("dispatched")]
     assert order[:3] == ["polite", "other", "polite"]
@@ -73,7 +71,7 @@ def testYieldGoesBehindEqualPriorities():
 
 def testRealTimeUsersDontFloat():
     system = System()
-    user = system.startUser("rt", program(), priority=0x80)
+    user = system.startUser("rt", Script(), priority=0x80)
     assert user.priority == 0x80
 
 
@@ -82,8 +80,8 @@ def testANewcomersBoostCanOutrankAnIoBoost():
     When the editor's I/O ends at 30 it is ready at X'F6', less urgent than X'F3', so the
     cruncher isn't preempted. The editor runs when the cruncher's quantum ends at 250."""
     system = System()
-    system.startUser("editor", program(DoIo(30), Compute(5)), priority=0xF8)
-    system.startUser("cruncher", program(Compute(400)), priority=0xF8)
+    system.startUser("editor", Script(io(30), compute(5)), priority=0xF8)
+    system.startUser("cruncher", Script(compute(400)), priority=0xF8)
     assert system.run() == "shutdown"
     assert statesOf(system, "editor") == ["IO_STARTED: RUNNING -> IO_WAIT",
                                           "IO_COMPLETE: IO_WAIT -> READY"]
@@ -95,7 +93,7 @@ def testANewcomersBoostCanOutrankAnIoBoost():
 
 def testIdleUntilTheNextEvent():
     system = System()
-    system.startUser("sleeper", program(Sleep(100), Compute(1)), priority=0xF8)
+    system.startUser("sleeper", Script(sleep(100), compute(1)), priority=0xF8)
     assert system.run() == "shutdown"
     assert any(entry.what == "idle" for entry in system.trace)
     assert system.clock == 101
@@ -103,7 +101,7 @@ def testIdleUntilTheNextEvent():
 
 def testAUserWaitingForeverLeavesTheSystemStuck():
     system = System()
-    user = system.startUser("waiter", program(), priority=0xF8)
+    user = system.startUser("waiter", Script(), priority=0xF8)
     system.scheduler.dispatch()
     system.scheduler.report(user, Event.WAIT_FOR_INTERRUPT)
     assert system.run() == "stuck"

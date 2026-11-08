@@ -4,14 +4,12 @@ import random
 
 import pytest
 
-from cpvmodel import (Close, FileError, FileMode, FileSystemSettings, Open, Organization,
-                      ReadRecord, System, WriteRecord)
+from cpvmodel import FileError, FileMode, FileSystemSettings, Organization, Program, System
 from cpvmodel.filesystem import (FILE_ENTRY, KEY_NOT_FOUND, NO_KEY, Directory, Disc,
                                  IndexChain, KeyedFile)
 
 
-def program(*steps):
-    yield from steps
+from .scripts import Script, fileDcb, openFile
 
 
 def keys(count, prefix="K"):
@@ -24,10 +22,10 @@ def newChain(spare=102):
 
 def keyedFile(system, user, name, records, keyLength=11):
     files = system.files
-    handle = files.openFile(user, name, FileMode.OUT, organization=Organization.KEYED)
+    dcb = openFile(files, user, name, FileMode.OUT, organization=Organization.KEYED)
     for key, text in records:
-        files.writeRecord(handle, text, key)
-    files.closeFile(handle)
+        files.write(user, dcb, text, key)
+    files.close(user, dcb)
     return files.lookUp(user.account, name)[0]
 
 
@@ -99,46 +97,46 @@ def testABlockThePyramidPointsAtKeepsItsFirstKey():
 
 def testRecordsAreFoundByKeyAndReadInKeyOrder():
     system = System()
-    user = system.startUser("u", program(), priority=0xF8)
+    user = system.startUser("u", Script(), priority=0xF8)
     keyedFile(system, user, "PHONE", [("SMITH", "555-1234"), ("ADAMS", "555-9876"),
                                       ("JONES", "555-4444")])
     files = system.files
-    handle = files.openFile(user, "PHONE", FileMode.IN)
-    assert files.readRecord(handle, "JONES") == "555-4444"
-    ordered = files.openFile(user, "PHONE", FileMode.IN)
-    assert [files.readRecord(ordered) for _ in range(4)] == ["555-9876", "555-4444",
+    handle = openFile(files, user, "PHONE")
+    assert files.read(user, handle, "JONES") == "555-4444"
+    ordered = openFile(files, user, "PHONE")
+    assert [files.read(user, ordered) for _ in range(4)] == ["555-9876", "555-4444",
                                                              "555-1234", None]
 
 
 def testAMissingKeyIsAnError():
     system = System()
-    user = system.startUser("u", program(), priority=0xF8)
+    user = system.startUser("u", Script(), priority=0xF8)
     keyedFile(system, user, "F", [("A", "1")])
-    handle = system.files.openFile(user, "F", FileMode.IN)
+    handle = openFile(system.files, user, "F")
     with pytest.raises(FileError) as error:
-        system.files.readRecord(handle, "B")
+        system.files.read(user, handle, "B")
     assert error.value.code == KEY_NOT_FOUND
 
 
 def testAKeyedWriteNeedsAKey():
     system = System()
-    user = system.startUser("u", program(), priority=0xF8)
-    handle = system.files.openFile(user, "F", FileMode.OUT, organization=Organization.KEYED)
+    user = system.startUser("u", Script(), priority=0xF8)
+    handle = openFile(system.files, user, "F", FileMode.OUT, organization=Organization.KEYED)
     with pytest.raises(FileError) as error:
-        system.files.writeRecord(handle, "no key")
+        system.files.write(user, handle, "no key")
     assert error.value.code == NO_KEY
 
 
 def testWritingAKeyAgainReplacesTheRecord():
     system = System()
-    user = system.startUser("u", program(), priority=0xF8)
+    user = system.startUser("u", Script(), priority=0xF8)
     file = keyedFile(system, user, "F", [("A", "first"), ("A", "second")])
     assert file.read("A")[0] == "second"
 
 
 def testALongRecordSpansDataGranules():
     system = System()
-    user = system.startUser("u", program(), priority=0xF8)
+    user = system.startUser("u", Script(), priority=0xF8)
     file = keyedFile(system, user, "F", [("BIG", "Y" * 5000)])
     text, accesses = file.read("BIG")
     assert text == "Y" * 5000
@@ -148,10 +146,10 @@ def testALongRecordSpansDataGranules():
 def testThePyramidIsBuiltAtCloseOnlyPastTheSlideLimit():
     records = [(key, key) for key in keys(1000)]
     loose = System(fileSettings=FileSystemSettings(rebuildAfterSlides=254))
-    user = loose.startUser("u", program(), priority=0xF8)
+    user = loose.startUser("u", Script(), priority=0xF8)
     assert keyedFile(loose, user, "F", records).index.pyramid is None
     eager = System(fileSettings=FileSystemSettings(rebuildAfterSlides=4))
-    user = eager.startUser("u", program(), priority=0xF8)
+    user = eager.startUser("u", Script(), priority=0xF8)
     file = keyedFile(eager, user, "F", records)
     assert file.index.pyramid is not None
     assert file.read("K00999")[1] < loose.files.lookUp("GUEST", "F")[0].read("K00999")[1]
@@ -159,7 +157,7 @@ def testThePyramidIsBuiltAtCloseOnlyPastTheSlideLimit():
 
 def testReplacingAKeyedFileReleasesAllItsGranules():
     system = System()
-    user = system.startUser("u", program(), priority=0xF8)
+    user = system.startUser("u", Script(), priority=0xF8)
     before = system.files.disc.freeCount()
     records = [(key, "X" * 100) for key in keys(400)]
     keyedFile(system, user, "F", records)
@@ -170,21 +168,25 @@ def testReplacingAKeyedFileReleasesAllItsGranules():
 
 
 def testAProgramUsesAKeyedFile():
-    found = []
+    class PhoneBook(Program):
+        def __init__(self):
+            self.book = fileDcb("PHONE", organization=Organization.KEYED)
+            self.found = None
 
-    def phoneBook():
-        out = yield Open("PHONE", FileMode.OUT, organization=Organization.KEYED)
-        yield WriteRecord(out, "555-1234", key="SMITH")
-        yield WriteRecord(out, "555-9876", key="ADAMS")
-        yield Close(out)
-        book = yield Open("PHONE", FileMode.IN)
-        found.append((yield ReadRecord(book, key="ADAMS")))
-        yield Close(book)
+        def run(self, m):
+            m.open(self.book, mode=FileMode.OUT)
+            m.write(self.book, "555-1234", key="SMITH")
+            m.write(self.book, "555-9876", key="ADAMS")
+            m.close(self.book)
+            m.open(self.book, mode=FileMode.IN)
+            self.found = m.read(self.book, key="ADAMS")
+            m.close(self.book)
 
     system = System()
-    system.startUser("u", phoneBook(), priority=0xF8)
+    phoneBook = PhoneBook()
+    system.startUser("u", phoneBook, priority=0xF8)
     assert system.run() == "shutdown"
-    assert found == ["555-9876"]
+    assert phoneBook.found == "555-9876"
 
 
 # --- Directories ----------------------------------------------------------------------------
@@ -201,10 +203,10 @@ def testABigDirectoryTakesLongerToSearch():
 def testOpeningAFileInABigAccountCostsMoreDiscAccesses():
     system = System(fileSettings=FileSystemSettings(discGranules=1000))
     files = system.files
-    user = system.startUser("u", program(), priority=0xF8)
+    user = system.startUser("u", Script(), priority=0xF8)
     for name in keys(200, "F"):
-        handle = files.openFile(user, name, FileMode.OUT)
-        files.closeFile(handle)
-    first = files.openFile(user, "F00000", FileMode.IN).takeDiscAccesses()
-    last = files.openFile(user, "F00199", FileMode.IN).takeDiscAccesses()
-    assert last > first
+        files.close(user, openFile(files, user, name, FileMode.OUT))
+    first, last = fileDcb("F00000"), fileDcb("F00199")
+    files.connect(user, first)
+    files.connect(user, last)
+    assert last.takeDiscAccesses() > first.takeDiscAccesses()

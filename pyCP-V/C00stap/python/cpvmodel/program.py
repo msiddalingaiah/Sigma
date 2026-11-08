@@ -1,122 +1,32 @@
-"""What a user's program can ask for. A program is a generator that yields these."""
-
-from dataclasses import dataclass
+"""A user's program: a class whose ``run`` makes CALs on the Monitor."""
 
 from .glossary import modelOnly
 
 
-@modelOnly("A stand-in for user code running in slave mode until the clock-4 interrupt")
-@dataclass
-class Compute:
-    """Run for ``ticks`` clock ticks."""
-    ticks: int
+@modelOnly("A user's program; in CP-V a load module the user runs")
+class Program:
+    """A user's program. A subclass writes ``run(self, m)``: ``m`` is the ``Monitor``, whose
+    methods are the CALs, so CP-V's ``M:READ`` is ``m.read(dcb)``. A program declares its DCBs
+    as attributes. Computing isn't a CAL; it is the program's own ``self.compute(ticks)``.
 
+    The program runs in its user's thread, which the system suspends and resumes: in a CAL
+    that waits, while computing, and when the user is preempted or swapped out. The program
+    doesn't see any of that; a CAL just returns when it is done.
+    """
 
-@modelOnly("Stands for a wait CAL: the monitor reports E:SL, and CLOCK4 reports E:WU later")
-@dataclass
-class Sleep:
-    """Sleep for ``ticks``, then wake up."""
-    ticks: int
+    context = None
 
+    @modelOnly("The program; it ends when this returns")
+    def run(self, m):
+        raise NotImplementedError
 
-@modelOnly("Stands for a read or write CAL: IOQ starts the I/O (UB:MF + 1), the monitor "
-           "reports E:IIP, and the device's completion reports E:IC")
-@dataclass
-class DoIo:
-    """Start an I/O that takes ``ticks``, and wait for it."""
-    ticks: int
-
-
-@modelOnly("Stands for giving up the processor, as RDL's TIMSUP does (E:QE)")
-@dataclass
-class Yield:
-    """Go to the back of the queue."""
+    @modelOnly("The program's own work: run for ``ticks``. The clock, the quantum and "
+               "interrupts may cut it into slices; the program doesn't notice")
+    def compute(self, ticks):
+        self.context.computeFor(ticks)
 
 
 @modelOnly("Entering the user's break routine (M:INT) after a break key")
 class Break(Exception):
-    """Thrown into a program when the user presses break. A program that catches it goes on;
+    """Raised in a program when the user presses break. A program that catches it goes on;
     one that doesn't goes back to the command processor."""
-
-
-@modelOnly("Stands for a CAL that reports a resource's block event through T:REG")
-@dataclass
-class WaitFor:
-    """Block until ``resource`` (a scheduler ``Resource``) is released."""
-    resource: object
-
-
-@modelOnly("Stands for monitor code that reports a resource's release event (T:RE)")
-@dataclass
-class Release:
-    """Report that ``resource`` is available again."""
-    resource: object
-
-
-@modelOnly("Stands for the open/close part of an M:OPEN or M:CLOSE (CLS, OPNF)")
-@dataclass
-class OpenClose:
-    """Open or close a file: ``ticks`` of work that only one user at a time may do."""
-    ticks: int
-
-
-@modelOnly("The end of an OpenClose: give up being the open/close user")
-@dataclass
-class OpenCloseDone:
-    pass
-
-
-@modelOnly("Stands for an M:READ on the terminal (M:UC), which COC's COCRD does")
-@dataclass
-class ReadTerminal:
-    """Read a line from the user's terminal. The line is sent back into the program:
-    ``text = yield ReadTerminal()``."""
-
-
-@modelOnly("Stands for an M:WRITE on the terminal, which COC's COCWR does")
-@dataclass
-class WriteTerminal:
-    """Write ``text`` to the user's terminal."""
-    text: str
-
-
-@modelOnly("Stands for an M:OPEN of a file (OPNF)")
-@dataclass
-class Open:
-    """Open a file. ``mode`` is a ``FileMode``; ``account`` is the user's own by default; a
-    new file (OUT) has ``organization``, consecutive by default. The handle is sent back into
-    the program: ``handle = yield Open("DATA", FileMode.IN)``."""
-    name: str
-    mode: object
-    account: str = None
-    organization: object = None
-    size: int = None
-    password: str = None
-    protection: object = None
-
-
-@modelOnly("Stands for an M:READ on a file DCB (RDF)")
-@dataclass
-class ReadRecord:
-    """Read the record with ``key`` (a keyed file; a granule number in a random file), or
-    the next record; None is sent back at the end of the file. ``size`` is the bytes wanted
-    from a random file."""
-    handle: object
-    key: object = None
-    size: int = None
-
-
-@modelOnly("Stands for an M:WRITE on a file DCB (WRTF)")
-@dataclass
-class WriteRecord:
-    """Write a record; a keyed file needs its ``key``."""
-    handle: object
-    text: str
-    key: str = None
-
-
-@modelOnly("Stands for an M:CLOSE (CLS); release=True is its REL option, which deletes the file")
-@dataclass
-class Close:
-    handle: object
-    release: bool = False

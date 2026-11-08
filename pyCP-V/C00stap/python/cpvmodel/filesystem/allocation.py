@@ -4,16 +4,11 @@ ALLOCAT ghost that keeps the stack between its levels."""
 from dataclasses import dataclass
 
 from ..glossary import cpv, modelOnly
-from ..program import Compute, Release
-from ..scheduler import Resource
+from ..program import Program
+from ..scheduler import Event, Resource
+from ..usercontext import UserContext
 
 ALLOCAT_PRIORITY = 0xC0         # illustrative: a ghost's priority comes from its start
-
-
-@cpv("E:QFAC", "REG4CAT", source="GRAN.txt:202, GRAN.txt:301-308",
-     note="The stack is empty: the user is queued for ALLOCAT")
-class GranuleShortage(Exception):
-    """Not enough granules on the stack: the user waits for ALLOCAT to fill it."""
 
 
 @cpv("HGP", "GETBIT", "CMNRG", source="GRANSUB.txt:87-105, GRANSUB.txt:258, GRANSUB.txt:362",
@@ -123,8 +118,9 @@ class GranuleAllocator:
     """Granules for the file system, at three levels: the **stack** for speed, the **map** of
     every free granule, and the **ALLOCAT ghost**, which moves granules between them.
 
-    - **Get** pops the stack. A user who finds too few waits on the ``ALLOCATOR`` resource
-      (``E:QFAC``) while ALLOCAT fills it; the monitor's own needs go to the map directly.
+    - **Get** pops the stack. A user who finds it empty waits on the ``ALLOCATOR`` resource
+      (``E:QFAC``) while ALLOCAT fills it, then goes on. Work the monitor does outside any
+      user takes from the map directly.
     - **Release** pushes on the stack, or, with the stack full, leaves the granule for ALLOCAT.
     - **After either**, a count at a threshold starts ALLOCAT.
     - **ALLOCAT** fills a low stack up to ``highLevel`` from the map, or empties a high one down
@@ -135,7 +131,7 @@ class GranuleAllocator:
     In CP-V ALLOCAT is started at boot and sleeps between runs, and ``E:UQFAC`` comes from the
     swapper when it takes ALLOCAT out of core. The model starts ALLOCAT when it is needed,
     and it reports ``E:UQFAC`` itself as it ends. There is one stack (CP-V has one per device
-    type) and no messages for runs of granules (``GNBG``) yet.
+    type).
     """
 
     def __init__(self, system, granuleCount):
@@ -160,29 +156,36 @@ class GranuleAllocator:
                           note="ALLOCAT leaves the answer in the message buffer"),
     }
 
-    @cpv("GETGRAN", "REG4CAT", source="GRAN.txt:193-202",
-         note="Checked before a user's file operation starts, so it never stops half done")
-    def ensure(self, count):
-        """Make sure a user can take ``count`` granules from the stack, or raise
-        ``GranuleShortage`` (the user must wait) after starting ALLOCAT. When the map is
-        empty too, there is nothing to wait for: the operation goes on and fails if it runs
-        out."""
-        if self.stack.count() >= count:
-            return
-        if self.map.freeCount() + len(self.stack.pendingFill) == 0:
-            return
-        self.startAllocat()
-        raise GranuleShortage(f"{count} granules needed, {self.stack.count()} on the stack")
-
-    @cpv("GBG", "GETGRAN", "RELX", source="GRAN.txt:101-102, GRAN.txt:160, GRAN.txt:193",
-         note="A user with the stack empty waits (ensure); the monitor takes from the map")
+    @cpv("GBG", "GETGRAN", "REG4CAT", source="GRAN.txt:101-102, GRAN.txt:193-202",
+         note="CANT SWITCH - LETS REG HIM: a user with the stack empty waits for ALLOCAT")
     def get(self):
-        """A free granule's address, or None when there are none at all."""
-        if self.stack.addresses:
-            address = self.stack.addresses.pop()
-            self.checkThresholds()
-            return address
-        return self.map.take()
+        """A free granule's address, or None when there are none at all. A user who finds
+        the stack empty waits for ALLOCAT's fill, in the middle of whatever they were doing."""
+        while not self.stack.addresses:
+            if not self.canWait():
+                return self.map.take()
+            self.waitForAllocat()
+        address = self.stack.addresses.pop()
+        self.checkThresholds()
+        return address
+
+    @modelOnly("Whether a user may wait for ALLOCAT: in a user's CAL, with granules to "
+               "come, and ALLOCAT able to run")
+    def canWait(self):
+        if self.system is None or not UserContext.inUser():
+            return False
+        if self.map.freeCount() + len(self.stack.pendingFill) == 0:
+            return False
+        self.startAllocat()
+        return self.allocatRunning
+
+    @cpv("REGUSER", "E:QFAC", source="GRAN.txt:301-308")
+    def waitForAllocat(self):
+        scheduler = self.system.scheduler
+        user = scheduler.currentUser
+        self.system.log(user, "waits for granules")
+        scheduler.report(user, Event.RESOURCE_BLOCK, Resource.ALLOCATOR)
+        self.system.contexts[user].suspend()
 
     @cpv("RBG", "ROOM", "NORELROM", source="GRAN.txt:95, GRAN.txt:169-186")
     def release(self, address):
@@ -193,15 +196,21 @@ class GranuleAllocator:
         self.checkThresholds()
 
     @cpv("GNBG", source="GRAN.txt:253",
-         note="The user waits on E:QFAC until ALLOCAT has answered")
-    def requestRun(self, user, count):
+         note="A message to ALLOCAT; the user waits on E:QFAC until it has answered")
+    def getRun(self, count):
+        """``count`` contiguous granules' addresses, or None. Outside a user, straight from
+        the map."""
+        if self.system is None or not UserContext.inUser():
+            return self.map.takeRun(count)
+        user = self.system.scheduler.currentUser
         self.runRequests.append((user, count))
-        self.startAllocat()
-
-    @modelOnly("ALLOCAT's answer to a user's request: the addresses, [] for none, or None "
-               "if not answered yet")
-    def takeRunAnswer(self, user):
-        return self.runAnswers.pop(user, None)
+        while user not in self.runAnswers:
+            self.startAllocat()
+            if not self.allocatRunning:             # ALLOCAT can't run: do it here
+                self.runRequests.remove((user, count))
+                return self.map.takeRun(count)
+            self.waitForAllocat()
+        return self.runAnswers.pop(user) or None
 
     @cpv("RNBG", source="GRAN.txt:281", note="Release N granules: a message to ALLOCAT")
     def releaseRun(self, addresses):
@@ -222,7 +231,7 @@ class GranuleAllocator:
         if self.allocatRunning or self.system is None or not self.system.freeSlots:
             return
         self.allocatRunning = True
-        self.system.startUser("ALLOCAT", allocatProgram(self), priority=ALLOCAT_PRIORITY,
+        self.system.startUser("ALLOCAT", Allocat(self), priority=ALLOCAT_PRIORITY,
                               pages=2, account=":SYS")
 
     @cpv("ADJBUFS", "FILL", "EMPTY1", source="ALLYCAT.txt:330-410",
@@ -268,9 +277,19 @@ class GranuleAllocator:
 
 @cpv("ALLOCAT", "NOMORE", source="ALLYCAT.txt:253, ALLYCAT.txt:675",
      note="Each run: messages, then the stacks (ADJBUFS), then sleep")
-def allocatProgram(allocator):
-    """The ALLOCAT ghost: adjust the stack, taking a tick a granule moved, then report
-    ``E:UQFAC`` so the fill is committed and the users waiting for it are released."""
-    moved = allocator.adjust()
-    yield Compute(max(1, moved))
-    yield Release(Resource.ALLOCATOR)
+class Allocat(Program):
+    """The ALLOCAT ghost: adjust the stack, taking a tick for each granule moved, then report
+    ``E:UQFAC`` so the fill is committed and the users waiting for it go on. A ghost runs
+    monitor code, so it reports the event itself."""
+
+    def __init__(self, allocator):
+        self.allocator = allocator
+
+    cpvNames = {"allocator": cpv("GBG", source="GRAN.txt:95-117")}
+
+    @cpv("ALLOCAT", "E:UQFAC", source="ALLYCAT.txt:253, SWAPPER.txt:619")
+    def run(self, m):
+        moved = self.allocator.adjust()
+        self.compute(max(1, moved))
+        m.system.scheduler.report(m.user, Event.RESOURCE_RELEASE, Resource.ALLOCATOR)
+        m.endCal()

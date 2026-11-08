@@ -2,13 +2,11 @@
 
 import pytest
 
-from cpvmodel import (ALL, NONE, Close, FileError, FileMode, Open, Organization, Protection,
-                      System, WriteRecord)
-from cpvmodel.filesystem import ACCESS_REFUSED, NO_SUCH_FILE, GranuleShortage
+from cpvmodel import (ALL, NONE, FileError, FileMode, Organization, Program, Protection,
+                      System)
+from cpvmodel.filesystem import ACCESS_REFUSED, NO_SUCH_FILE
 
-
-def program(*steps):
-    yield from steps
+from .scripts import Script, fileDcb, openFile
 
 
 def setUp(protection=None, organization=Organization.CONSECUTIVE):
@@ -17,30 +15,25 @@ def setUp(protection=None, organization=Organization.CONSECUTIVE):
     system = System()
 
     def makeUser(account, privilege=0, name=None):
-        return system.startUser(name or account.lower(), program(), priority=0xF8,
+        return system.startUser(name or account.lower(), Script(), priority=0xF8,
                                 account=account, privilege=privilege)
 
     owner = makeUser("OWNER")
     files = system.files
-    try:
-        handle = files.openFile(owner, "DATA", FileMode.OUT, organization=organization,
-                                protection=protection, size=2)
-    except GranuleShortage:                     # a random file's run comes from ALLOCAT
-        system.run()
-        handle = files.openFile(owner, "DATA", FileMode.OUT, organization=organization,
-                                protection=protection, size=2)
-    files.closeFile(handle)
+    dcb = openFile(files, owner, "DATA", FileMode.OUT, organization=organization,
+                   protection=protection, size=2)
+    files.close(owner, dcb)
     return system, makeUser
 
 
 def refused(system, user, mode, password=None, account="OWNER"):
     with pytest.raises(FileError) as error:
-        system.files.openFile(user, "DATA", mode, account, password=password)
+        openFile(system.files, user, "DATA", mode, account=account, password=password)
     return error.value.code == ACCESS_REFUSED
 
 
 def opens(system, user, mode, password=None):
-    return system.files.openFile(user, "DATA", mode, "OWNER", password=password)
+    return openFile(system.files, user, "DATA", mode, account="OWNER", password=password)
 
 
 # --- SECCHK ---------------------------------------------------------------------------------
@@ -110,16 +103,17 @@ def testPrivilegeC0OpensAnything():
 def testCreatingAFileInAnotherAccountNeedsPrivilege():
     system, makeUser = setUp()
     with pytest.raises(FileError) as error:
-        system.files.openFile(makeUser("OTHER"), "NEW", FileMode.OUT, "OWNER")
+        openFile(system.files, makeUser("OTHER"), "NEW", FileMode.OUT, account="OWNER")
     assert error.value.code == ACCESS_REFUSED
-    assert system.files.openFile(makeUser("OPS", privilege=0xC0), "NEW", FileMode.OUT, "OWNER")
+    assert openFile(system.files, makeUser("OPS", privilege=0xC0), "NEW", FileMode.OUT,
+                    account="OWNER")
 
 
 def testRandomAndNonRandomFilesCantReplaceEachOther():
     system, makeUser = setUp(organization=Organization.RANDOM)
     owner = system.users[0]
     with pytest.raises(FileError) as error:
-        system.files.openFile(owner, "DATA", FileMode.OUT, organization=Organization.KEYED)
+        openFile(system.files, owner, "DATA", FileMode.OUT, organization=Organization.KEYED)
     assert error.value.code == ACCESS_REFUSED
 
 
@@ -130,20 +124,19 @@ def testClosingWithReleaseDeletesTheFile():
     owner = system.users[0]
     files = system.files
     before = files.disc.freeCount()
-    handle = files.openFile(owner, "DATA", FileMode.IN)
-    files.closeFile(handle, release=True)
+    files.close(owner, openFile(files, owner, "DATA"), release=True)
     assert files.fileNames("OWNER") == []
     assert files.disc.freeCount() >= before
     with pytest.raises(FileError) as error:
-        files.openFile(owner, "DATA", FileMode.IN)
+        openFile(files, owner, "DATA")
     assert error.value.code == NO_SUCH_FILE
 
 
 def testNothingIsDeletedWhileSomeoneElseHasItOpen():
     system, makeUser = setUp()
     owner, files = system.users[0], system.files
-    reader = files.openFile(makeUser("OTHER"), "DATA", FileMode.IN, "OWNER")
-    files.closeFile(files.openFile(owner, "DATA", FileMode.IN), release=True)
+    reader = openFile(files, makeUser("OTHER"), "DATA", account="OWNER")
+    files.close(owner, openFile(files, owner, "DATA"), release=True)
     assert files.fileNames("OWNER") == ["DATA"]
     assert reader.isOpen
 
@@ -151,34 +144,36 @@ def testNothingIsDeletedWhileSomeoneElseHasItOpen():
 def testAnotherAccountsFileIsntDeletedWithoutPrivilege():
     system, makeUser = setUp()
     files = system.files
-    files.closeFile(files.openFile(makeUser("OTHER"), "DATA", FileMode.IN, "OWNER"),
-                    release=True)
+    other = makeUser("OTHER")
+    files.close(other, openFile(files, other, "DATA", account="OWNER"), release=True)
     assert files.fileNames("OWNER") == ["DATA"]
-    files.closeFile(files.openFile(makeUser("OPS", privilege=0xC0), "DATA", FileMode.IN,
-                                   "OWNER"), release=True)
+    operator = makeUser("OPS", privilege=0xC0)
+    files.close(operator, openFile(files, operator, "DATA", account="OWNER"), release=True)
     assert files.fileNames("OWNER") == []
 
 
 def testReleasingANewFileDiscardsItAndKeepsTheOldOne():
     system, makeUser = setUp()
     owner, files = system.users[0], system.files
-    handle = files.openFile(owner, "DATA", FileMode.OUT)
-    files.writeRecord(handle, "replacement")
-    files.closeFile(handle, release=True)
-    old = files.openFile(owner, "DATA", FileMode.IN)
-    assert files.readRecord(old) is None         # the old, empty file is still there
+    out = openFile(files, owner, "DATA", FileMode.OUT)
+    files.write(owner, out, "replacement")
+    files.close(owner, out, release=True)
+    old = openFile(files, owner, "DATA")
+    assert files.read(owner, old) is None        # the old, empty file is still there
 
 
 def testAProgramDeletesAFile():
-    def deleter():
-        out = yield Open("TEMP", FileMode.OUT)
-        yield WriteRecord(out, "scratch")
-        yield Close(out)
-        again = yield Open("TEMP", FileMode.IN)
-        yield Close(again, release=True)
+    class Deleter(Program):
+        def run(self, m):
+            temp = fileDcb("TEMP")
+            m.open(temp, mode=FileMode.OUT)
+            m.write(temp, "scratch")
+            m.close(temp)
+            m.open(temp, mode=FileMode.IN)
+            m.close(temp, release=True)
 
     system = System()
-    system.startUser("deleter", deleter(), priority=0xF8)
+    system.startUser("deleter", Deleter(), priority=0xF8)
     system.run()
     assert system.files.fileNames("GUEST") == []
     assert any(entry.what == "deletes TEMP" for entry in system.trace)

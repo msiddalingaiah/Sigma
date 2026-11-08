@@ -2,6 +2,7 @@
 
 from ..glossary import cpv, modelOnly
 from ..user import UserState
+from ..usercontext import UserContext
 from .eventrouter import EventRouter
 from .events import Event, PriorityBoost
 from .exitpath import ExitPath
@@ -139,18 +140,20 @@ class Scheduler:
     @cpv("OPNCLSUS", "E:OCR", source="CLS.txt:1068-1085",
          note="In CP-V this is in CLS, OPNF and FIX1, not SCHED: wait with E:OCR until "
               "nobody else is the open/close user")
-    def claimOpenClose(self, user):
-        """Become the open/close user, or block until released. Returns True if claimed."""
-        holder = self.resources.openCloseUser
-        if holder is None or holder is user:
-            self.resources.openCloseUser = user
-            return True
-        self.report(user, Event.RESOURCE_BLOCK, Resource.OPEN_CLOSE)
-        return False
+    def acquireOpenClose(self, user):
+        """Become the open/close user, waiting on ``OPEN_CLOSE`` while someone else is.
+        Monitor work outside any user (at a job step's end) doesn't wait."""
+        while True:
+            holder = self.resources.openCloseUser
+            if holder is None or holder is user or not UserContext.inUser():
+                self.resources.openCloseUser = user
+                return
+            self.report(user, Event.RESOURCE_BLOCK, Resource.OPEN_CLOSE)
+            self.system.contexts[user].suspend()
 
     @cpv("OPNCLSUS", "E:NOCR", "R:OCR", source="IORT.txt:1050-1062",
          note="Clear OPNCLSUS and, if anyone waits, report E:NOCR (OPNUNBLOCK picks one)")
-    def endOpenClose(self, user):
+    def releaseOpenClose(self, user):
         self.resources.openCloseUser = None
         if self.resources.queues[Resource.OPEN_CLOSE]:
             self.report(user, Event.RESOURCE_RELEASE, Resource.OPEN_CLOSE)

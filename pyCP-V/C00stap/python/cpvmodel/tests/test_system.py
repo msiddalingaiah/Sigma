@@ -1,19 +1,20 @@
 """The System: starting users, dispatch order, priority boost and decay, shutdown.
 
-These tests use a quantum of 10 ticks, the length of most of their Compute steps, so each
+These tests use a quantum of 10 ticks, the length of most of their compute steps, so each
 step is one quantum."""
 
 import pytest
 
-from cpvmodel import Compute, NoFreeSlot, SchedulerSettings, StateQueues, System, UserState
+from cpvmodel import NoFreeSlot, SchedulerSettings, StateQueues, System, UserState
 from cpvmodel.scheduler.statequeues import BACKGROUND_BAND, FIRST_LEVEL_BAND, REAL_TIME_BAND
+
+from .scripts import Script, compute
 
 SETTINGS = SchedulerSettings(quantum=10)
 
 
 def cruncher(steps, ticks=10):
-    for _ in range(steps):
-        yield Compute(ticks)
+    return Script(*[compute(ticks)] * steps)
 
 
 def dispatchOrder(system):

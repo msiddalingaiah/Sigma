@@ -23,6 +23,10 @@ SOURCE_ROOT = REPO_ROOT / "c00co"
 MODEL_MODULES = [
     "cpvmodel.user",
     "cpvmodel.program",
+    "cpvmodel.usercontext",
+    "cpvmodel.dcb",
+    "cpvmodel.monitor",
+    "cpvmodel.iosystem",
     "cpvmodel.futureevents",
     "cpvmodel.memory",
     "cpvmodel.system",

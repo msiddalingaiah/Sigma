@@ -2,35 +2,21 @@
 
 import pytest
 
-from cpvmodel import (Close, Compute, FileError, FileMode, FileSystemSettings, Open, ReadRecord,
-                      Sleep, System, WriteRecord)
+from cpvmodel import FileError, FileMode, FileSystemSettings, Program, System
 from cpvmodel.filesystem import GRANULE_BYTES, NO_SUCH_FILE, WRONG_MODE
 
-
-def program(*steps):
-    yield from steps
+from .scripts import Reader, Script, Writer, fileDcb, happened, openFile
 
 
-def happened(system, name, what):
-    return [entry.time for entry in system.trace if entry.user == name and entry.what == what]
+def userOf(system, name="u", **settings):
+    return system.startUser(name, Script(), priority=0xF8, **settings)
 
 
-def writer(name, records, account=None):
-    handle = yield Open(name, FileMode.OUT, account)
+def written(files, user, name, records):
+    dcb = openFile(files, user, name, FileMode.OUT)
     for text in records:
-        yield WriteRecord(handle, text)
-    yield Close(handle)
-
-
-def reader(name, into, account=None):
-    handle = yield Open(name, FileMode.IN, account)
-    while (text := (yield ReadRecord(handle))) is not None:
-        into.append(text)
-    yield Close(handle)
-
-
-def userOf(system, name="u"):
-    return system.startUser(name, program(), priority=0xF8)
+        files.write(user, dcb, text)
+    files.close(user, dcb)
 
 
 # --- Directly through the FileSystem -------------------------------------------------------
@@ -38,128 +24,118 @@ def userOf(system, name="u"):
 def testRecordsComeBackInOrder():
     system = System()
     files, user = system.files, userOf(system)
-    out = files.openFile(user, "DATA", FileMode.OUT)
-    for text in ("ONE", "TWO", "THREE"):
-        files.writeRecord(out, text)
-    files.closeFile(out)
-    handle = files.openFile(user, "DATA", FileMode.IN)
-    assert [files.readRecord(handle) for _ in range(4)] == ["ONE", "TWO", "THREE", None]
+    written(files, user, "DATA", ["ONE", "TWO", "THREE"])
+    dcb = openFile(files, user, "DATA")
+    assert [files.read(user, dcb) for _ in range(4)] == ["ONE", "TWO", "THREE", None]
 
 
 def testALongRecordIsSplitAcrossGranules():
     system = System()
     files, user = system.files, userOf(system)
-    out = files.openFile(user, "BIG", FileMode.OUT)
-    files.writeRecord(out, "X" * 5000)
-    files.closeFile(out)
+    written(files, user, "BIG", ["X" * 5000])
     file, _ = files.lookUp("GUEST", "BIG")
     assert len(file.granules) == 3                 # 1728 + 2048 + the rest
     assert file.granules[0].capacity == GRANULE_BYTES - 320
-    handle = files.openFile(user, "BIG", FileMode.IN)
-    assert files.readRecord(handle) == "X" * 5000
-    assert handle.takeDiscAccesses() == 3 + 3      # the open, then three granules
+    dcb = fileDcb("BIG")
+    files.connect(user, dcb)
+    assert dcb.takeDiscAccesses() == 3             # account entry, file entry, header
+    assert files.readRecord(dcb) == "X" * 5000
+    assert dcb.takeDiscAccesses() == 3             # three granules
 
 
 def testANewFileIsntInTheDirectoryUntilClosed():
     system = System()
     files, user = system.files, userOf(system)
-    out = files.openFile(user, "NEW", FileMode.OUT)
-    files.writeRecord(out, "A")
+    out = openFile(files, user, "NEW", FileMode.OUT)
+    files.write(user, out, "A")
     with pytest.raises(FileError) as error:
-        files.openFile(user, "NEW", FileMode.IN)
+        openFile(files, user, "NEW")
     assert error.value.code == NO_SUCH_FILE
-    files.closeFile(out)
+    files.close(user, out)
     assert files.fileNames("GUEST") == ["NEW"]
 
 
 def testReplacingAFileReleasesTheOldGranules():
     system = System()
     files, user = system.files, userOf(system)
-    for text in ("OLD", "NEW"):
-        out = files.openFile(user, "F", FileMode.OUT)
-        files.writeRecord(out, text)
-        files.closeFile(out)
+    written(files, user, "F", ["OLD"])
+    written(files, user, "F", ["NEW"])
     assert files.disc.freeCount() == 512 - 1 - 2   # the file, and the two directories
-    handle = files.openFile(user, "F", FileMode.IN)
-    assert files.readRecord(handle) == "NEW"
+    dcb = openFile(files, user, "F")
+    assert files.read(user, dcb) == "NEW"
 
 
 def testReadersShareTheOpenFileButNotThePosition():
     system = System()
     files, user = system.files, userOf(system)
-    out = files.openFile(user, "S", FileMode.OUT)
-    files.writeRecord(out, "A")
-    files.writeRecord(out, "B")
-    files.closeFile(out)
-    first = files.openFile(user, "S", FileMode.IN)
-    second = files.openFile(user, "S", FileMode.IN)
+    written(files, user, "S", ["A", "B"])
+    first = openFile(files, user, "S")
+    second = fileDcb("S")
+    files.connect(user, second)
     assert first.file is second.file and first.file.openCount == 2
     assert second.takeDiscAccesses() == 0          # found among the open files
-    assert files.readRecord(first) == "A"
-    assert files.readRecord(second) == "A"
-    files.closeFile(first)
-    files.closeFile(second)
+    assert files.read(user, first) == "A"
+    assert files.read(user, second) == "A"
+    files.close(user, first)
+    files.close(user, second)
     assert files.openFiles == {}
 
 
 def testReadingAFileOpenedOutIsAnError():
     system = System()
     files, user = system.files, userOf(system)
-    out = files.openFile(user, "W", FileMode.OUT)
+    out = openFile(files, user, "W", FileMode.OUT)
     with pytest.raises(FileError) as error:
-        files.readRecord(out)
+        files.read(user, out)
     assert error.value.code == WRONG_MODE
 
 
 def testAccountsKeepTheirOwnFiles():
     system = System()
     files = system.files
-    user = system.startUser("operator", program(), priority=0xF8, privilege=0xC0)
+    user = userOf(system, "operator", privilege=0xC0)
     for account in ("ALPHA", "BETA"):
-        out = files.openFile(user, "SAME", FileMode.OUT, account)
-        files.writeRecord(out, account)
-        files.closeFile(out)
-    handle = files.openFile(user, "SAME", FileMode.IN, "BETA")
-    assert files.readRecord(handle) == "BETA"
+        out = openFile(files, user, "SAME", FileMode.OUT, account=account)
+        files.write(user, out, account)
+        files.close(user, out)
+    dcb = openFile(files, user, "SAME", account="BETA")
+    assert files.read(user, dcb) == "BETA"
 
 
 # --- Through programs -----------------------------------------------------------------------
 
 def testAProgramWritesAndAnotherReads():
-    got = []
     system = System()
-    system.startUser("writer", writer("DATA", ["ONE", "TWO"]), priority=0xF8)
-
-    def lateReader():
-        yield Sleep(100)
-        yield from reader("DATA", got)
-
-    system.startUser("reader", lateReader(), priority=0xF8)
+    system.startUser("writer", Writer("DATA", ["ONE", "TWO"]), priority=0xF8)
+    reader = Reader("DATA", delay=100)
+    system.startUser("reader", reader, priority=0xF8)
     assert system.run() == "shutdown"
-    assert got == ["ONE", "TWO"]
+    assert reader.got == ["ONE", "TWO"]
 
 
 def testAnUncaughtFileErrorEndsTheUser():
     system = System()
-    system.startUser("lost", reader("MISSING", []), priority=0xF8)
+    system.startUser("lost", Reader("MISSING"), priority=0xF8)
     system.run()
     assert happened(system, "lost", "ended: file error X'03': no file MISSING in GUEST") == [0]
 
 
 def testAProgramCanCatchAFileError():
-    caught = []
+    class Careful(Program):
+        caught = None
 
-    def careful():
-        try:
-            yield Open("MISSING", FileMode.IN)
-        except FileError as error:
-            caught.append(error.code)
-        yield Compute(1)
+        def run(self, m):
+            try:
+                m.open(fileDcb("MISSING"))
+            except FileError as error:
+                self.caught = error.code
+            self.compute(1)
 
     system = System()
-    system.startUser("careful", careful(), priority=0xF8)
+    careful = Careful()
+    system.startUser("careful", careful, priority=0xF8)
     assert system.run() == "shutdown"
-    assert caught == [NO_SUCH_FILE]
+    assert careful.caught == NO_SUCH_FILE
 
 
 def testFileOperationsTakeDiscTime():
@@ -168,18 +144,32 @@ def testFileOperationsTakeDiscTime():
     written (3, creating the account's entry), the new file directory searched and written
     (3), and the header (1). At 10 ticks an access that is 120 ticks."""
     system = System(fileSettings=FileSystemSettings(discTime=10))
-    system.startUser("writer", writer("T", ["A", "B", "C"]), priority=0xF8)
+    system.startUser("writer", Writer("T", ["A", "B", "C"]), priority=0xF8)
     system.run()
     assert happened(system, "writer", "ended") == [120]
     assert len(happened(system, "writer", "IO_STARTED: RUNNING -> IO_WAIT")) == 5
+
+
+def testUsersQueueForTheDisc():
+    """Two readers' transfers share the one disc: each waits for the other's."""
+    system = System(fileSettings=FileSystemSettings(discTime=10))
+    files, owner = system.files, userOf(system, "owner")
+    written(files, owner, "A", ["1", "2", "3"])
+    written(files, owner, "B", ["4", "5", "6"])
+    system.startUser("first", Reader("A", account="GUEST"), priority=0xF8)
+    system.startUser("second", Reader("B", account="GUEST"), priority=0xF8)
+    system.run()
+    completions = [entry.time for entry in system.trace if "IO_COMPLETE" in entry.what]
+    assert completions == sorted(set(completions))         # one at a time
+    assert len(completions) == 2 * (1 + 3)                 # an open and three reads each
 
 
 def testOpenAndCloseAreOneUserAtATime():
     """With disc time, an open holds the open/close lock while it waits for the disc, so
     a second user opening at the same time blocks on OPEN_CLOSE."""
     system = System(fileSettings=FileSystemSettings(discTime=10))
-    system.startUser("a", writer("A", ["1"]), priority=0xF8)
-    system.startUser("b", writer("B", ["2"]), priority=0xF8)
+    system.startUser("a", Writer("A", ["1"]), priority=0xF8)
+    system.startUser("b", Writer("B", ["2"]), priority=0xF8)
     system.run()
     blocked = "RESOURCE_BLOCK(OPEN_CLOSE): RUNNING -> AWAITING_RESOURCE"
     assert happened(system, "b", blocked)
@@ -187,11 +177,13 @@ def testOpenAndCloseAreOneUserAtATime():
 
 
 def testFilesLeftOpenAreClosedWhenTheUserEnds():
-    def forgetful():
-        handle = yield Open("KEPT", FileMode.OUT)
-        yield WriteRecord(handle, "SAVED")
+    class Forgetful(Program):
+        def run(self, m):
+            out = fileDcb("KEPT", FileMode.OUT)
+            m.open(out)
+            m.write(out, "SAVED")
 
     system = System()
-    system.startUser("forgetful", forgetful(), priority=0xF8)
+    system.startUser("forgetful", Forgetful(), priority=0xF8)
     system.run()
     assert system.files.fileNames("GUEST") == ["KEPT"]

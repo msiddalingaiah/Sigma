@@ -28,11 +28,8 @@ counterpart. Source paths are in `c00co/`.
 | `User.quantumLeft` | attribute | `J:DELTAT` | [ACCT.txt:27–43](../../c00co/ACCT.txt#L27-L43) | CP-V counts up from minus the quantum to zero |
 | `User.dispatchedAt` | attribute | `U:MISC` | [SCHED.txt:1194–1199](../../c00co/SCHED.txt#L1194-L1199) | The quantum mark saved at dispatch, for the minimum run |
 | `User.pendingSignals` | attribute | `UH:DL` | [SCHED.txt:905–912](../../c00co/SCHED.txt#L905-L912) | ABRT, ERR, EC and BRK flags, bits 0-3 |
-| `User.program` | attribute | *model only* |  | A generator standing in for the user's code |
-| `User.computeLeft` | attribute | *model only* |  | Ticks left in the program's current Compute step |
-| `User.pendingRequest` | attribute | *model only* |  | The step a program yielded from its break routine, or a step to try again after a wait |
-| `User.stepResult` | attribute | *model only* |  | What the program's last step returns, as a 1-tuple, sent back into the program: a terminal line, a file handle, a record |
-| `User.stepError` | attribute | *model only* |  | An error the last step raises, thrown into the program |
+| `User.program` | attribute | *model only* |  | The user's Program, which runs in their thread |
+| `User.computeLeft` | attribute | *model only* |  | Ticks left of the program's current compute() |
 | `User.isMoreUrgentThan` | method | `UB:PRIO`, `UB:PRIOB` | [SCHED.txt:1156–1160](../../c00co/SCHED.txt#L1156-L1160) | Lower values are more urgent |
 
 ## UserState
@@ -58,89 +55,121 @@ counterpart. Source paths are in `c00co/`.
 |---|---|---|---|---|
 | `Break` | class | *model only* |  | Entering the user's break routine (M:INT) after a break key |
 
-## Close
+## Program
 
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
-| `Close` | class | *model only* |  | Stands for an M:CLOSE (CLS); release=True is its REL option, which deletes the file |
+| `Program` | class | *model only* |  | A user's program; in CP-V a load module the user runs |
+| `Program.run` | method | *model only* |  | The program; it ends when this returns |
+| `Program.compute` | method | *model only* |  | The program's own work: run for ``ticks``. The clock, the quantum and interrupts may cut it into slices; the program doesn't notice |
 
-## Compute
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `Compute` | class | *model only* |  | A stand-in for user code running in slave mode until the clock-4 interrupt |
-
-## DoIo
+## UserContext
 
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
-| `DoIo` | class | *model only* |  | Stands for a read or write CAL: IOQ starts the I/O (UB:MF + 1), the monitor reports E:IIP, and the device's completion reports E:IC |
+| `UserContext` | class | `J:JIT`, `T:REG` | [JIT.txt:304](../../c00co/JIT.txt#L304), [SCHED.txt:1343](../../c00co/SCHED.txt#L1343) | CP-V saves a suspended user's environment in their JIT |
+| `UserContext.system` | attribute | *model only* |  | The system the user runs in |
+| `UserContext.user` | attribute | *model only* |  | The user |
+| `UserContext.program` | attribute | *model only* |  | The user's program |
+| `UserContext.turn` | attribute | *model only* |  | The thread waits on this until it is resumed |
+| `UserContext.request` | attribute | *model only* |  | Why the thread handed back: ('compute', ticks) or ('cal', None) |
+| `UserContext.pendingException` | attribute | *model only* |  | An exception to raise when the thread is resumed: a break, or UserEnded |
+| `UserContext.finished` | attribute | *model only* |  | The program has ended |
+| `UserContext.outcome` | attribute | *model only* |  | The exception the program ended with, if any |
+| `UserContext.thread` | attribute | *model only* |  | The Python thread |
+| `UserContext.inUser` | method | *model only* |  | Whether the code running is a user's (a program or its CAL), not the loop's |
+| `UserContext.main` | method | *model only* |  | The thread's body: run the program, then hand back for the last time |
+| `UserContext.handBack` | method | *model only* |  | Give the processor back to the loop, and wait to be resumed |
+| `UserContext.computeFor` | method | *model only* |  | The program computes for ``ticks``: the loop runs the time |
+| `UserContext.suspend` | method | `T:REG` | [SCHED.txt:1343](../../c00co/SCHED.txt#L1343) | Report an event and give up control: the user's CAL waits here |
+| `UserContext.raisePending` | method | *model only* |  | Raises the pending exception, if any |
+| `UserContext.resume` | method | `T:PULLE`, `LPSD` | [SCHED.txt:2069–2084](../../c00co/SCHED.txt#L2069-L2084) | Back to the user: their environment is loaded |
+| `UserContext.throw` | method | *model only* |  | Raise ``error`` in the program when it is next resumed |
 
-## Open
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `Open` | class | *model only* |  | Stands for an M:OPEN of a file (OPNF) |
-
-## OpenClose
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `OpenClose` | class | *model only* |  | Stands for the open/close part of an M:OPEN or M:CLOSE (CLS, OPNF) |
-
-## OpenCloseDone
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `OpenCloseDone` | class | *model only* |  | The end of an OpenClose: give up being the open/close user |
-
-## ReadRecord
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `ReadRecord` | class | *model only* |  | Stands for an M:READ on a file DCB (RDF) |
-
-## ReadTerminal
+## UserEnded
 
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
-| `ReadTerminal` | class | *model only* |  | Stands for an M:READ on the terminal (M:UC), which COC's COCRD does |
+| `UserEnded` | class | *model only* |  | Thrown into a user's thread to unwind their program when the user is removed |
 
-## Release
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `Release` | class | *model only* |  | Stands for monitor code that reports a resource's release event (T:RE) |
-
-## Sleep
+## DCB
 
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
-| `Sleep` | class | *model only* |  | Stands for a wait CAL: the monitor reports E:SL, and CLOCK4 reports E:WU later |
+| `DCB` | class | `DCB`, `M:UC` | [UTS.txt:448–530](../../c00co/UTS.txt#L448-L530), [UCAL.txt:1172](../../c00co/UCAL.txt#L1172) | A program's DCBs are in its own memory; M:OPEN fills one in, and every I/O CAL names one |
+| `DCB.name` | attribute | `M:UC` | [UCAL.txt:1172](../../c00co/UCAL.txt#L1172) | M:xx and F:xx are DCB names |
+| `DCB.fileName` | attribute | `CHKFLACN` | [OBSE.txt:190](../../c00co/OBSE.txt#L190) | VLP X'01', the file name |
+| `DCB.account` | attribute | `CHKFLACN` | [OBSE.txt:190](../../c00co/OBSE.txt#L190) | VLP X'02'; the user's own account if none |
+| `DCB.device` | attribute | *model only* |  | What the DCB is assigned to when it isn't a file; CP-V's assignment comes from the program, TEL's !ASSIGN, or defaults |
+| `DCB.mode` | attribute | `FUNCTION` | [UTS.txt:448–460](../../c00co/UTS.txt#L448-L460) |  |
+| `DCB.organization` | attribute | `ORG` | [OPNF.txt:1015–1038](../../c00co/OPNF.txt#L1015-L1038) |  |
+| `DCB.size` | attribute | `RSTORE` | [GRAND.txt:63](../../c00co/GRAND.txt#L63) | A random file's granules |
+| `DCB.password` | attribute | `SECCHK05` | [OBSE.txt:328–334](../../c00co/OBSE.txt#L328-L334) | VLP X'03' |
+| `DCB.protection` | attribute | `FIL9` | [CLS.txt:2288–2335](../../c00co/CLS.txt#L2288-L2335) | The account lists for a new file (VLPs X'05', X'06', X'14') |
+| `DCB.records` | attribute | *model only* |  | A device DCB's data: what reads take and writes add |
+| `DCB.file` | attribute | `CFU` | [UTS.txt:446–452](../../c00co/UTS.txt#L446-L452) | DCB word 1 points at the CFU |
+| `DCB.isOpen` | attribute | *model only* |  | Whether the DCB is open |
+| `DCB.position` | attribute | `SEQPOS` | [RDF.txt:3136–3138](../../c00co/RDF.txt#L3136-L3138) | Where the next sequential read starts |
+| `DCB.ownFile` | attribute | `USR`, `CHKFLACN` | [OBSE.txt:190](../../c00co/OBSE.txt#L190), [OBSE.txt:293–304](../../c00co/OBSE.txt#L293-L304) | The USR bit X'4000' clear: the user's own file, or as good as |
+| `DCB.discAccesses` | attribute | *model only* |  | Disc accesses the open file's work has made, not yet waited for |
+| `DCB.takeDiscAccesses` | method | *model only* |  | The disc accesses since last asked, to be waited for |
 
-## WaitFor
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `WaitFor` | class | *model only* |  | Stands for a CAL that reports a resource's block event through T:REG |
-
-## WriteRecord
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `WriteRecord` | class | *model only* |  | Stands for an M:WRITE on a file DCB (WRTF) |
-
-## WriteTerminal
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `WriteTerminal` | class | *model only* |  | Stands for an M:WRITE on the terminal, which COC's COCWR does |
-
-## Yield
+## FileMode
 
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
-| `Yield` | class | *model only* |  | Stands for giving up the processor, as RDL's TIMSUP does (E:QE) |
+| `FileMode` | class | `FUNCTION`, `BAFUNM` | [UTS.txt:448–460](../../c00co/UTS.txt#L448-L460) | CP-V also has INOUT, OUTIN and UPDATE |
+| `FileMode.IN` | member | `CLSFIL` | [CLS.txt:1443–1530](../../c00co/CLS.txt#L1443-L1530) | Read an existing file |
+| `FileMode.OUT` | member | `CLSFIL4` | [CLS.txt:1994–1998](../../c00co/CLS.txt#L1994-L1998) | Write a new file; it goes into the directory at close |
+
+## Monitor
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Monitor` | class | `CAL1`, `TRAPEXIT` | [UCAL.txt:187](../../c00co/UCAL.txt#L187), [SCHED.txt:877–889](../../c00co/SCHED.txt#L877-L889) | A program asks for monitor services with CAL instructions; each comes back through TRAPEXIT |
+| `Monitor.system` | attribute | *model only* |  | The system; monitor code reaches the components through it |
+| `Monitor.user` | attribute | `S:CUN` | [TCATCH.txt:173](../../c00co/TCATCH.txt#L173) | The user making the CALs |
+| `Monitor.context` | attribute | *model only* |  | The user's thread |
+| `Monitor.uc` | method | `M:UC` | [UCAL.txt:1172](../../c00co/UCAL.txt#L1172) | An on-line user's terminal DCB |
+| `Monitor.wait` | method | `M:WAIT`, `E:SL`, `E:WU` | [BPM.txt:428](../../c00co/BPM.txt#L428), [SCHED.txt:607–615](../../c00co/SCHED.txt#L607-L615) | Sleep: E:SL now, and CLOCK4 reports E:WU after the time |
+| `Monitor.open` | method | `M:OPEN`, `OPNFIL` | [BPM.txt:956](../../c00co/BPM.txt#L956), [OPNF.txt:115](../../c00co/OPNF.txt#L115) | The arguments override the DCB's own settings, as an FPT's parameters do |
+| `Monitor.read` | method | `M:READ`, `MSRRDWT1` | [BPM.txt:591](../../c00co/BPM.txt#L591), [IORT.txt:305](../../c00co/IORT.txt#L305) | Returns the record, or None at the end; a file DCB may give a key, and a random file's read a size |
+| `Monitor.write` | method | `M:WRITE`, `MSRRDWT1` | [BPM.txt:598](../../c00co/BPM.txt#L598), [IORT.txt:305](../../c00co/IORT.txt#L305) |  |
+| `Monitor.close` | method | `M:CLOSE`, `CLSFIL` | [BPM.txt:680](../../c00co/BPM.txt#L680), [CLS.txt:1443](../../c00co/CLS.txt#L1443) | release=True is the REL option, which deletes the file |
+| `Monitor.endCal` | method | `TRAPEXIT` | [SCHED.txt:877–889](../../c00co/SCHED.txt#L877-L889) | The CAL is done: back to the user through the exit path |
+
+## Device
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Device` | class | `QUEUE`, `FRONTEND` | [IOQ.txt:183](../../c00co/IOQ.txt#L183), [IOQ.txt:604](../../c00co/IOQ.txt#L604) | CP-V queues requests per device and channel, and starts the next at each completion |
+| `Device.name` | attribute | *model only* |  | Its name, as DCBs are assigned to it |
+| `Device.ticksPerTransfer` | attribute | *model only* |  | How long one transfer takes |
+| `Device.queue` | attribute | `QUEUE` | [IOQ.txt:604](../../c00co/IOQ.txt#L604) | Requests waiting |
+| `Device.current` | attribute | `FRONTEND` | [IOQ.txt:183](../../c00co/IOQ.txt#L183) | The request being served |
+
+## IoRequest
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `IoRequest` | class | `IOQUEUE` | [IORT.txt:1407–1528](../../c00co/IORT.txt#L1407-L1528) | An entry in IOQ's request tables |
+| `IoRequest.user` | attribute | `S:CUN` | [TCATCH.txt:173](../../c00co/TCATCH.txt#L173) |  |
+| `IoRequest.ticks` | attribute | *model only* |  | How long the device takes for it |
+
+## IoSystem
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `IoSystem` | class | `IOQ`, `REQCOM` | [IOQ.txt:1](../../c00co/IOQ.txt#L1), [IOQ.txt:1649](../../c00co/IOQ.txt#L1649) | Queues requests and completes them at interrupt level, reporting E:IC |
+| `IoSystem.system` | attribute | *model only* |  | The system |
+| `IoSystem.devices` | attribute | `DCT1` | [IOQ.txt:33](../../c00co/IOQ.txt#L33) | CP-V's device control tables |
+| `IoSystem.addDevice` | method | *model only* |  | Adds a device, or changes its speed |
+| `IoSystem.transfer` | method | `T:IOREG`, `E:IIP` | [SCHED.txt:780–787](../../c00co/SCHED.txt#L780-L787) | Start the I/O and wait for it (STIIP) |
+| `IoSystem.submit` | method | `QUEUE` | [IOQ.txt:604](../../c00co/IOQ.txt#L604) |  |
+| `IoSystem.start` | method | `FRONTEND` | [IOQ.txt:183](../../c00co/IOQ.txt#L183) |  |
+| `IoSystem.complete` | method | `REQCOM` | [IOQ.txt:1649](../../c00co/IOQ.txt#L1649) | Reports E:IC for the requester |
+| `IoSystem.read` | method | `MSRRED` | [IORT.txt:675](../../c00co/IORT.txt#L675) | A device read: the next record, or None |
+| `IoSystem.write` | method | `MSRWRT` | [WRTD.txt:140](../../c00co/WRTD.txt#L140) |  |
 
 ## FutureEvents
 
@@ -174,29 +203,29 @@ counterpart. Source paths are in `c00co/`.
 
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
-| `System` | class | *model only* |  | The monitor as a whole; CP-V has no single counterpart |
+| `System` | class | *model only* |  | The machine; CP-V has no single counterpart |
 | `System.clock` | attribute | *model only* |  | Simulated time in ticks. CP-V counts time per user in J:DELTAT with clock 4 |
 | `System.users` | attribute | `SMUIS` | [SSDAT.txt:336–381](../../c00co/SSDAT.txt#L336-L381) | The per-user tables have SMUIS entries |
 | `System.freeSlots` | attribute | `SNULL`, `SB:HQ` | [SCHED.txt:317](../../c00co/SCHED.txt#L317), [SSDAT.txt:390–394](../../c00co/SSDAT.txt#L390-L394) | The queue of the SNULL state |
 | `System.memory` | attribute | `M:FPPH`, `S:PCORE` | [SCHED.txt:2255–2271](../../c00co/SCHED.txt#L2255-L2271), [TABLES.txt:725](../../c00co/TABLES.txt#L725) |  |
+| `System.runUntil` | attribute | *model only* |  | The tick limit of the current run; a compute stops there |
+| `System.loopTurn` | attribute | *model only* |  | The loop waits on this while a user's thread runs |
+| `System.contexts` | attribute | `J:JIT` | [JIT.txt:304](../../c00co/JIT.txt#L304) | Each user's thread, where they wait while they don't run |
+| `System.futureEvents` | attribute | *model only* |  | What the clock and devices will do later |
+| `System.trace` | attribute | *model only* |  | What happened, for tests and for reading |
 | `System.scheduler` | attribute | `SCHED` | [SCHED.txt:1–20](../../c00co/SCHED.txt#L1-L20) |  |
+| `System.io` | attribute | `IOQ` | [IOQ.txt:1](../../c00co/IOQ.txt#L1) |  |
 | `System.terminals` | attribute | `COC`, `T:RCE` | [SCHED.txt:1846–1868](../../c00co/SCHED.txt#L1846-L1868) |  |
 | `System.files` | attribute | `OPNFIL`, `CLSFIL` | [OPNF.txt:115](../../c00co/OPNF.txt#L115), [CLS.txt:1443](../../c00co/CLS.txt#L1443) |  |
-| `System.futureEvents` | attribute | *model only* |  | What the clock and devices will do later |
-| `System.runUntil` | attribute | *model only* |  | The tick limit of the current run; a compute stops there |
-| `System.trace` | attribute | *model only* |  | What happened, for tests and for reading |
 | `System.startUser` | method | `LOGON`, `ADD1` | [SCHED.txt:1869–1980](../../c00co/SCHED.txt#L1869-L1980) | LOGON (on-line), MBS (batch) and T:GJOBSTRT (ghosts) take a slot from the SNULL queue and call ADD1 |
+| `System.monitorFor` | method | *model only* |  | The CALs for a user's program |
 | `System.endUser` | method | `STEP70` | [STEP.txt:117–150](../../c00co/STEP.txt#L117-L150) | Removal of a user from the system |
+| `System.throwInto` | method | *model only* |  | Raise ``error`` in the user's program when it next runs (a break) |
+| `System.shutdown` | method | *model only* |  | Unwind every user's thread still waiting, at the end of a test or a demo |
 | `System.reportAt` | method | *model only* |  | An event that something outside the users will report at ``time``, such as a break key |
-| `System.execute` | method | *model only* |  | The user's code runs; in CP-V the processor simply runs the user in slave mode |
-| `System.nextRequest` | method | *model only* |  | The program's next step, or None when the program has ended |
-| `System.compute` | method | *model only* |  | The user computes until the step is done, the quantum is used up, or an interrupt comes |
-| `System.call` | method | `TRAPEXIT` | [SCHED.txt:877–889](../../c00co/SCHED.txt#L877-L889) | A CAL enters the monitor; the user comes back through TRAPEXIT |
-| `System.openOrClose` | method | `OPNCLSUS`, `E:OCR` | [OPNF.txt:1479–1487](../../c00co/OPNF.txt#L1479-L1487) | OPEN and CLOSE run as the open/close user, one user at a time |
-| `System.fileStep` | method | *model only* |  | A file read or write: do it, then wait for the disc |
-| `System.waitForGranules` | method | `E:QFAC`, `REGUSER` | [GRAN.txt:301–308](../../c00co/GRAN.txt#L301-L308) | Blocked on ALLOCATOR until ALLOCAT's fill is committed; then the step again |
-| `System.fileWork` | method | *model only* |  | Runs a file operation: its result goes back to the program, or its error is thrown in. A failed lookup still read two directories |
-| `System.waitForDisc` | method | `E:IIP`, `UB:MF` | [SCHED.txt:513](../../c00co/SCHED.txt#L513), [SCHED.txt:1553–1572](../../c00co/SCHED.txt#L1553-L1572) | The file code queues its disc I/O and the user waits (T:IOREG, E:IIP) |
+| `System.execute` | method | `T:PULLE` | [SCHED.txt:2069–2084](../../c00co/SCHED.txt#L2069-L2084) | Back to the user: they go on computing, or their thread runs |
+| `System.finish` | method | *model only* |  | The program has ended: the user ends, and a failure in the program is raised from the run |
+| `System.compute` | method | *model only* |  | The user computes until their computing is done, the quantum is used up, or an interrupt comes |
 | `System.runDueEvents` | method | *model only* |  | Interrupts: everything due by now happens |
 | `System.advanceClock` | method | *model only* |  | Time passes; what comes due on the way happens at its own time |
 | `System.idleUntil` | method | `C:IDLE`, `WAIT` | [SCHED.txt:1085–1126](../../c00co/SCHED.txt#L1085-L1126) | T:SE's idle loop: CP-V waits for an interrupt, then tries T:SE again |
@@ -234,8 +263,8 @@ counterpart. Source paths are in `c00co/`.
 | `Scheduler.moreUrgentUserWaiting` | method | `S:HIR`, `S:CUP` | [SCHED.txt:1452–1466](../../c00co/SCHED.txt#L1452-L1466), [SSDAT.txt:45](../../c00co/SSDAT.txt#L45) | CP-V keeps a count, S:HIR, raised when a user more urgent than S:CUP becomes ready and lowered at each dispatch; the model just looks |
 | `Scheduler.requeue` | method | `CHSE0` | [SCHED.txt:1459–1466](../../c00co/SCHED.txt#L1459-L1466) |  |
 | `Scheduler.endQuantum` | method | `T:ACCTEX`, `T:CHSE0` | [SCHED.txt:980–1012](../../c00co/SCHED.txt#L980-L1012) | CP-V ends the quantum when the time in J:DELTAT runs out |
-| `Scheduler.claimOpenClose` | method | `OPNCLSUS`, `E:OCR` | [CLS.txt:1068–1085](../../c00co/CLS.txt#L1068-L1085) | In CP-V this is in CLS, OPNF and FIX1, not SCHED: wait with E:OCR until nobody else is the open/close user |
-| `Scheduler.endOpenClose` | method | `OPNCLSUS`, `E:NOCR`, `R:OCR` | [IORT.txt:1050–1062](../../c00co/IORT.txt#L1050-L1062) | Clear OPNCLSUS and, if anyone waits, report E:NOCR (OPNUNBLOCK picks one) |
+| `Scheduler.acquireOpenClose` | method | `OPNCLSUS`, `E:OCR` | [CLS.txt:1068–1085](../../c00co/CLS.txt#L1068-L1085) | In CP-V this is in CLS, OPNF and FIX1, not SCHED: wait with E:OCR until nobody else is the open/close user |
+| `Scheduler.releaseOpenClose` | method | `OPNCLSUS`, `E:NOCR`, `R:OCR` | [IORT.txt:1050–1062](../../c00co/IORT.txt#L1050-L1062) | Clear OPNCLSUS and, if anyone waits, report E:NOCR (OPNUNBLOCK picks one) |
 | `Scheduler.isShutDown` | method | `S:CUIS`, `GOODNGT`, `X'404'` | [SCHED.txt:1065–1084](../../c00co/SCHED.txt#L1065-L1084) | Checked when nobody is ready; ends with SCREECH X'404' |
 | `Scheduler.log` | method | *model only* |  | Adds a line to the system's trace |
 
@@ -444,6 +473,13 @@ counterpart. Source paths are in `c00co/`.
 | `ResourceManager.updateAllocator` | method | `UQFAC`, `STUQFAC` | [SCHED.txt:1707–1745](../../c00co/SCHED.txt#L1707-L1745), [SCHED.txt:1836](../../c00co/SCHED.txt#L1836) | Commits ALLOCAT's work on the granule stack, then releases the waiting users |
 | `ResourceManager.releaseForSignal` | method | `SETDL`, `SH:RFLG`, `T:UQR` | [SCHED.txt:1630–1647](../../c00co/SCHED.txt#L1630-L1647) |  |
 
+## EchoSession
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `EchoSession` | class | *model only* |  | A stand-in for TEL: a prompt, a command, an echo; OFF logs off |
+| `EchoSession.run` | method | *model only* |  | TEL reads a command line and acts on it; the model echoes it |
+
 ## Line
 
 | Model name | Kind | CP-V | Source | Notes |
@@ -456,6 +492,7 @@ counterpart. Source paths are in `c00co/`.
 | `Line.outputCount` | attribute | `COCOC` | [COC.txt:2870–2872](../../c00co/COC.txt#L2870-L2872) | Characters waiting to go out |
 | `Line.outputCountAt` | attribute | *model only* |  | When outputCount was last brought up to date |
 | `Line.transcript` | attribute | *model only* |  | What the terminal printed, for tests and for reading |
+| `Line.dcb` | attribute | `M:UC` | [UCAL.txt:1172](../../c00co/UCAL.txt#L1172) | The terminal DCB of the line's user |
 | `Line.printed` | method | *model only* |  | What the terminal printed, as text |
 
 ## TerminalController
@@ -466,7 +503,7 @@ counterpart. Source paths are in `c00co/`.
 | `TerminalController.system` | attribute | *model only* |  | The system the terminals belong to |
 | `TerminalController.settings` | attribute | `SL:TB`, `SL:UB` | [COC.txt:2028](../../c00co/COC.txt#L2028), [COC.txt:2872](../../c00co/COC.txt#L2872) |  |
 | `TerminalController.lines` | attribute | `LB:UN` | [SCHED.txt:1859](../../c00co/SCHED.txt#L1859) |  |
-| `TerminalController.session` | attribute | *model only* |  | The program a logged-on user runs; stands for TEL |
+| `TerminalController.session` | attribute | *model only* |  | Makes the program a logged-on user runs, given the line; stands for TEL |
 | `TerminalController.onlineUsers` | attribute | `S:OUIS` | [SSDAT.txt:53](../../c00co/SSDAT.txt#L53), [STEP.txt:159](../../c00co/STEP.txt#L159) | Counted up at log-on, down when the user is removed |
 | `TerminalController.pressBreak` | method | `COCIPBRK`, `E:CBK`, `T:RCE` | [COC.txt:857–900](../../c00co/COC.txt#L857-L900), [SCHED.txt:1859–1868](../../c00co/SCHED.txt#L1859-L1868) |  |
 | `TerminalController.type` | method | `COCIP`, `E:CIC` | [COC.txt:412–593](../../c00co/COC.txt#L412-L593) | CP-V gets a character at a time and completes the read at an activation character; the model gets a whole line |
@@ -476,7 +513,8 @@ counterpart. Source paths are in `c00co/`.
 | `TerminalController.hangUpAt` | method | *model only* |  | Schedules a hang-up at ``time`` |
 | `TerminalController.logOn` | method | `LOGON`, `S:OUIS`, `S:OUAIS`, `SL:OPRIO` | [SCHED.txt:1869–1893](../../c00co/SCHED.txt#L1869-L1893) | CP-V also checks the swap devices' free granules against S:OUAIS |
 | `TerminalController.userEnded` | method | `S:OUIS` | [STEP.txt:155–160](../../c00co/STEP.txt#L155-L160) | CP-V marks the line off (COCOFF) on a hang-up |
-| `TerminalController.read` | method | `COCRD`, `E:CRD` | [COC.txt:2287–2606](../../c00co/COC.txt#L2287-L2606) | CP-V echoes type-ahead when the read starts, then waits for an activation |
+| `TerminalController.terminalDcb` | method | `M:UC` | [UCAL.txt:1172](../../c00co/UCAL.txt#L1172) |  |
+| `TerminalController.read` | method | `COCRD`, `E:CRD`, `C:REG` | [COC.txt:2287–2606](../../c00co/COC.txt#L2287-L2606) | CP-V echoes type-ahead when the read starts, then waits for an activation |
 | `TerminalController.write` | method | `COCWR`, `SL:TB`, `E:CBL` | [COC.txt:2864–2890](../../c00co/COC.txt#L2864-L2890) | The limit is checked before the record goes into the buffers |
 | `TerminalController.outputDrained` | method | `SL:UB`, `E:CUB` | [COC.txt:2020–2044](../../c00co/COC.txt#L2020-L2044) | The output interrupt sends a character; at SL:UB a blocked user is released |
 | `TerminalController.drain` | method | *model only* |  | Brings the output count up to date: a character goes out every ticksPerCharacter. CP-V counts down at each output interrupt |
@@ -520,6 +558,14 @@ counterpart. Source paths are in `c00co/`.
 | `Protection.writeAccounts` | attribute | `SECCHK2`, `SECCHK3` | [OBSE.txt:342–357](../../c00co/OBSE.txt#L342-L357) | VLP X'06' |
 | `Protection.executeAccounts` | attribute | `SEC0`, `SEC99` | [OBSE.txt:365–394](../../c00co/OBSE.txt#L365-L394) | VLP X'14', with the execute vehicle in X'15' |
 
+## Allocat
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Allocat` | class | `ALLOCAT`, `NOMORE` | [ALLYCAT.txt:253](../../c00co/ALLYCAT.txt#L253), [ALLYCAT.txt:675](../../c00co/ALLYCAT.txt#L675) | Each run: messages, then the stacks (ADJBUFS), then sleep |
+| `Allocat.allocator` | attribute | `GBG` | [GRAN.txt:95–117](../../c00co/GRAN.txt#L95-L117) |  |
+| `Allocat.run` | method | `ALLOCAT`, `E:UQFAC` | [ALLYCAT.txt:253](../../c00co/ALLYCAT.txt#L253), [SWAPPER.txt:619](../../c00co/SWAPPER.txt#L619) |  |
+
 ## AllocationMap
 
 | Model name | Kind | CP-V | Source | Notes |
@@ -545,23 +591,17 @@ counterpart. Source paths are in `c00co/`.
 | `GranuleAllocator.allocatRuns` | attribute | `GRAJST` | [GRAN.txt:243](../../c00co/GRAN.txt#L243) | # TIMES ADJUSTED |
 | `GranuleAllocator.runRequests` | attribute | `GNBG`, `QUEMSG` | [GRAN.txt:253](../../c00co/GRAN.txt#L253), [GRAN.txt:319](../../c00co/GRAN.txt#L319) | Messages to ALLOCAT for N granules in a row (COMBUF) |
 | `GranuleAllocator.runAnswers` | attribute | `GNBG` | [GRAN.txt:253](../../c00co/GRAN.txt#L253) | ALLOCAT leaves the answer in the message buffer |
-| `GranuleAllocator.ensure` | method | `GETGRAN`, `REG4CAT` | [GRAN.txt:193–202](../../c00co/GRAN.txt#L193-L202) | Checked before a user's file operation starts, so it never stops half done |
-| `GranuleAllocator.get` | method | `GBG`, `GETGRAN`, `RELX` | [GRAN.txt:101–102](../../c00co/GRAN.txt#L101-L102), [GRAN.txt:160](../../c00co/GRAN.txt#L160), [GRAN.txt:193](../../c00co/GRAN.txt#L193) | A user with the stack empty waits (ensure); the monitor takes from the map |
+| `GranuleAllocator.get` | method | `GBG`, `GETGRAN`, `REG4CAT` | [GRAN.txt:101–102](../../c00co/GRAN.txt#L101-L102), [GRAN.txt:193–202](../../c00co/GRAN.txt#L193-L202) | CANT SWITCH - LETS REG HIM: a user with the stack empty waits for ALLOCAT |
+| `GranuleAllocator.canWait` | method | *model only* |  | Whether a user may wait for ALLOCAT: in a user's CAL, with granules to come, and ALLOCAT able to run |
+| `GranuleAllocator.waitForAllocat` | method | `REGUSER`, `E:QFAC` | [GRAN.txt:301–308](../../c00co/GRAN.txt#L301-L308) |  |
 | `GranuleAllocator.release` | method | `RBG`, `ROOM`, `NORELROM` | [GRAN.txt:95](../../c00co/GRAN.txt#L95), [GRAN.txt:169–186](../../c00co/GRAN.txt#L169-L186) |  |
-| `GranuleAllocator.requestRun` | method | `GNBG` | [GRAN.txt:253](../../c00co/GRAN.txt#L253) | The user waits on E:QFAC until ALLOCAT has answered |
-| `GranuleAllocator.takeRunAnswer` | method | *model only* |  | ALLOCAT's answer to a user's request: the addresses, [] for none, or None if not answered yet |
+| `GranuleAllocator.getRun` | method | `GNBG` | [GRAN.txt:253](../../c00co/GRAN.txt#L253) | A message to ALLOCAT; the user waits on E:QFAC until it has answered |
 | `GranuleAllocator.releaseRun` | method | `RNBG` | [GRAN.txt:281](../../c00co/GRAN.txt#L281) | Release N granules: a message to ALLOCAT |
 | `GranuleAllocator.checkThresholds` | method | `CHKTHRSH`, `THRESH` | [GRAN.txt:230–243](../../c00co/GRAN.txt#L230-L243), [GRAN.txt:337](../../c00co/GRAN.txt#L337) | At or above HITHRSH, or at or below LOTHRSH while the map isn't empty |
 | `GranuleAllocator.startAllocat` | method | `T:GJOBSTRT`, `THRESH` | [GRAN.txt:337–340](../../c00co/GRAN.txt#L337-L340) | CP-V wakes the ALLOCAT ghost; the model starts it as a new user |
 | `GranuleAllocator.adjust` | method | `ADJBUFS`, `FILL`, `EMPTY1` | [ALLYCAT.txt:330–410](../../c00co/ALLYCAT.txt#L330-L410) | Returns the granules moved, for the ghost's computing time |
 | `GranuleAllocator.commit` | method | `STUQFAC`, `TEMPBOT`, `ADJSTCNT` | [SCHED.txt:1707–1745](../../c00co/SCHED.txt#L1707-L1745) | Called by the scheduler when ALLOCAT reports E:UQFAC |
 | `GranuleAllocator.freeCount` | method | *model only* |  | Free granules anywhere: the stack, the fill not yet committed, and the map |
-
-## GranuleShortage
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `GranuleShortage` | class | `E:QFAC`, `REG4CAT` | [GRAN.txt:202](../../c00co/GRAN.txt#L202), [GRAN.txt:301–308](../../c00co/GRAN.txt#L301-L308) | The stack is empty: the user is queued for ALLOCAT |
 
 ## GranuleStack
 
@@ -761,28 +801,6 @@ counterpart. Source paths are in `c00co/`.
 | `RandomFile.checkStart` | method | `ERR01` | [WRTF.txt:2081](../../c00co/WRTF.txt#L2081) | A granule number past the end: X'42' |
 | `RandomFile.release` | method | `RELRAND`, `RNBG` | [CLS.txt:1729–1732](../../c00co/CLS.txt#L1729-L1732), [GRAN.txt:281](../../c00co/GRAN.txt#L281) | The run goes back as a message to ALLOCAT. Whether the FIT's granule is released too wasn't found; the model releases it |
 
-## FileHandle
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `FileHandle` | class | `DCB` | [UTS.txt:448–530](../../c00co/UTS.txt#L448-L530) | The data control block: the program's own record of an open file |
-| `FileHandle.user` | attribute | *model only* |  | The user whose program holds the handle |
-| `FileHandle.file` | attribute | `CFU` | [UTS.txt:446–452](../../c00co/UTS.txt#L446-L452) | DCB word 1 points at the file's CFU |
-| `FileHandle.mode` | attribute | `FUNCTION` | [UTS.txt:448–460](../../c00co/UTS.txt#L448-L460) |  |
-| `FileHandle.position` | attribute | `SEQPOS` | [RDF.txt:3136–3138](../../c00co/RDF.txt#L3136-L3138) | Where the next sequential read starts: (granule, segment), or (index block, entry) in a keyed file |
-| `FileHandle.discAccesses` | attribute | *model only* |  | Disc accesses not yet charged to the user |
-| `FileHandle.isOpen` | attribute | *model only* |  | False once closed |
-| `FileHandle.ownFile` | attribute | `USR`, `CHKFLACN` | [OBSE.txt:190](../../c00co/OBSE.txt#L190), [OBSE.txt:293–304](../../c00co/OBSE.txt#L293-L304) | The DCB's USR bit X'4000' clear: the user's own file, or as good as (write access, or :SYS with an empty password) |
-| `FileHandle.takeDiscAccesses` | method | *model only* |  | The disc accesses since last asked, for the system to charge as I/O time |
-
-## FileMode
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `FileMode` | class | `FUNCTION`, `BAFUNM` | [UTS.txt:448–460](../../c00co/UTS.txt#L448-L460) | CP-V also has INOUT, OUTIN and UPDATE |
-| `FileMode.IN` | member | `CLSFIL` | [CLS.txt:1443–1530](../../c00co/CLS.txt#L1443-L1530) | Read an existing file |
-| `FileMode.OUT` | member | `CLSFIL4` | [CLS.txt:1994–1998](../../c00co/CLS.txt#L1994-L1998) | Write a new file; it goes into the directory at close |
-
 ## FileSystem
 
 | Model name | Kind | CP-V | Source | Notes |
@@ -793,21 +811,26 @@ counterpart. Source paths are in `c00co/`.
 | `FileSystem.disc` | attribute | *model only* |  | The file area's granules |
 | `FileSystem.accounts` | attribute | `ACNCFU` | [UTS.txt:464](../../c00co/UTS.txt#L464) | The account directory |
 | `FileSystem.openFiles` | attribute | `CFU` | [OPNF.txt:616–620](../../c00co/OPNF.txt#L616-L620) | The files open now. OPEN scans the CFUs for the file before the directories |
-| `FileSystem.handles` | attribute | *model only* |  | Each user's open handles, so they can be closed at the end |
+| `FileSystem.openDcbs` | attribute | *model only* |  | Each user's open DCBs, so they can be closed at the end |
 | `FileSystem.access` | attribute | `SECCHK` | [OBSE.txt:310](../../c00co/OBSE.txt#L310) |  |
-| `FileSystem.openFile` | method | `OPNFIL`, `TFCHKOPN` | [OPNF.txt:115](../../c00co/OPNF.txt#L115), [OPNF.txt:503–620](../../c00co/OPNF.txt#L503-L620) | CP-V also takes the open/close lock (OPNCLSUS); the system does that around this call |
+| `FileSystem.open` | method | `OPNFIL`, `OPNCLSUS`, `E:OCR` | [OPNF.txt:115](../../c00co/OPNF.txt#L115), [OPNF.txt:1479–1487](../../c00co/OPNF.txt#L1479-L1487) | OPEN runs as the open/close user, waiting for the lock if someone else has it |
+| `FileSystem.read` | method | `SEQ0`, `SETUPUB` | [RDF.txt:3136–3268](../../c00co/RDF.txt#L3136-L3268), [RDF.txt:1575](../../c00co/RDF.txt#L1575) | At the end of the file CP-V returns TYC 7, code X'06' |
+| `FileSystem.write` | method | `SEQ0`, `ENTKEYUB` | [WRTF.txt:273–505](../../c00co/WRTF.txt#L273-L505), [WRTF.txt:1532](../../c00co/WRTF.txt#L1532) |  |
+| `FileSystem.close` | method | `CLSFIL`, `CLSFIL4` | [CLS.txt:1443–1530](../../c00co/CLS.txt#L1443-L1530), [CLS.txt:1994–1998](../../c00co/CLS.txt#L1994-L1998) | As the open/close user. A new file goes into its directory at close |
+| `FileSystem.closeAll` | method | *model only* |  | CP-V closes a program's open DCBs when its job step ends; where wasn't traced |
+| `FileSystem.waitForDisc` | method | `T:IOREG`, `E:IIP` | [SCHED.txt:780–787](../../c00co/SCHED.txt#L780-L787) | The file code's disc transfers, queued on the disc; the user waits |
+| `FileSystem.connect` | method | `OPNFIL`, `TFCHKOPN` | [OPNF.txt:115](../../c00co/OPNF.txt#L115), [OPNF.txt:503–620](../../c00co/OPNF.txt#L503-L620) |  |
 | `FileSystem.newFile` | method | `ORG` | [OPNF.txt:1015–1038](../../c00co/OPNF.txt#L1015-L1038) | The organization picks the code that reads and writes the file |
-| `FileSystem.newRandomFile` | method | `GRANDPUB`, `GNBG` | [GRAND.txt:102–117](../../c00co/GRAND.txt#L102-L117), [GRAN.txt:253](../../c00co/GRAN.txt#L253) | The run is asked of ALLOCAT; the user waits for the answer (E:QFAC) and opens again |
+| `FileSystem.newRandomFile` | method | `GRANDPUB`, `GNBG` | [GRAND.txt:102–117](../../c00co/GRAND.txt#L102-L117), [GRAN.txt:253](../../c00co/GRAN.txt#L253) | The run is asked of ALLOCAT; the user waits for the answer (E:QFAC) |
 | `FileSystem.checkReplace` | method | `3D1`, `OPENER03` | [OPNF.txt:545–563](../../c00co/OPNF.txt#L545-L563) | Random may not replace keyed or consecutive, nor the other way round |
 | `FileSystem.search` | method | `FNDKEY` | [FIX1.txt:2194](../../c00co/FIX1.txt#L2194) | The account directory, then the file directory |
 | `FileSystem.lookUp` | method | `FNDKEY`, `SETUPUB` | [FIX1.txt:2194](../../c00co/FIX1.txt#L2194), [RDF.txt:1575](../../c00co/RDF.txt#L1575) | The account directory, then the file directory, then the header |
-| `FileSystem.readRecord` | method | `SEQ0`, `SETUPUB` | [RDF.txt:3136–3268](../../c00co/RDF.txt#L3136-L3268), [RDF.txt:1575](../../c00co/RDF.txt#L1575) | At the end of the file CP-V returns TYC 7, code X'06' |
-| `FileSystem.writeRecord` | method | `SEQ0`, `ENTKEYUB` | [WRTF.txt:273–505](../../c00co/WRTF.txt#L273-L505), [WRTF.txt:1532](../../c00co/WRTF.txt#L1532) |  |
-| `FileSystem.closeFile` | method | `CLSFIL`, `CLSFIL4` | [CLS.txt:1443–1530](../../c00co/CLS.txt#L1443-L1530), [CLS.txt:1994–1998](../../c00co/CLS.txt#L1994-L1998) | A new file goes into its directory at close |
-| `FileSystem.deleteOnClose` | method | `CLSFIL`, `CLSFIL2`, `DELF` | [CLS.txt:1443–1672](../../c00co/CLS.txt#L1443-L1672) | Returns True if the close released the file |
-| `FileSystem.closeAll` | method | *model only* |  | CP-V closes a program's open DCBs when its job step ends; where wasn't traced |
-| `FileSystem.enter` | method | `INST` | [WRTF.txt:608](../../c00co/WRTF.txt#L608) | CP-V releases the file it replaces as well; when another user still has that file open isn't modelled |
+| `FileSystem.readRecord` | method | `SEQ0`, `SETUPUB`, `RWRAND` | [RDF.txt:3136–3268](../../c00co/RDF.txt#L3136-L3268), [RDF.txt:1575](../../c00co/RDF.txt#L1575), [WRTF.txt:1928](../../c00co/WRTF.txt#L1928) |  |
+| `FileSystem.writeRecord` | method | `SEQ0`, `ENTKEYUB`, `RWRAND` | [WRTF.txt:273–505](../../c00co/WRTF.txt#L273-L505), [WRTF.txt:1532](../../c00co/WRTF.txt#L1532), [WRTF.txt:1928](../../c00co/WRTF.txt#L1928) |  |
 | `FileSystem.checkMode` | method | `K15` | [WRTF.txt:15](../../c00co/WRTF.txt#L15), [WRTF.txt:244](../../c00co/WRTF.txt#L244) | OPERATION ERROR: the DCB isn't open for it |
+| `FileSystem.disconnect` | method | `CLSFIL`, `CLSFIL4` | [CLS.txt:1443–1530](../../c00co/CLS.txt#L1443-L1530), [CLS.txt:1994–1998](../../c00co/CLS.txt#L1994-L1998) |  |
+| `FileSystem.deleteOnClose` | method | `CLSFIL`, `CLSFIL2`, `DELF` | [CLS.txt:1443–1672](../../c00co/CLS.txt#L1443-L1672) | Returns True if the close released the file |
+| `FileSystem.enter` | method | `INST` | [WRTF.txt:608](../../c00co/WRTF.txt#L608) | CP-V releases the file it replaces as well; when another user still has that file open isn't modelled |
 | `FileSystem.commitAllocation` | method | `STUQFAC` | [SCHED.txt:1707–1745](../../c00co/SCHED.txt#L1707-L1745) | The scheduler's release routine for ALLOCATOR (E:UQFAC) calls this |
 | `FileSystem.fileNames` | method | *model only* |  | The names of an account's files, in order |
 
@@ -815,7 +838,7 @@ counterpart. Source paths are in `c00co/`.
 
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
-| `FileSystemSettings` | class | *model only* |  | Disc timing; CP-V's comes from the RADs and disc packs |
+| `FileSystemSettings` | class | *model only* |  | Disc size and timing; CP-V's come from the RADs and disc packs |
 | `FileSystemSettings.discTime` | attribute | *model only* |  | Ticks per disc access |
 | `FileSystemSettings.discGranules` | attribute | *model only* |  | Granules in the file area |
 | `FileSystemSettings.keyLength` | attribute | `KEYM` | [UTS.txt:588](../../c00co/UTS.txt#L588) |  |

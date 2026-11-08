@@ -2,27 +2,35 @@
 
 import pytest
 
-from cpvmodel import (Close, FileError, FileMode, Open, Organization, ReadRecord, System,
-                      WriteRecord)
-from cpvmodel.filesystem import BEYOND_END, GRANULE_BYTES, SHORT_TRANSFER, GranuleShortage
+from cpvmodel import FileError, FileMode, Organization, Program, System
+from cpvmodel.filesystem import BEYOND_END, GRANULE_BYTES, SHORT_TRANSFER
+
+from .scripts import Script, fileDcb, happened, openFile
 
 
-def happened(system, name, what):
-    return [entry.time for entry in system.trace if entry.user == name and entry.what == what]
+class RandomUser(Program):
+    """Creates RAND with ``size`` granules, then optionally writes, reads it back, and
+    deletes it."""
 
+    def __init__(self, size=4, lifecycle=False):
+        self.rand = fileDcb("RAND", organization=Organization.RANDOM, size=size)
+        self.lifecycle = lifecycle
+        self.read = None
 
-def randomProgram(steps, size=4, results=None):
-    """Opens RAND OUT with ``size`` granules, then runs ``steps(handle)``."""
-    def body():
-        handle = yield Open("RAND", FileMode.OUT, organization=Organization.RANDOM, size=size)
-        yield from steps(handle)
-        yield Close(handle)
-    return body()
+    def run(self, m):
+        m.open(self.rand, mode=FileMode.OUT)
+        if self.lifecycle:
+            m.write(self.rand, "data", key=0)
+        m.close(self.rand)
+        if self.lifecycle:
+            m.open(self.rand, mode=FileMode.IN)
+            self.read = m.read(self.rand, key=0)
+            m.close(self.rand, release=True)
 
 
 def testTheRunComesFromAllocatWhileTheUserWaits():
     system = System()
-    system.startUser("u", randomProgram(lambda handle: iter(())), priority=0xF8)
+    system.startUser("u", RandomUser(), priority=0xF8)
     assert system.run() == "shutdown"
     assert happened(system, "u", "RESOURCE_BLOCK(ALLOCATOR): RUNNING -> AWAITING_RESOURCE")
     assert system.files.fileNames("GUEST") == ["RAND"]
@@ -30,59 +38,53 @@ def testTheRunComesFromAllocatWhileTheUserWaits():
 
 def testTheRunIsContiguous():
     system = System()
-    system.startUser("u", randomProgram(lambda handle: iter(()), size=6), priority=0xF8)
+    system.startUser("u", RandomUser(size=6), priority=0xF8)
     system.run()
     file, _ = system.files.lookUp("GUEST", "RAND")
     addresses = [granule.address for granule in file.run]
     assert addresses == list(range(addresses[0], addresses[0] + 6))
 
 
-def openRandom(system, size=4):
-    """A random file made through a program, then opened by the test directly."""
-    system.startUser("maker", randomProgram(lambda handle: iter(()), size=size), priority=0xF8)
-    system.run()
-    user = system.startUser("tester", iter(()), priority=0xF8)
-    return system.files, user
+def randomFile(size=4):
+    """A random file made straight through the file system (the monitor needs no ALLOCAT
+    for it), and a user."""
+    system = System()
+    user = system.startUser("tester", Script(), priority=0xF8)
+    files = system.files
+    files.close(user, openFile(files, user, "RAND", FileMode.OUT,
+                               organization=Organization.RANDOM, size=size))
+    file, _ = files.lookUp("GUEST", "RAND")
+    return system, user, file
 
 
 def testWritesAndReadsByGranuleNumber():
-    system = System()
-    files, user = openRandom(system)
-    with pytest.raises(GranuleShortage):          # the new run: ask ALLOCAT, then again
-        files.openFile(user, "RAND", FileMode.OUT, organization=Organization.RANDOM, size=4)
-    system.run()
-    out = files.openFile(user, "RAND", FileMode.OUT, organization=Organization.RANDOM, size=4)
-    files.writeRecord(out, "third", key=2)
-    files.writeRecord(out, "fourth")             # continues at the next granule
-    files.closeFile(out)
-    handle = files.openFile(user, "RAND", FileMode.IN)
-    assert files.readRecord(handle, key=2) == "third"
-    assert files.readRecord(handle) == "fourth"
+    system, user, _ = randomFile()
+    files = system.files
+    out = openFile(files, user, "RAND", FileMode.OUT, organization=Organization.RANDOM, size=4)
+    files.write(user, out, "third", key=2)
+    files.write(user, out, "fourth")             # continues at the next granule
+    files.close(user, out)
+    dcb = openFile(files, user, "RAND")
+    assert files.read(user, dcb, key=2) == "third"
+    assert files.read(user, dcb) == "fourth"
 
 
 def testATransferSpanningGranulesMovesThePositionPastThem():
-    system = System()
-    files, user = openRandom(system)
-    file, _ = files.lookUp("GUEST", "RAND")
-    moved = file.write(0, "A" * GRANULE_BYTES + "B")
-    assert moved == 2
+    _, _, file = randomFile()
+    assert file.write(0, "A" * GRANULE_BYTES + "B") == 2
     text, granules = file.read(0, GRANULE_BYTES + 1)
     assert text == "A" * GRANULE_BYTES + "B" and granules == 2
 
 
 def testAGranuleNumberPastTheEndIsAnError():
-    system = System()
-    files, user = openRandom(system, size=2)
-    file, _ = files.lookUp("GUEST", "RAND")
+    _, _, file = randomFile(size=2)
     with pytest.raises(FileError) as error:
         file.read(2, 10)
     assert error.value.code == BEYOND_END
 
 
 def testAWriteThatRunsOffTheEndMovesWhatFits():
-    system = System()
-    files, user = openRandom(system, size=2)
-    file, _ = files.lookUp("GUEST", "RAND")
+    _, _, file = randomFile(size=2)
     with pytest.raises(FileError) as error:
         file.write(1, "C" * (2 * GRANULE_BYTES))
     assert error.value.code == SHORT_TRANSFER
@@ -90,18 +92,12 @@ def testAWriteThatRunsOffTheEndMovesWhatFits():
 
 
 def testDeletingARandomFileGivesItsRunBack():
-    def lifecycle():
-        handle = yield Open("RAND", FileMode.OUT, organization=Organization.RANDOM, size=10)
-        yield WriteRecord(handle, "data", key=0)
-        yield Close(handle)
-        again = yield Open("RAND", FileMode.IN)
-        yield ReadRecord(again, key=0)
-        yield Close(again, release=True)
-
     system = System()
     total = system.files.disc.granuleCount
-    system.startUser("u", lifecycle(), priority=0xF8)
+    program = RandomUser(size=10, lifecycle=True)
+    system.startUser("u", program, priority=0xF8)
     system.run()
     disc = system.files.disc
+    assert program.read == "data"
     assert system.files.fileNames("GUEST") == []
     assert disc.freeCount() + len(disc.granules) == total

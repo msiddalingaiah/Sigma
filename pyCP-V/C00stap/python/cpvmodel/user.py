@@ -78,9 +78,6 @@ class User:
     pendingSignals: set = field(default_factory=set)
     program: object = None
     computeLeft: int = 0
-    pendingRequest: object = None
-    stepResult: tuple = None
-    stepError: Exception = None
 
     cpvNames = {
         "number": cpv("S:CUN", source="TCATCH.txt:173",
@@ -118,14 +115,8 @@ class User:
                             note="The quantum mark saved at dispatch, for the minimum run"),
         "pendingSignals": cpv("UH:DL", source="SCHED.txt:905-912",
                               note="ABRT, ERR, EC and BRK flags, bits 0-3"),
-        "program": modelOnly("A generator standing in for the user's code"),
-        "computeLeft": modelOnly("Ticks left in the program's current Compute step"),
-        "pendingRequest": modelOnly("The step a program yielded from its break routine, or "
-                                    "a step to try again after a wait"),
-        "stepResult": modelOnly("What the program's last step returns, as a 1-tuple, sent "
-                                "back into the program: a terminal line, a file handle, a "
-                                "record"),
-        "stepError": modelOnly("An error the last step raises, thrown into the program"),
+        "program": modelOnly("The user's Program, which runs in their thread"),
+        "computeLeft": modelOnly("Ticks left of the program's current compute()"),
     }
 
     @cpv("UB:PRIO", "UB:PRIOB", source="SCHED.txt:1156-1160",

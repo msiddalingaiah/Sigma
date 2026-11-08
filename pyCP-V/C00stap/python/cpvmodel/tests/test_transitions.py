@@ -133,8 +133,10 @@ def testEveryHandlerNamedInTheTableExists():
 
 def testUnmodelledTransitionsSaySo():
     from cpvmodel import System
+
+    from .scripts import Script
     system = System()
-    user = system.startUser("alpha", iter(()), priority=0xF8)
+    user = system.startUser("alpha", Script(), priority=0xF8)
     system.scheduler.dispatch()
     with pytest.raises(NotModelledYet):
         system.scheduler.report(user, Event.ASSOCIATE_PROCESSOR)
