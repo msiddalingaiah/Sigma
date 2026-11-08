@@ -156,8 +156,9 @@ class ResourceManager:
         return True
 
     @cpv("UQFAC", "STUQFAC", source="SCHED.txt:1707-1745, SCHED.txt:1836",
-         note="CP-V updates ALLOCAT's four buffers; the model doesn't have them")
+         note="Commits ALLOCAT's work on the granule stack, then releases the waiting users")
     def updateAllocator(self, user):
+        self.scheduler.system.files.commitAllocation()
         return True
 
     @cpv("SETDL", "SH:RFLG", "T:UQR", source="SCHED.txt:1630-1647")

@@ -55,7 +55,7 @@ its parts.
 |---|---|---|---|
 | `cpvmodel.scheduler` | `Scheduler` | SCHED, "execution and swap scheduler" | `StateQueues`, `EventRouter` and `TransitionTable`, `ExitPath`, `SwapScheduler`, `ResourceManager`, `SchedulerSettings` |
 | `cpvmodel.terminals` | `TerminalController` | COC, "character-oriented communications" | `Line`, `TerminalSettings`; `echoSession` stands in for TEL |
-| `cpvmodel.filesystem` | `FileSystem` | OPNF, CLS, RDF, WRTF: the file management modules | `Disc`, `IndexChain` (with `IndexBlock`, `Pyramid`), `Directory`, `FileHeader`, `File`, `ConsecutiveFile`, `KeyedFile`, `FileHandle`, `FileSystemSettings` |
+| `cpvmodel.filesystem` | `FileSystem` | OPNF, CLS, RDF, WRTF: the file management modules | `Disc`, `GranuleAllocator` (with `AllocationMap`, `GranuleStack`, the ALLOCAT ghost), `IndexChain` (with `IndexBlock`, `Pyramid`), `Directory`, `FileHeader`, `File`, `ConsecutiveFile`, `KeyedFile`, `FileHandle`, `FileSystemSettings` |
 
 `System` (`cpvmodel/system.py`) puts the components together. It owns what's machine-wide: the
 user slots, `Memory`, the clock, `FutureEvents`, the run loop and the trace. The components talk
@@ -565,12 +565,32 @@ classDiagram
         getGranule()
         releaseGranule(granule)
     }
+    class GranuleAllocator {
+        ensure(count)
+        get()
+        release(address)
+        adjust()
+        commit()
+    }
+    class GranuleStack {
+        addresses
+        pendingFill
+        pendingReleases
+    }
+    class AllocationMap {
+        free
+        take()
+        give(address)
+    }
     class Granule {
         address
         capacity
         segments
     }
     FileSystem *-- Disc
+    Disc *-- GranuleAllocator : allocator
+    GranuleAllocator *-- GranuleStack : stack
+    GranuleAllocator *-- AllocationMap : map
     FileSystem *-- Directory : accounts
     IndexChain <|-- Directory
     IndexChain *-- IndexBlock : level 0
@@ -644,6 +664,56 @@ flowchart TD
     b1 -. "added since the build<br/>(not in the pyramid)" .-> bx["level 0: H ... K"]
     b0 --> data["data granules: the records"]
 ```
+
+**Granule allocation.** Granules come from three levels:
+
+```
+file code ── get / release ──► the stack (GranuleStack)      quick: a list of free addresses
+                                  ▲   │
+              fill to 80 ◄────────┘   └────► empty to 40       done by the ALLOCAT ghost
+                                  │   ▼
+                               the map (AllocationMap)        a bit per granule, 1 = free
+```
+
+- **Get** pops the stack, and **release** pushes on it. With the stack full (128), a released
+  granule waits for ALLOCAT instead.
+- **The thresholds.** A get or release that leaves 16 or fewer on the stack, or 100 or more,
+  **starts ALLOCAT**. ALLOCAT is a user like any other, scheduled by the scheduler.
+- **ALLOCAT** fills a low stack up to 80 from the map, or empties a high one down to 40 into
+  it, and gives the waiting releases back to the map. Its fill isn't usable yet: when it is done
+  it reports `E:UQFAC`, and the scheduler's release routine for `ALLOCATOR` (`STUQFAC`)
+  **commits** the fill.
+- **A user who needs more granules than the stack has waits.** Before a file operation starts,
+  the file system checks the stack. If it is short, ALLOCAT is started and the user blocks on
+  the `ALLOCATOR` resource (`E:QFAC`). After the commit releases them, they try the step
+  again. The check comes first, so an operation never stops half done.
+- **The map** is searched from where the last search stopped. Releasing a granule that is
+  already free is a **dual allocation**, which is logged.
+
+```mermaid
+sequenceDiagram
+    participant W as writer
+    participant F as FileSystem
+    participant G as GranuleAllocator
+    participant C as Scheduler
+    participant A as ALLOCAT
+    W->>F: WriteRecord (needs 4 granules)
+    F->>G: ensure(4): only 2 on the stack
+    G->>C: start ALLOCAT (T:GJOBSTRT)
+    F-->>W: GranuleShortage
+    W->>C: RESOURCE_BLOCK(ALLOCATOR)  (E:QFAC)
+    C->>A: dispatch
+    A->>G: adjust(): fill from the map, not yet visible
+    A->>C: RESOURCE_RELEASE(ALLOCATOR)  (E:UQFAC)
+    C->>G: commit()  (STUQFAC)
+    C->>W: released, special compute
+    W->>F: WriteRecord again: the granules are there
+```
+
+In CP-V there is a stack per device type and a map per device, ALLOCAT is started at boot and
+sleeps between runs, and `E:UQFAC` comes from the swapper when it takes ALLOCAT out of
+core. The model has one stack and one map, starts ALLOCAT when it is needed, and has it report
+`E:UQFAC` as it ends. Runs of granules for random files (`GNBG`) come with random files.
 
 A read, through the components:
 
@@ -732,7 +802,9 @@ What is CP-V's so far:
   - The boost decays by 1 at each dispatch (`SE1`, `S:PRIODEC`).
   - At quantum end the user goes back to their base, at the tail of the queue (`T:CHSE0`).
   - A preempted user keeps their current priority (`CHSE0`).
-  - A real-time user always runs at their base ("DONT FLOAT RT").
+  - A real-time user always runs at their base ("DONT FLOAT RT"). CP-V quirk: the test is on
+    the *boosted* priority, so a background user with a base of X'C0' to X'C5' whose boost goes
+    below X'C0' is queued in the real-time band, at its base (ALLOCAT, at X'C0', showed this).
 - **Events.** CP-V's whole state-and-event table, checked against the source.
 - **The exit path.** Signals are acted on in CP-V's order of importance, and all four are
   cleared at once, so a break that comes with a control-Y is lost. Then the swap quantum,
@@ -791,6 +863,7 @@ Not yet:
 2. **Index chains and keyed files** (done). `IndexChain`, `IndexBlock`, `Pyramid`, `KeyedFile`,
    and the directories as index chains. Insert with the room rule, moving the last entry,
    slides, the pyramid at close and its restriction. Reads by key and in key order.
-3. **Granule allocation.** The stack, the bit map, the thresholds, and the ALLOCAT ghost with
-   `E:QFAC`/`E:UQFAC`.
+3. **Granule allocation** (done). `GranuleAllocator`, `GranuleStack`, `AllocationMap`, and the
+   ALLOCAT ghost. Users wait on `ALLOCATOR` (`E:QFAC`) until ALLOCAT's fill is committed
+   (`E:UQFAC`, `STUQFAC`). A full disc is a `FileError`.
 4. **Random files, deleting files, and OPEN's access checks.**

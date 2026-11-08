@@ -5,15 +5,12 @@ from dataclasses import dataclass
 
 from ..glossary import cpv, modelOnly
 from .directory import ACCOUNT_ENTRY, FILE_ENTRY, Directory
-from .disc import Disc
+from .disc import GRANULE_BYTES, Disc
 from .files import ConsecutiveFile, File, FileHeader, Organization
 from .keyedfile import KeyedFile
 
-NO_SUCH_FILE = 0x03             # as FIX1 handles it; OPEN's own codes weren't read
-END_OF_FILE = 0x06
-NO_KEY = 0x17                   # a keyed write with no key
-WRONG_MODE = 0x15               # an operation error
-KEY_NOT_FOUND = 0x43            # KEYER3
+from .errors import (END_OF_FILE, KEY_NOT_FOUND, NO_KEY, NO_SUCH_FILE, WRONG_MODE,
+                     FileError)
 
 
 class FileMode(enum.Enum):
@@ -30,14 +27,6 @@ FileMode.cpvNames = {
     "OUT": cpv("CLSFIL4", source="CLS.txt:1994-1998",
                note="Write a new file; it goes into the directory at close"),
 }
-
-
-@modelOnly("CP-V reports file errors with a code in the DCB and goes to the program's error "
-           "address, or aborts it; the model throws this into the program")
-class FileError(Exception):
-    def __init__(self, code, message):
-        super().__init__(f"X'{code:02X}': {message}")
-        self.code = code
 
 
 @modelOnly("Disc timing; CP-V's comes from the RADs and disc packs")
@@ -115,7 +104,9 @@ class FileSystem:
     def __init__(self, system, settings=None):
         self.system = system
         self.settings = settings or FileSystemSettings()
-        self.disc = Disc(self.settings.discGranules)
+        self.disc = Disc(self.settings.discGranules, system)
+        self.disc.allocator.adjust()                # as ALLOCAT does at boot
+        self.disc.allocator.commit()
         self.accounts = Directory(self.disc, ACCOUNT_ENTRY)
         self.openFiles = {}
         self.handles = {}
@@ -147,6 +138,7 @@ class FileSystem:
             else:
                 accesses = 0
         else:
+            self.disc.allocator.ensure(1)
             file = self.newFile(FileHeader(name, account), organization)
             accesses = 1
         file.openCount += 1
@@ -203,6 +195,7 @@ class FileSystem:
         file (replacing any record with that key)."""
         self.checkMode(handle, FileMode.OUT)
         file = handle.file
+        self.disc.allocator.ensure(len(text) // (GRANULE_BYTES - 400) + 3)
         if isinstance(file, KeyedFile):
             if key is None:
                 raise FileError(NO_KEY, f"a keyed write to {file.header.name} needs a key")
@@ -212,7 +205,11 @@ class FileSystem:
 
     @cpv("CLSFIL", "CLSFIL4", source="CLS.txt:1443-1530, CLS.txt:1994-1998",
          note="A new file goes into its directory at close")
-    def closeFile(self, handle):
+    def closeFile(self, handle, mayWait=True):
+        """Close ``handle``. ``mayWait`` is False when the monitor closes it at step end:
+        then nothing waits for granules, which come from the map if the stack is short."""
+        if not handle.file.inDirectory and mayWait:
+            self.disc.allocator.ensure(2)           # directory blocks it may need
         handle.isOpen = False
         self.handles[handle.user].remove(handle)
         file = handle.file
@@ -225,8 +222,14 @@ class FileSystem:
 
     @modelOnly("CP-V closes a program's open DCBs when its job step ends; where wasn't traced")
     def closeAll(self, user):
+        """Close whatever ``user`` left open. A new file that can't be entered (the disc is
+        full) is dropped and its granules released."""
         for handle in list(self.handles.get(user, [])):
-            self.closeFile(handle)
+            try:
+                self.closeFile(handle, mayWait=False)
+            except FileError:
+                handle.file.release()
+                self.system.log(user, f"{handle.file.header.name} dropped: the disc is full")
         self.handles.pop(user, None)
 
     @cpv("INST", source="WRTF.txt:608",
@@ -250,6 +253,11 @@ class FileSystem:
     def checkMode(self, handle, mode):
         if not handle.isOpen or handle.mode is not mode:
             raise FileError(WRONG_MODE, f"{handle.file.header.name} isn't open {mode.name}")
+
+    @cpv("STUQFAC", source="SCHED.txt:1707-1745",
+         note="The scheduler's release routine for ALLOCATOR (E:UQFAC) calls this")
+    def commitAllocation(self):
+        self.disc.allocator.commit()
 
     @modelOnly("The names of an account's files, in order")
     def fileNames(self, account):

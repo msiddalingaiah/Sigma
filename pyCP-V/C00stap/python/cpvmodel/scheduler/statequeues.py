@@ -34,10 +34,13 @@ class StateQueues:
 
     def __init__(self):
         self.bands = [[] for _ in range(BAND_COUNT)]
+        self.bandOf = {}
         self.waiting = {state: [] for state in UserState if state not in UNQUEUED_STATES}
 
     cpvNames = {
         "bands": cpv("SRT", "SC0", "SC1", "SC10", source="SCHED.txt:277-288"),
+        "bandOf": cpv("UB:US", source="SSDAT.txt:336",
+                      note="Which band each ready user is in; in CP-V, which state"),
         "waiting": cpv("SB:HQ", "SB:TQ", source="SSDAT.txt:390-394",
                        note="The queues of the waiting states, STOB to SQFI"),
     }
@@ -56,10 +59,12 @@ class StateQueues:
          note="A ready user goes behind equal priorities (T:CHSE); a waiting user goes to "
               "the tail of their state's queue (RCE4). Queuing to the head (STASP) isn't "
               "modelled yet")
-    def add(self, user):
-        """Queue the user for their current state."""
+    def add(self, user, band=None):
+        """Queue the user for their current state. A ready user goes into ``band``, by
+        default the band of their priority."""
         if user.state is UserState.READY:
-            band = self.bands[self.bandFor(user.priority)]
+            self.bandOf[user] = self.bandFor(user.priority) if band is None else band
+            band = self.bands[self.bandOf[user]]
             position = len(band)
             while position > 0 and band[position - 1].priority > user.priority:
                 position -= 1
@@ -71,7 +76,7 @@ class StateQueues:
     def remove(self, user):
         """Take the user out of the queue for their current state."""
         if user.state is UserState.READY:
-            self.bands[self.bandFor(user.priority)].remove(user)
+            self.bands[self.bandOf.pop(user)].remove(user)
         elif user.state in self.waiting:
             self.waiting[user.state].remove(user)
 

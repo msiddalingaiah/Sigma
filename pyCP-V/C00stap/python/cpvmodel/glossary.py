@@ -35,6 +35,8 @@ MODEL_MODULES = [
     "cpvmodel.scheduler.swapscheduler",
     "cpvmodel.scheduler.resources",
     "cpvmodel.terminals.terminals",
+    "cpvmodel.filesystem.errors",
+    "cpvmodel.filesystem.allocation",
     "cpvmodel.filesystem.disc",
     "cpvmodel.filesystem.indexchain",
     "cpvmodel.filesystem.directory",

@@ -12,12 +12,12 @@ or a CAL, its exit path decides whether the user goes on.
 from dataclasses import dataclass
 
 from .futureevents import FutureEvents
-from .filesystem import FileError, FileSystem, Organization
+from .filesystem import FileError, FileSystem, GranuleShortage, Organization
 from .glossary import cpv, modelOnly
 from .memory import Memory
 from .program import (Close, Compute, DoIo, Open, OpenClose, OpenCloseDone, ReadRecord,
                       ReadTerminal, Release, Sleep, WaitFor, WriteRecord, WriteTerminal, Yield)
-from .scheduler import Event, Scheduler
+from .scheduler import Event, Resource, Scheduler
 from .terminals import TerminalController, echoSession
 from .user import User
 
@@ -201,10 +201,10 @@ class System:
         elif isinstance(request, (Open, Close)):
             self.openOrClose(user, request)
         elif isinstance(request, ReadRecord):
-            self.fileStep(user, request.handle,
+            self.fileStep(user, request,
                           lambda: self.files.readRecord(request.handle, request.key))
         elif isinstance(request, WriteRecord):
-            self.fileStep(user, request.handle,
+            self.fileStep(user, request,
                           lambda: self.files.writeRecord(request.handle, request.text,
                                                          request.key))
         elif isinstance(request, OpenCloseDone):
@@ -223,16 +223,21 @@ class System:
         if not self.scheduler.claimOpenClose(user):
             user.pendingRequest = request           # try again when released
             return
-        if isinstance(request, Open):
-            accesses = self.fileWork(
-                user, lambda: self.files.openFile(user, request.name, request.mode,
-                                                  request.account,
-                                                  request.organization
-                                                  or Organization.CONSECUTIVE))
-            handle = user.stepResult[0] if user.stepResult is not None else None
-        else:
-            accesses = self.fileWork(user, lambda: self.files.closeFile(request.handle))
-            handle = request.handle
+        try:
+            if isinstance(request, Open):
+                accesses = self.fileWork(
+                    user, lambda: self.files.openFile(user, request.name, request.mode,
+                                                      request.account,
+                                                      request.organization
+                                                      or Organization.CONSECUTIVE))
+                handle = user.stepResult[0] if user.stepResult is not None else None
+            else:
+                accesses = self.fileWork(user, lambda: self.files.closeFile(request.handle))
+                handle = request.handle
+        except GranuleShortage:
+            self.scheduler.endOpenClose(user)
+            self.waitForGranules(user, request)
+            return
         if handle is not None:
             accesses += handle.takeDiscAccesses()
             verb = "opens" if isinstance(request, Open) else "closes"
@@ -241,9 +246,20 @@ class System:
         self.waitForDisc(user, accesses)
 
     @modelOnly("A file read or write: do it, then wait for the disc")
-    def fileStep(self, user, handle, work):
-        accesses = self.fileWork(user, work)
-        self.waitForDisc(user, accesses + handle.takeDiscAccesses())
+    def fileStep(self, user, request, work):
+        try:
+            accesses = self.fileWork(user, work)
+        except GranuleShortage:
+            self.waitForGranules(user, request)
+            return
+        self.waitForDisc(user, accesses + request.handle.takeDiscAccesses())
+
+    @cpv("E:QFAC", "REGUSER", source="GRAN.txt:301-308",
+         note="Blocked on ALLOCATOR until ALLOCAT's fill is committed; then the step again")
+    def waitForGranules(self, user, request):
+        user.pendingRequest = request
+        self.log(user, "waits for granules")
+        self.scheduler.report(user, Event.RESOURCE_BLOCK, Resource.ALLOCATOR)
 
     @modelOnly("Runs a file operation: its result goes back to the program, or its error is "
                "thrown in. A failed lookup still read two directories")

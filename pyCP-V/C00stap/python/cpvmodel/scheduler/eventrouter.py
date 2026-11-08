@@ -3,6 +3,7 @@
 from .events import (AWAITING_ACCESS, AWAITING_TERMINAL_INPUT, IO_WAIT, READY, RUNNING,
                      TOO_MUCH_IO, Event, PriorityBoost, TransitionTable)
 from .exitpath import Signal
+from .statequeues import REAL_TIME_BAND
 
 SIGNAL_FOR = {
     Event.BREAK: Signal.BREAK,
@@ -78,13 +79,22 @@ class EventRouter:
     @cpv("T:CHSE", "CHSE1", "OPNBOOST", source="SCHED.txt:1452-1535",
          note="The OPNBOOST for the open/close user isn't modelled yet")
     def makeReady(self, user, boost=PriorityBoost.COMPUTE):
-        """Make the user ready at their base priority less ``boost``. A real-time user
-        always runs at their base: "DONT FLOAT RT"."""
+        """Make the user ready at their base priority less ``boost``. A priority below
+        X'C0' is real time: the user goes into the real-time band at their base priority,
+        "DONT FLOAT RT".
+
+        CP-V quirk: the test is on the boosted priority, so a background user with a base
+        of X'C0' to X'C5' whose boost goes below X'C0' is queued as real time too, still at
+        that base."""
         self._leave(user)
-        user.priority = max(0, user.basePriority - boost.value)
-        if user.basePriority < 0xC0:
-            user.priority = user.basePriority
-        self._enter(user, READY)
+        priority = max(0, user.basePriority - boost.value)
+        band = None
+        if priority < 0xC0:
+            priority, band = user.basePriority, REAL_TIME_BAND
+        user.priority = priority
+        user.state = READY
+        self.scheduler.stateQueues.add(user, band)
+        self.eventCount += 1
 
     @cpv("CHSE0", source="SCHED.txt:1459-1466",
          note="Entered with the priority already chosen; the exit path uses it to park "

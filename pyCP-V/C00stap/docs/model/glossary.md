@@ -193,6 +193,7 @@ counterpart. Source paths are in `c00co/`.
 | `System.call` | method | `TRAPEXIT` | [SCHED.txt:877–889](../../c00co/SCHED.txt#L877-L889) | A CAL enters the monitor; the user comes back through TRAPEXIT |
 | `System.openOrClose` | method | `OPNCLSUS`, `E:OCR` | [OPNF.txt:1479–1487](../../c00co/OPNF.txt#L1479-L1487) | OPEN and CLOSE run as the open/close user, one user at a time |
 | `System.fileStep` | method | *model only* |  | A file read or write: do it, then wait for the disc |
+| `System.waitForGranules` | method | `E:QFAC`, `REGUSER` | [GRAN.txt:301–308](../../c00co/GRAN.txt#L301-L308) | Blocked on ALLOCATOR until ALLOCAT's fill is committed; then the step again |
 | `System.fileWork` | method | *model only* |  | Runs a file operation: its result goes back to the program, or its error is thrown in. A failed lookup still read two directories |
 | `System.waitForDisc` | method | `E:IIP`, `UB:MF` | [SCHED.txt:513](../../c00co/SCHED.txt#L513), [SCHED.txt:1553–1572](../../c00co/SCHED.txt#L1553-L1572) | The file code queues its disc I/O and the user waits (T:IOREG, E:IIP) |
 | `System.runDueEvents` | method | *model only* |  | Interrupts: everything due by now happens |
@@ -243,6 +244,7 @@ counterpart. Source paths are in `c00co/`.
 |---|---|---|---|---|
 | `StateQueues` | class | `SB:HQ`, `SB:TQ`, `UB:FL`, `UB:BL` | [SSDAT.txt:337–394](../../c00co/SSDAT.txt#L337-L394) | CP-V links users through per-user forward and back link bytes, with a head and tail byte per state |
 | `StateQueues.bands` | attribute | `SRT`, `SC0`, `SC1`, `SC10` | [SCHED.txt:277–288](../../c00co/SCHED.txt#L277-L288) |  |
+| `StateQueues.bandOf` | attribute | `UB:US` | [SSDAT.txt:336](../../c00co/SSDAT.txt#L336) | Which band each ready user is in; in CP-V, which state |
 | `StateQueues.waiting` | attribute | `SB:HQ`, `SB:TQ` | [SSDAT.txt:390–394](../../c00co/SSDAT.txt#L390-L394) | The queues of the waiting states, STOB to SQFI |
 | `StateQueues.bandFor` | method | `CHSE1` | [SCHED.txt:1468–1480](../../c00co/SCHED.txt#L1468-L1480) | Maps the priority to a state; X'F6' is SC1 |
 | `StateQueues.add` | method | `T:CHSE`, `CHSE1`, `RCE4` | [SCHED.txt:1408–1535](../../c00co/SCHED.txt#L1408-L1535) | A ready user goes behind equal priorities (T:CHSE); a waiting user goes to the tail of their state's queue (RCE4). Queuing to the head (STASP) isn't modelled yet |
@@ -438,7 +440,7 @@ counterpart. Source paths are in `c00co/`.
 | `ResourceManager.release` | method | `T:REL`, `T:REL1`, `SPECIFIC`, `FLUSH` | [SCHED.txt:1771–1802](../../c00co/SCHED.txt#L1771-L1802) |  |
 | `ResourceManager.unqueue` | method | `T:UQR` | [SCHED.txt:1814–1821](../../c00co/SCHED.txt#L1814-L1821) | Unqueues from the user's own resource, whatever resource was released |
 | `ResourceManager.chooseOpenCloseUser` | method | `OPNUNBLOCK`, `OPNCLSUS`, `OPNCLSUSR` | [SCHED.txt:1837–1844](../../c00co/SCHED.txt#L1837-L1844) | Returns False to release nobody |
-| `ResourceManager.updateAllocator` | method | `UQFAC`, `STUQFAC` | [SCHED.txt:1707–1745](../../c00co/SCHED.txt#L1707-L1745), [SCHED.txt:1836](../../c00co/SCHED.txt#L1836) | CP-V updates ALLOCAT's four buffers; the model doesn't have them |
+| `ResourceManager.updateAllocator` | method | `UQFAC`, `STUQFAC` | [SCHED.txt:1707–1745](../../c00co/SCHED.txt#L1707-L1745), [SCHED.txt:1836](../../c00co/SCHED.txt#L1836) | Commits ALLOCAT's work on the granule stack, then releases the waiting users |
 | `ResourceManager.releaseForSignal` | method | `SETDL`, `SH:RFLG`, `T:UQR` | [SCHED.txt:1630–1647](../../c00co/SCHED.txt#L1630-L1647) |  |
 
 ## Line
@@ -490,13 +492,71 @@ counterpart. Source paths are in `c00co/`.
 | `TerminalSettings.onlinePriority` | attribute | `SL:OPRIO` | [CONMAIN.txt:1087](../../c00co/CONMAIN.txt#L1087) | 192-255 |
 | `TerminalSettings.onlinePages` | attribute | *model only* |  | Pages a logged-on user needs; CP-V's come from TEL and the JIT |
 
+## FileError
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `FileError` | class | *model only* |  | CP-V reports file errors with a code in the DCB and goes to the program's error address, or aborts it; the model throws this into the program |
+
+## AllocationMap
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `AllocationMap` | class | `HGP`, `GETBIT`, `CMNRG` | [GRANSUB.txt:87–105](../../c00co/GRANSUB.txt#L87-L105), [GRANSUB.txt:258](../../c00co/GRANSUB.txt#L258), [GRANSUB.txt:362](../../c00co/GRANSUB.txt#L362) | A header and two bit maps (PER and PFA) per device, chained by device type |
+| `AllocationMap.free` | attribute | `HGP` | [GRANSUB.txt:87–105](../../c00co/GRANSUB.txt#L87-L105) | 1 = free |
+| `AllocationMap.position` | attribute | `GBIT5` | [GRANSUB.txt:296](../../c00co/GRANSUB.txt#L296) | Word 3 of the HGP: where the last search stopped |
+| `AllocationMap.dualAllocations` | attribute | `LOGDUAL` | [GRANSUB.txt:465](../../c00co/GRANSUB.txt#L465) |  |
+| `AllocationMap.take` | method | `CMNGG`, `GETBIT`, `GBIT5` | [GRANSUB.txt:87–95](../../c00co/GRANSUB.txt#L87-L95), [GRANSUB.txt:258–296](../../c00co/GRANSUB.txt#L258-L296) |  |
+| `AllocationMap.give` | method | `CMNRG`, `LOGDUAL` | [GRANSUB.txt:362](../../c00co/GRANSUB.txt#L362), [GRANSUB.txt:465](../../c00co/GRANSUB.txt#L465) |  |
+| `AllocationMap.freeCount` | method | *model only* |  | How many granules are free in the map |
+
+## GranuleAllocator
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `GranuleAllocator` | class | `GBG`, `RBG` | [GRAN.txt:95–117](../../c00co/GRAN.txt#L95-L117) | The resident allocator the file code calls (GETDGRAN, GETIGRAN, RELRBG) |
+| `GranuleAllocator.system` | attribute | *model only* |  | The system: ALLOCAT is started as a user |
+| `GranuleAllocator.map` | attribute | `HGP` | [GRANSUB.txt:87–105](../../c00co/GRANSUB.txt#L87-L105) |  |
+| `GranuleAllocator.stack` | attribute | `HGPSTK` | [HGPSTK.txt:1–36](../../c00co/HGPSTK.txt#L1-L36) |  |
+| `GranuleAllocator.allocatRunning` | attribute | `BUFLAGS` | [HGPSTK.txt:14](../../c00co/HGPSTK.txt#L14) | X'0001': ALLOCAT is working on the stack |
+| `GranuleAllocator.allocatRuns` | attribute | `GRAJST` | [GRAN.txt:243](../../c00co/GRAN.txt#L243) | # TIMES ADJUSTED |
+| `GranuleAllocator.ensure` | method | `GETGRAN`, `REG4CAT` | [GRAN.txt:193–202](../../c00co/GRAN.txt#L193-L202) | Checked before a user's file operation starts, so it never stops half done |
+| `GranuleAllocator.get` | method | `GBG`, `GETGRAN`, `RELX` | [GRAN.txt:101–102](../../c00co/GRAN.txt#L101-L102), [GRAN.txt:160](../../c00co/GRAN.txt#L160), [GRAN.txt:193](../../c00co/GRAN.txt#L193) | A user with the stack empty waits (ensure); the monitor takes from the map |
+| `GranuleAllocator.release` | method | `RBG`, `ROOM`, `NORELROM` | [GRAN.txt:95](../../c00co/GRAN.txt#L95), [GRAN.txt:169–186](../../c00co/GRAN.txt#L169-L186) |  |
+| `GranuleAllocator.checkThresholds` | method | `CHKTHRSH`, `THRESH` | [GRAN.txt:230–243](../../c00co/GRAN.txt#L230-L243), [GRAN.txt:337](../../c00co/GRAN.txt#L337) | At or above HITHRSH, or at or below LOTHRSH while the map isn't empty |
+| `GranuleAllocator.startAllocat` | method | `T:GJOBSTRT`, `THRESH` | [GRAN.txt:337–340](../../c00co/GRAN.txt#L337-L340) | CP-V wakes the ALLOCAT ghost; the model starts it as a new user |
+| `GranuleAllocator.adjust` | method | `ADJBUFS`, `FILL`, `EMPTY1` | [ALLYCAT.txt:330–410](../../c00co/ALLYCAT.txt#L330-L410) | Returns the granules moved, for the ghost's computing time |
+| `GranuleAllocator.commit` | method | `STUQFAC`, `TEMPBOT`, `ADJSTCNT` | [SCHED.txt:1707–1745](../../c00co/SCHED.txt#L1707-L1745) | Called by the scheduler when ALLOCAT reports E:UQFAC |
+| `GranuleAllocator.freeCount` | method | *model only* |  | Free granules anywhere: the stack, the fill not yet committed, and the map |
+
+## GranuleShortage
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `GranuleShortage` | class | `E:QFAC`, `REG4CAT` | [GRAN.txt:202](../../c00co/GRAN.txt#L202), [GRAN.txt:301–308](../../c00co/GRAN.txt#L301-L308) | The stack is empty: the user is queued for ALLOCAT |
+
+## GranuleStack
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `GranuleStack` | class | `HGPSTK`, `TOP`, `BOTTOM` | [HGPSTK.txt:1–36](../../c00co/HGPSTK.txt#L1-L36) | Four circular stacks (RAD, pack, symbiont, cylinder) of free disc addresses |
+| `GranuleStack.capacity` | attribute | `CATBUF` | [HGPSTK.txt:11](../../c00co/HGPSTK.txt#L11) | 128 slots |
+| `GranuleStack.lowLevel` | attribute | `LOLEVEL` | [HGPSTK.txt:25](../../c00co/HGPSTK.txt#L25) | 40 |
+| `GranuleStack.highLevel` | attribute | `HILEVEL` | [HGPSTK.txt:26](../../c00co/HGPSTK.txt#L26) | 80 |
+| `GranuleStack.lowThreshold` | attribute | `LOTHRSH` | [HGPSTK.txt:27](../../c00co/HGPSTK.txt#L27) | 16 |
+| `GranuleStack.highThreshold` | attribute | `HITHRSH` | [HGPSTK.txt:28](../../c00co/HGPSTK.txt#L28) | 100 |
+| `GranuleStack.addresses` | attribute | `TOP`, `BOTTOM`, `WORDCNT` | [HGPSTK.txt:13–35](../../c00co/HGPSTK.txt#L13-L35) | A get pops below TOP; WORDCNT is the count |
+| `GranuleStack.pendingFill` | attribute | `TEMPBOT`, `ADJSTCNT` | [HGPSTK.txt:34–36](../../c00co/HGPSTK.txt#L34-L36) | ALLOCAT fills below BOTTOM down to TEMPBOT, counted in ADJSTCNT |
+| `GranuleStack.pendingReleases` | attribute | `NORELROM`, `QUEMSG` | [GRAN.txt:169](../../c00co/GRAN.txt#L169), [GRAN.txt:319](../../c00co/GRAN.txt#L319) | A release with no room goes to ALLOCAT as a message |
+| `GranuleStack.count` | method | *model only* |  | The count users can take from now |
+
 ## Disc
 
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
-| `Disc` | class | `GETDGRAN`, `RELRBG` | [WRTF.txt:1176](../../c00co/WRTF.txt#L1176), [DLT.txt:915](../../c00co/DLT.txt#L915) | CP-V takes granules from a stack per device type, refilled by ALLOCAT from bit maps (iteration 3); here they come from a plain free list |
+| `Disc` | class | `GETDGRAN`, `RELRBG` | [WRTF.txt:1176](../../c00co/WRTF.txt#L1176), [DLT.txt:915](../../c00co/DLT.txt#L915) | The file code gets and releases granules through GRAN |
 | `Disc.granuleCount` | attribute | *model only* |  | The size of the file area |
-| `Disc.freeAddresses` | attribute | `GBG`, `RBG` | [GRAN.txt:10–11](../../c00co/GRAN.txt#L10-L11) | Stands for the stacks and bit maps of free granules |
+| `Disc.allocator` | attribute | `GBG`, `RBG` | [GRAN.txt:10–11](../../c00co/GRAN.txt#L10-L11) |  |
 | `Disc.granules` | attribute | *model only* |  | The granules in use, by address |
 | `Disc.getGranule` | method | `GETDGRAN`, `GBG` | [WRTF.txt:1176–1180](../../c00co/WRTF.txt#L1176-L1180), [GRAN.txt:95–117](../../c00co/GRAN.txt#L95-L117) |  |
 | `Disc.releaseGranule` | method | `RELRBG`, `RBG` | [DLT.txt:915–990](../../c00co/DLT.txt#L915-L990), [GRAN.txt:95–117](../../c00co/GRAN.txt#L95-L117) |  |
@@ -655,12 +715,6 @@ counterpart. Source paths are in `c00co/`.
 | `RecordLocation.segments` | attribute | `FAK` | [WRTF.txt:1745](../../c00co/WRTF.txt#L1745) | CP-V has an index entry per segment; the first has FAK |
 | `RecordLocation.granules` | attribute | `SREC` | [UTS.txt:463](../../c00co/UTS.txt#L463) |  |
 
-## FileError
-
-| Model name | Kind | CP-V | Source | Notes |
-|---|---|---|---|---|
-| `FileError` | class | *model only* |  | CP-V reports file errors with a code in the DCB and goes to the program's error address, or aborts it; the model throws this into the program |
-
 ## FileHandle
 
 | Model name | Kind | CP-V | Source | Notes |
@@ -702,6 +756,7 @@ counterpart. Source paths are in `c00co/`.
 | `FileSystem.closeAll` | method | *model only* |  | CP-V closes a program's open DCBs when its job step ends; where wasn't traced |
 | `FileSystem.enter` | method | `INST` | [WRTF.txt:608](../../c00co/WRTF.txt#L608) | CP-V releases the file it replaces as well; when another user still has that file open isn't modelled |
 | `FileSystem.checkMode` | method | `K15` | [WRTF.txt:15](../../c00co/WRTF.txt#L15), [WRTF.txt:244](../../c00co/WRTF.txt#L244) | OPERATION ERROR: the DCB isn't open for it |
+| `FileSystem.commitAllocation` | method | `STUQFAC` | [SCHED.txt:1707–1745](../../c00co/SCHED.txt#L1707-L1745) | The scheduler's release routine for ALLOCATOR (E:UQFAC) calls this |
 | `FileSystem.fileNames` | method | *model only* |  | The names of an account's files, in order |
 
 ## FileSystemSettings

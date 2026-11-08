@@ -1,16 +1,20 @@
 """The disc: granules, and where free ones come from."""
 
-from collections import deque
 from dataclasses import dataclass, field
 
 from ..glossary import cpv, modelOnly
+from .allocation import GranuleAllocator
+from .errors import DISC_FULL, FileError
 
 GRANULE_BYTES = 2048            # BUFSIZ: 512 words
 
 
 @modelOnly("CP-V gives an error when no granule is left; which code wasn't traced")
-class DiscFull(Exception):
+class DiscFull(FileError):
     """No free granule is left."""
+
+    def __init__(self):
+        super().__init__(DISC_FULL, "no granule left on the disc")
 
 
 @modelOnly("A piece of a record in a granule; CP-V's segment has a control word in front")
@@ -51,35 +55,36 @@ SEGMENT_OVERHEAD = 4            # a segment control word
 
 
 @cpv("GETDGRAN", "RELRBG", source="WRTF.txt:1176, DLT.txt:915",
-     note="CP-V takes granules from a stack per device type, refilled by ALLOCAT from bit "
-          "maps (iteration 3); here they come from a plain free list")
+     note="The file code gets and releases granules through GRAN")
 class Disc:
-    """The granules of the file area, and the free ones."""
+    """The granules of the file area: those in use, and the allocator that hands out the
+    free ones. ``system`` is needed to start the ALLOCAT ghost; a disc without one (in
+    tests) never starts it."""
 
-    def __init__(self, granuleCount=512):
+    def __init__(self, granuleCount=512, system=None):
         self.granuleCount = granuleCount
-        self.freeAddresses = deque(range(1, granuleCount + 1))
+        self.allocator = GranuleAllocator(system, granuleCount)
         self.granules = {}
 
     cpvNames = {
         "granuleCount": modelOnly("The size of the file area"),
-        "freeAddresses": cpv("GBG", "RBG", source="GRAN.txt:10-11",
-                             note="Stands for the stacks and bit maps of free granules"),
+        "allocator": cpv("GBG", "RBG", source="GRAN.txt:10-11"),
         "granules": modelOnly("The granules in use, by address"),
     }
 
     @cpv("GETDGRAN", "GBG", source="WRTF.txt:1176-1180, GRAN.txt:95-117")
     def getGranule(self):
-        if not self.freeAddresses:
+        address = self.allocator.get()
+        if address is None:
             raise DiscFull()
-        granule = Granule(self.freeAddresses.popleft())
+        granule = Granule(address)
         self.granules[granule.address] = granule
         return granule
 
     @cpv("RELRBG", "RBG", source="DLT.txt:915-990, GRAN.txt:95-117")
     def releaseGranule(self, granule):
         del self.granules[granule.address]
-        self.freeAddresses.append(granule.address)
+        self.allocator.release(granule.address)
 
     @cpv("RELRBG", source="DLT.txt:915-990")
     def releaseGranuleAt(self, address):
@@ -87,4 +92,4 @@ class Disc:
 
     @modelOnly("How many granules are free")
     def freeCount(self):
-        return len(self.freeAddresses)
+        return self.allocator.freeCount()
