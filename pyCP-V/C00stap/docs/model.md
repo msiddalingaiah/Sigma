@@ -55,7 +55,7 @@ its parts.
 |---|---|---|---|
 | `cpvmodel.scheduler` | `Scheduler` | SCHED, "execution and swap scheduler" | `StateQueues`, `EventRouter` and `TransitionTable`, `ExitPath`, `SwapScheduler`, `ResourceManager`, `SchedulerSettings` |
 | `cpvmodel.terminals` | `TerminalController` | COC, "character-oriented communications" | `Line`, `TerminalSettings`; `echoSession` stands in for TEL |
-| `cpvmodel.filesystem` | `FileSystem` | OPNF, CLS, RDF, WRTF: the file management modules | `Disc`, `Directory`, `FileHeader`, `File`, `ConsecutiveFile`, `FileHandle`, `FileSystemSettings` |
+| `cpvmodel.filesystem` | `FileSystem` | OPNF, CLS, RDF, WRTF: the file management modules | `Disc`, `IndexChain` (with `IndexBlock`, `Pyramid`), `Directory`, `FileHeader`, `File`, `ConsecutiveFile`, `KeyedFile`, `FileHandle`, `FileSystemSettings` |
 
 `System` (`cpvmodel/system.py`) puts the components together. It owns what's machine-wide: the
 user slots, `Memory`, the clock, `FutureEvents`, the run loop and the trace. The components talk
@@ -234,7 +234,7 @@ classDiagram
 
 A program is a generator that yields `Compute(ticks)`, `Sleep(ticks)`, `DoIo(ticks)`,
 `Yield()`, `WaitFor(resource)`, `Release(resource)`, `OpenClose(ticks)`, `ReadTerminal()` or
-`WriteTerminal(text)`, `Open(name, mode)`, `ReadRecord(handle)`, `WriteRecord(handle, text)` or
+`WriteTerminal(text)`, `Open(name, mode)`, `ReadRecord(handle, key)`, `WriteRecord(handle, text, key)` or
 `Close(handle)`. What a step returns is sent back into the program, such as
 `text = yield ReadTerminal()` or `handle = yield Open("DATA", FileMode.IN)`. An error is thrown into
 the program, so a program can catch a `FileError`. Each stands for what a user's code does in CP-V: compute, or make a CAL that leads
@@ -495,24 +495,49 @@ From the terminal demo (`python -m cpvmodel terminal`), a user typing beside a c
 ### The file system
 
 The file system is the third component. Its front class is `FileSystem` (CP-V's OPNF, CLS, RDF
-and WRTF, about 25,000 lines). In this first iteration it has:
+and WRTF, about 25,000 lines). So far it has:
 
 ```mermaid
 classDiagram
     class FileSystem {
         accounts
         openFiles
-        openFile(user, name, mode, account)
-        readRecord(handle)
-        writeRecord(handle, text)
+        openFile(user, name, mode, account, organization)
+        readRecord(handle, key)
+        writeRecord(handle, text, key)
         closeFile(handle)
         closeAll(user)
     }
-    class Directory {
-        keys
-        find(key)
+    class IndexChain {
+        blocks
+        pyramid
+        slides
+        search(key)
         insert(key, value)
         remove(key)
+        buildPyramid(keyLength)
+    }
+    class IndexBlock {
+        level
+        keys
+        values
+        addedSinceBuild
+    }
+    class Pyramid {
+        levels
+        descend(key)
+    }
+    class Directory {
+        find(key)
+        names()
+    }
+    class KeyedFile {
+        index
+        dataGranules
+        write(key, text)
+        read(key)
+        readNext(position)
+        close()
     }
     class File {
         header
@@ -547,23 +572,32 @@ classDiagram
     }
     FileSystem *-- Disc
     FileSystem *-- Directory : accounts
+    IndexChain <|-- Directory
+    IndexChain *-- IndexBlock : level 0
+    IndexChain *-- Pyramid : upper levels
     Directory o-- Directory : an account's files
     Directory o-- File : by name
     FileSystem o-- File : open files
     FileHandle --> File : DCB
     File <|-- ConsecutiveFile
+    File <|-- KeyedFile
+    KeyedFile *-- IndexChain : master index
     File --> FileHeader : FIT
     ConsecutiveFile o-- Granule : chain
 ```
 
 - **Two levels of directory.** The account directory maps an account to its file directory,
-  which maps a file name to the file. Both are ordered by name. In CP-V they are chains of index
-  blocks on the disc, kept in two copies; iteration 2 gives the model's directories those
-  blocks.
+  which maps a file name to the file. Both are **index chains** (below), searched along their
+  blocks from the first, so an account with many files is slower to open from. In CP-V each
+  directory is also kept in a second copy, which the model leaves out.
 - **A consecutive file** is a chain of granules of 2048 bytes. The header (the FIT, the closest
   modern idea is an inode) takes 320 bytes of the first. Records follow one another, each with
   a 4-byte control word, and a record that doesn't fit is split into segments continued in the
   next granule.
+- **A keyed file** keeps its records under keys. Its **master index** is an index chain of
+  key → where the record is; its first block shares the first granule with the header. The
+  records go into data granules, packed one after another and split across granules when
+  they don't fit. A program reads by key, or in key order.
 - **Open** first looks among the open files, so a second reader shares the `File` and reads no
   directories. Each program gets its own `FileHandle` (the DCB), with its own position. In
   CP-V an open file's state is a separate table in core, the CFU, which exists only while the
@@ -574,9 +608,42 @@ classDiagram
 - **Open and close take the open/close lock** (`OPNCLSUS`), the resource from the scheduler,
   and hold it while they wait for the disc. A second user opening at the same time blocks on
   `OPEN_CLOSE`.
-- **Disc time.** Every granule read or written, and every directory looked up, is a disc access
-  of `discTime` ticks. The program waits in `IO_WAIT` as it would for any I/O, so file work
+- **Disc time.** Every granule read or written, and every index or directory block searched, is
+  a disc access of `discTime` ticks. The program waits in `IO_WAIT` as it would for any I/O, so file work
   shows up in the scheduler. `discTime` is 0 by default.
+
+**Index chains.** The account directory, the file directories and every keyed file's master
+index are the same structure, `IndexChain`:
+
+- **Blocks.** Entries are in key order, in a chain of index blocks, each a granule. An entry's
+  size depends on the chain: 18 bytes in the account directory, 41 in a file directory, the key
+  slot plus 13 in a master index.
+- **Search** walks the chain from the first block, one disc access a block, until a block's
+  keys reach the key.
+- **Insert** slides the following entries down. Every block keeps `spare` bytes free (102 in a
+  keyed file); the block with the header has 320 bytes less. **When a block is full** its last
+  entry moves to the front of the next block, or to a new block chained in after it. Each new
+  block counts a **slide**.
+- **The pyramid.** At close, a keyed file that has chained in more than `rebuildAfterSlides`
+  new blocks (254 by default) gets its upper levels rebuilt (`MUL`). Level 1 holds the first
+  key of each level-0 block, and each level is built from the one below until one has at most
+  three blocks. A search then goes down a few levels: 1000 keys written in order make a chain
+  of 14 blocks, and finding the last takes 14 accesses without a pyramid and 2 with one.
+- **The pyramid restriction.** While a pyramid exists, a block it points at must keep its first
+  key, so a key that would go in front of it goes at the end of the block before (`MULCHK`).
+
+```mermaid
+flowchart TD
+    top["top level (at most 3 blocks)"] --> l1a["level 1: first keys of level-0 blocks"]
+    top --> l1b["level 1 ..."]
+    l1a --> b0["level 0: A ... F"]
+    l1a --> b1["level 0: G ... M"]
+    l1b --> b2["level 0: N ... Z"]
+    b0 -- FLINK --> b1
+    b1 -- FLINK --> b2
+    b1 -. "added since the build<br/>(not in the pyramid)" .-> bx["level 0: H ... K"]
+    b0 --> data["data granules: the records"]
+```
 
 A read, through the components:
 
@@ -721,8 +788,9 @@ Not yet:
    open and close (IN and OUT) under the open/close lock, open files shared, a
    new file entered at close, disc time, and `Open`, `ReadRecord`, `WriteRecord` and `Close` in
    programs.
-2. **Index chains and keyed files.** Blocks, slides, splits and the pyramid built at close,
-   shared by the directories and keyed files.
+2. **Index chains and keyed files** (done). `IndexChain`, `IndexBlock`, `Pyramid`, `KeyedFile`,
+   and the directories as index chains. Insert with the room rule, moving the last entry,
+   slides, the pyramid at close and its restriction. Reads by key and in key order.
 3. **Granule allocation.** The stack, the bit map, the thresholds, and the ALLOCAT ghost with
    `E:QFAC`/`E:UQFAC`.
 4. **Random files, deleting files, and OPEN's access checks.**

@@ -12,7 +12,7 @@ or a CAL, its exit path decides whether the user goes on.
 from dataclasses import dataclass
 
 from .futureevents import FutureEvents
-from .filesystem import FileError, FileSystem
+from .filesystem import FileError, FileSystem, Organization
 from .glossary import cpv, modelOnly
 from .memory import Memory
 from .program import (Close, Compute, DoIo, Open, OpenClose, OpenCloseDone, ReadRecord,
@@ -201,10 +201,12 @@ class System:
         elif isinstance(request, (Open, Close)):
             self.openOrClose(user, request)
         elif isinstance(request, ReadRecord):
-            self.fileStep(user, request.handle, lambda: self.files.readRecord(request.handle))
+            self.fileStep(user, request.handle,
+                          lambda: self.files.readRecord(request.handle, request.key))
         elif isinstance(request, WriteRecord):
             self.fileStep(user, request.handle,
-                          lambda: self.files.writeRecord(request.handle, request.text))
+                          lambda: self.files.writeRecord(request.handle, request.text,
+                                                         request.key))
         elif isinstance(request, OpenCloseDone):
             self.log(user, "open/close done")
             self.scheduler.endOpenClose(user)
@@ -224,7 +226,9 @@ class System:
         if isinstance(request, Open):
             accesses = self.fileWork(
                 user, lambda: self.files.openFile(user, request.name, request.mode,
-                                                  request.account))
+                                                  request.account,
+                                                  request.organization
+                                                  or Organization.CONSECUTIVE))
             handle = user.stepResult[0] if user.stepResult is not None else None
         else:
             accesses = self.fileWork(user, lambda: self.files.closeFile(request.handle))

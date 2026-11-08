@@ -1,49 +1,40 @@
-"""Directories: names in order, each pointing at something."""
-
-import bisect
+"""Directories: index chains of names, each pointing at something."""
 
 from ..glossary import cpv, modelOnly
+from .disc import GRANULE_BYTES
+from .indexchain import IndexChain
+
+ACCOUNT_ENTRY = 18              # the account (TEXTC, 9) and the file directory's addresses
+FILE_ENTRY = 41                 # the file name (TEXTC, 32) and the FIT's address
+DUAL_LINKS = 11                 # COMPLEN6: room for the dual copy's links
 
 
 @cpv("ACNCFU", "FDA", source="UTS.txt:455-464",
      note="Both directories are chains of index blocks with entries in key order, written "
           "twice (the dual copy)")
-class Directory:
-    """Keys in order, each with a value. The account directory maps an account to its file
-    directory; a file directory maps a file name to the file.
+class Directory(IndexChain):
+    """Names in order, each with a value. The account directory maps an account to its file
+    directory; a file directory maps a file name to the file. Make one with
+    ``Directory(disc, ACCOUNT_ENTRY)`` or ``Directory(disc, FILE_ENTRY)``.
 
-    In CP-V both are index-format chains on the disc, searched like a keyed file's master
-    index, and kept in two copies. This first version keeps them as a sorted list in memory
-    (iteration 2 gives them the index blocks). Keys sort in EBCDIC on the real system; here
-    they sort as Python strings.
+    A directory is an index chain, as a keyed file's master index is, searched along its
+    blocks from the first. It has no pyramid, so an account with many files takes longer
+    to search. In CP-V every directory block is also written twice (the dual copy), which the
+    model leaves out. Keys sort in EBCDIC on the real system; here as Python strings.
     """
 
-    def __init__(self):
-        self.keys = []
-        self.values = {}
+    cpvNames = {}
 
-    cpvNames = {
-        "keys": cpv("SCR", "MIDIS", source="UTS.txt:487, UTS.txt:602",
-                    note="The entries' keys, in order"),
-        "values": modelOnly("What each key points at: a file directory, or a file"),
-    }
+    @cpv("COMPLEN", "COMPLEN6", source="WRTF.txt:956-968",
+         note="Two spare entries at the end (four in the first block) and the dual links")
+    def limit(self, block):
+        spareEntries = 4 if block is self.blocks[0] else 2
+        return GRANULE_BYTES - 1 - spareEntries * self.entrySize - DUAL_LINKS
 
     @cpv("FNDKEY", source="FIX1.txt:2194", note="A search like a keyed file's level 0")
     def find(self, key):
-        return self.values.get(key)
+        return self.search(key)[0]
 
-    @cpv("INST", source="WRTF.txt:608", note="Inserted in key order")
-    def insert(self, key, value):
-        if key not in self.values:
-            bisect.insort(self.keys, key)
-        self.values[key] = value
-
-    @cpv("DELF", "DEL1", source="DLT.txt:314-378",
-         note="DEL1 slides the following entries up over the deleted one")
-    def remove(self, key):
-        self.keys.remove(key)
-        del self.values[key]
-
-    @modelOnly("The keys in order")
+    @modelOnly("The names in order")
     def names(self):
-        return list(self.keys)
+        return [key for key, _ in self.items()]

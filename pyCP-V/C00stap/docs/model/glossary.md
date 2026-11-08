@@ -500,6 +500,7 @@ counterpart. Source paths are in `c00co/`.
 | `Disc.granules` | attribute | *model only* |  | The granules in use, by address |
 | `Disc.getGranule` | method | `GETDGRAN`, `GBG` | [WRTF.txt:1176–1180](../../c00co/WRTF.txt#L1176-L1180), [GRAN.txt:95–117](../../c00co/GRAN.txt#L95-L117) |  |
 | `Disc.releaseGranule` | method | `RELRBG`, `RBG` | [DLT.txt:915–990](../../c00co/DLT.txt#L915-L990), [GRAN.txt:95–117](../../c00co/GRAN.txt#L95-L117) |  |
+| `Disc.releaseGranuleAt` | method | `RELRBG` | [DLT.txt:915–990](../../c00co/DLT.txt#L915-L990) |  |
 | `Disc.freeCount` | method | *model only* |  | How many granules are free |
 
 ## DiscFull
@@ -525,17 +526,67 @@ counterpart. Source paths are in `c00co/`.
 |---|---|---|---|---|
 | `Segment` | class | *model only* |  | A piece of a record in a granule; CP-V's segment has a control word in front |
 
+## IndexBlock
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `IndexBlock` | class | `BLINK`, `FLINK`, `NAVX` | [UTS.txt:483–486](../../c00co/UTS.txt#L483-L486) | An index block is a granule: links, a control word with the next available byte (NAV) and the level, then the entries |
+| `IndexBlock.address` | attribute | `FLINK` | [UTS.txt:484](../../c00co/UTS.txt#L484) | The links are disc addresses |
+| `IndexBlock.level` | attribute | `NAVX` | [UTS.txt:486](../../c00co/UTS.txt#L486) | X'1C00' of the control word |
+| `IndexBlock.holdsHeader` | attribute | `NWFITST` | [WRTF.txt:44–46](../../c00co/WRTF.txt#L44-L46) | X'8000', FIT PRESENT: the file's first block |
+| `IndexBlock.addedSinceBuild` | attribute | `MULCHK` | [WRTF.txt:893](../../c00co/WRTF.txt#L893) | X'100': chained in since the pyramid was built |
+| `IndexBlock.keys` | attribute | `SCR` | [UTS.txt:602](../../c00co/UTS.txt#L602) | Keys in order, each in a slot |
+| `IndexBlock.values` | attribute | *model only* |  | What each key points at |
+| `IndexBlock.nextAvailable` | method | *model only* |  | Bytes in use, as CP-V's NAV: the first entry's offset plus the entries |
+
+## IndexChain
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `IndexChain` | class | `INST`, `SETUPUB`, `LOCCODEUB` | [WRTF.txt:608](../../c00co/WRTF.txt#L608), [RDF.txt:1575](../../c00co/RDF.txt#L1575), [RDF.txt:1252](../../c00co/RDF.txt#L1252) | The master-index format, also used by both directories |
+| `IndexChain.disc` | attribute | *model only* |  | Where the blocks' granules come from |
+| `IndexChain.entrySize` | attribute | `IMT`, `SCR` | [UTS.txt:594](../../c00co/UTS.txt#L594), [UTS.txt:602](../../c00co/UTS.txt#L602) | The key slot plus 13 bytes in a master index |
+| `IndexChain.spare` | attribute | `WRDL0`, `DFRDL0` | [UTS.txt:609](../../c00co/UTS.txt#L609), [OPNF.txt:1841](../../c00co/OPNF.txt#L1841) | Bytes left free in each block on insert; 102 by default |
+| `IndexChain.blocks` | attribute | `FDA`, `FLINK` | [UTS.txt:455](../../c00co/UTS.txt#L455), [UTS.txt:484](../../c00co/UTS.txt#L484) | Level 0, in chain order from FDA |
+| `IndexChain.pyramid` | attribute | `TDA` | [UTS.txt:462](../../c00co/UTS.txt#L462) | TOP DISC ADDRESS (OF MULTI-LEVEL) |
+| `IndexChain.slides` | attribute | `BASLIDES` | [UTS.txt:454](../../c00co/UTS.txt#L454), [WRTF.txt:1508](../../c00co/WRTF.txt#L1508) | New blocks since the pyramid was built |
+| `IndexChain.newBlock` | method | `GETIGRAN` | [WRTF.txt:1149](../../c00co/WRTF.txt#L1149) |  |
+| `IndexChain.limit` | method | `COMPLEN` | [WRTF.txt:956](../../c00co/WRTF.txt#L956) | X'7FF', or X'6BF' in the block with the FIT, less the spare bytes |
+| `IndexChain.hasRoom` | method | *model only* |  | Whether one more entry fits in the block |
+| `IndexChain.isPointedAt` | method | `MULCHK` | [WRTF.txt:893](../../c00co/WRTF.txt#L893) | With a pyramid, a block not added since the build is pointed at |
+| `IndexChain.locate` | method | `SETUPUB`, `LOCCODEUB` | [RDF.txt:1575](../../c00co/RDF.txt#L1575), [RDF.txt:1252](../../c00co/RDF.txt#L1252) | Down the pyramid if there is one, then along level 0 |
+| `IndexChain.search` | method | *model only* |  | The value for ``key`` (or None) and the disc accesses the search took |
+| `IndexChain.insert` | method | `INST`, `INSTN` | [WRTF.txt:608–810](../../c00co/WRTF.txt#L608-L810) | Returns the disc accesses: the search, and each block written |
+| `IndexChain.insertAt` | method | `INST2D`, `INST3`, `INST3A3`, `INSTN` | [WRTF.txt:660–810](../../c00co/WRTF.txt#L660-L810) | Room enough; or the last entry to the next block; or a new block |
+| `IndexChain.insertAfterPrevious` | method | `INST4`, `MULCHK` | [WRTF.txt:857](../../c00co/WRTF.txt#L857), [WRTF.txt:893](../../c00co/WRTF.txt#L893) | A block the pyramid points at keeps its first key |
+| `IndexChain.moveLastEntry` | method | *model only* |  | Moves a block's last entry to the front of the next block |
+| `IndexChain.chainNewBlock` | method | `INSTN`, `BASLIDES` | [WRTF.txt:804](../../c00co/WRTF.txt#L804), [UTS.txt:454](../../c00co/UTS.txt#L454), [WRTF.txt:1508–1514](../../c00co/WRTF.txt#L1508-L1514) | Past LSLIDES the count is pinned at X'FF' so the pyramid is rebuilt at close |
+| `IndexChain.remove` | method | `DEL1` | [DLT.txt:343–378](../../c00co/DLT.txt#L343-L378) | Slides the entries after it up; a block left empty stays in the chain |
+| `IndexChain.items` | method | *model only* |  | Every (key, value) in key order |
+| `IndexChain.addresses` | method | *model only* |  | Every granule address the chain and its pyramid use |
+| `IndexChain.buildPyramid` | method | `MUL`, `CLSFILD` | [CLS.txt:1423](../../c00co/CLS.txt#L1423), [MUL.txt:1](../../c00co/MUL.txt#L1) | At close, when the slides have passed the limit |
+| `IndexChain.release` | method | *model only* |  | Gives back every granule |
+
+## Pyramid
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `Pyramid` | class | `TDA`, `MUL` | [UTS.txt:462](../../c00co/UTS.txt#L462), [CLS.txt:1424](../../c00co/CLS.txt#L1424) | The upper levels of a keyed file's index (the multi-level index) |
+| `Pyramid.chain` | attribute | *model only* |  | The index chain the pyramid is over |
+| `Pyramid.levels` | attribute | `TDA` | [UTS.txt:462](../../c00co/UTS.txt#L462) | Level 1 up; TDA points at the top |
+| `Pyramid.build` | method | `MOVEAKEY`, `MUL` | [MUL.txt:1](../../c00co/MUL.txt#L1), [MUL.txt:231](../../c00co/MUL.txt#L231) | Level 1 from the first keys of level 0, then more levels while more than 3 |
+| `Pyramid.descend` | method | `MLCHK`, `MLSET03A` | [RDF.txt:1575–1803](../../c00co/RDF.txt#L1575-L1803) | Walk the top level, then a binary search in each block on the way down |
+| `Pyramid.addresses` | method | *model only* |  | Every granule address of the upper levels |
+| `Pyramid.release` | method | *model only* |  | Gives back the upper levels' granules |
+
 ## Directory
 
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
 | `Directory` | class | `ACNCFU`, `FDA` | [UTS.txt:455–464](../../c00co/UTS.txt#L455-L464) | Both directories are chains of index blocks with entries in key order, written twice (the dual copy) |
-| `Directory.keys` | attribute | `SCR`, `MIDIS` | [UTS.txt:487](../../c00co/UTS.txt#L487), [UTS.txt:602](../../c00co/UTS.txt#L602) | The entries' keys, in order |
-| `Directory.values` | attribute | *model only* |  | What each key points at: a file directory, or a file |
+| `Directory.limit` | method | `COMPLEN`, `COMPLEN6` | [WRTF.txt:956–968](../../c00co/WRTF.txt#L956-L968) | Two spare entries at the end (four in the first block) and the dual links |
 | `Directory.find` | method | `FNDKEY` | [FIX1.txt:2194](../../c00co/FIX1.txt#L2194) | A search like a keyed file's level 0 |
-| `Directory.insert` | method | `INST` | [WRTF.txt:608](../../c00co/WRTF.txt#L608) | Inserted in key order |
-| `Directory.remove` | method | `DELF`, `DEL1` | [DLT.txt:314–378](../../c00co/DLT.txt#L314-L378) | DEL1 slides the following entries up over the deleted one |
-| `Directory.names` | method | *model only* |  | The keys in order |
+| `Directory.names` | method | *model only* |  | The names in order |
 
 ## ConsecutiveFile
 
@@ -558,6 +609,7 @@ counterpart. Source paths are in `c00co/`.
 | `File.disc` | attribute | *model only* |  | Where the granules come from |
 | `File.openCount` | attribute | `NOU`, `CFU` | [UTS.txt:446–452](../../c00co/UTS.txt#L446-L452) | The CFU's number of users |
 | `File.inDirectory` | attribute | `CLSFIL4` | [CLS.txt:1994–1998](../../c00co/CLS.txt#L1994-L1998) | False for a file opened OUT: it is entered at close |
+| `File.close` | method | *model only* |  | What a file does at close; a keyed file may rebuild its pyramid. Returns the disc accesses |
 
 ## FileHeader
 
@@ -574,8 +626,34 @@ counterpart. Source paths are in `c00co/`.
 |---|---|---|---|---|
 | `Organization` | class | `ORG`, `FITCHK` | [FIX1.txt:1758–1789](../../c00co/FIX1.txt#L1758-L1789), [FIX1.txt:1848–1850](../../c00co/FIX1.txt#L1848-L1850) | Byte 0 of the FIT's X'09' entry: 0 or 1 consecutive, 2 keyed, 3 random |
 | `Organization.CONSECUTIVE` | member | `SEQ0` | [WRTF.txt:273](../../c00co/WRTF.txt#L273) | Records one after another |
-| `Organization.KEYED` | member | `SETUPUB` | [RDF.txt:1575](../../c00co/RDF.txt#L1575) | Records found by key (iteration 2) |
+| `Organization.KEYED` | member | `SETUPUB` | [RDF.txt:1575](../../c00co/RDF.txt#L1575) | Records found by key |
 | `Organization.RANDOM` | member | `RWRAND` | [WRTF.txt:1928](../../c00co/WRTF.txt#L1928) | Granules by number (iteration 4) |
+
+## KeyedFile
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `KeyedFile` | class | `SETUPUB`, `INST`, `MUL` | [RDF.txt:1575](../../c00co/RDF.txt#L1575), [WRTF.txt:608](../../c00co/WRTF.txt#L608), [CLS.txt:1424](../../c00co/CLS.txt#L1424) | ORG 2. The master index starts in the file's first granule, with the FIT at its end |
+| `KeyedFile.keyLength` | attribute | `KEYM` | [UTS.txt:588](../../c00co/UTS.txt#L588), [FIX1.txt:1859–1861](../../c00co/FIX1.txt#L1859-L1861) | The maximum key length, in the FIT's X'09' entry |
+| `KeyedFile.rebuildAfterSlides` | attribute | `LSLIDES`, `WRDL0` | [UTS.txt:609](../../c00co/UTS.txt#L609), [UTS.txt:660](../../c00co/UTS.txt#L660), [OPNF.txt:1841](../../c00co/OPNF.txt#L1841) | 254 by default |
+| `KeyedFile.index` | attribute | `FDA`, `TDA` | [UTS.txt:455](../../c00co/UTS.txt#L455), [UTS.txt:462](../../c00co/UTS.txt#L462) | The master index (level 0) from FDA, the pyramid from TDA |
+| `KeyedFile.dataGranules` | attribute | `SREC` | [UTS.txt:463](../../c00co/UTS.txt#L463) | New records go into SREC, the last data granule |
+| `KeyedFile.written` | attribute | `CLSFILD` | [CLS.txt:1423](../../c00co/CLS.txt#L1423), [CLS.txt:2005](../../c00co/CLS.txt#L2005) | Only a file that was written gets its pyramid rebuilt |
+| `KeyedFile.write` | method | `ENTKEYUB`, `INST` | [WRTF.txt:608](../../c00co/WRTF.txt#L608), [WRTF.txt:1532](../../c00co/WRTF.txt#L1532) | Returns the disc accesses: the index search and blocks, and the data granules |
+| `KeyedFile.store` | method | `IMAGEREC`, `SREC` | [UTS.txt:463](../../c00co/UTS.txt#L463), [WRTF.txt:1686](../../c00co/WRTF.txt#L1686) | Into the last data granule, split across new ones when it doesn't fit |
+| `KeyedFile.read` | method | `SETUPUB` | [RDF.txt:1575](../../c00co/RDF.txt#L1575) | Returns the record (None if the key isn't there) and the disc accesses |
+| `KeyedFile.readNext` | method | `LOCCODEUB` | [RDF.txt:1252](../../c00co/RDF.txt#L1252) | The next entry in the index block in the buffer, or the next block |
+| `KeyedFile.textOf` | method | *model only* |  | A record's text from its segments |
+| `KeyedFile.close` | method | `CLSFILD`, `LSLIDES`, `MUL` | [CLS.txt:1423](../../c00co/CLS.txt#L1423), [UTS.txt:660](../../c00co/UTS.txt#L660), [MUL.txt:1](../../c00co/MUL.txt#L1) | Returns the disc accesses: the pyramid's blocks written |
+| `KeyedFile.release` | method | `REL`, `RELFILUB3` | [DLT.txt:665–705](../../c00co/DLT.txt#L665-L705) | The pyramid first, then each master-index block and the data granules |
+
+## RecordLocation
+
+| Model name | Kind | CP-V | Source | Notes |
+|---|---|---|---|---|
+| `RecordLocation` | class | `FNDMI`, `FNDDA` | [FIX1.txt:2240](../../c00co/FIX1.txt#L2240), [FIX1.txt:2334](../../c00co/FIX1.txt#L2334) | A master-index entry: the segment's data granule, displacement and size, and flags |
+| `RecordLocation.segments` | attribute | `FAK` | [WRTF.txt:1745](../../c00co/WRTF.txt#L1745) | CP-V has an index entry per segment; the first has FAK |
+| `RecordLocation.granules` | attribute | `SREC` | [UTS.txt:463](../../c00co/UTS.txt#L463) |  |
 
 ## FileError
 
@@ -591,7 +669,7 @@ counterpart. Source paths are in `c00co/`.
 | `FileHandle.user` | attribute | *model only* |  | The user whose program holds the handle |
 | `FileHandle.file` | attribute | `CFU` | [UTS.txt:446–452](../../c00co/UTS.txt#L446-L452) | DCB word 1 points at the file's CFU |
 | `FileHandle.mode` | attribute | `FUNCTION` | [UTS.txt:448–460](../../c00co/UTS.txt#L448-L460) |  |
-| `FileHandle.position` | attribute | `SEQPOS` | [RDF.txt:3136–3138](../../c00co/RDF.txt#L3136-L3138) | CP-V keeps the record number and the disc address |
+| `FileHandle.position` | attribute | `SEQPOS` | [RDF.txt:3136–3138](../../c00co/RDF.txt#L3136-L3138) | Where the next sequential read starts: (granule, segment), or (index block, entry) in a keyed file |
 | `FileHandle.discAccesses` | attribute | *model only* |  | Disc accesses not yet charged to the user |
 | `FileHandle.isOpen` | attribute | *model only* |  | False once closed |
 | `FileHandle.takeDiscAccesses` | method | *model only* |  | The disc accesses since last asked, for the system to charge as I/O time |
@@ -616,9 +694,10 @@ counterpart. Source paths are in `c00co/`.
 | `FileSystem.openFiles` | attribute | `CFU` | [OPNF.txt:616–620](../../c00co/OPNF.txt#L616-L620) | The files open now. OPEN scans the CFUs for the file before the directories |
 | `FileSystem.handles` | attribute | *model only* |  | Each user's open handles, so they can be closed at the end |
 | `FileSystem.openFile` | method | `OPNFIL`, `TFCHKOPN` | [OPNF.txt:115](../../c00co/OPNF.txt#L115), [OPNF.txt:503–620](../../c00co/OPNF.txt#L503-L620) | CP-V also takes the open/close lock (OPNCLSUS); the system does that around this call |
-| `FileSystem.lookUp` | method | `FNDKEY`, `SETUPUB` | [FIX1.txt:2194](../../c00co/FIX1.txt#L2194), [RDF.txt:1575](../../c00co/RDF.txt#L1575) | The account directory, then the file directory |
-| `FileSystem.readRecord` | method | `SEQ0` | [RDF.txt:3136–3268](../../c00co/RDF.txt#L3136-L3268) | At the end of the file CP-V returns TYC 7, code X'06' |
-| `FileSystem.writeRecord` | method | `SEQ0` | [WRTF.txt:273–505](../../c00co/WRTF.txt#L273-L505) |  |
+| `FileSystem.newFile` | method | `ORG` | [OPNF.txt:1015–1038](../../c00co/OPNF.txt#L1015-L1038) | The organization picks the code that reads and writes the file |
+| `FileSystem.lookUp` | method | `FNDKEY`, `SETUPUB` | [FIX1.txt:2194](../../c00co/FIX1.txt#L2194), [RDF.txt:1575](../../c00co/RDF.txt#L1575) | The account directory, then the file directory, then the header |
+| `FileSystem.readRecord` | method | `SEQ0`, `SETUPUB` | [RDF.txt:3136–3268](../../c00co/RDF.txt#L3136-L3268), [RDF.txt:1575](../../c00co/RDF.txt#L1575) | At the end of the file CP-V returns TYC 7, code X'06' |
+| `FileSystem.writeRecord` | method | `SEQ0`, `ENTKEYUB` | [WRTF.txt:273–505](../../c00co/WRTF.txt#L273-L505), [WRTF.txt:1532](../../c00co/WRTF.txt#L1532) |  |
 | `FileSystem.closeFile` | method | `CLSFIL`, `CLSFIL4` | [CLS.txt:1443–1530](../../c00co/CLS.txt#L1443-L1530), [CLS.txt:1994–1998](../../c00co/CLS.txt#L1994-L1998) | A new file goes into its directory at close |
 | `FileSystem.closeAll` | method | *model only* |  | CP-V closes a program's open DCBs when its job step ends; where wasn't traced |
 | `FileSystem.enter` | method | `INST` | [WRTF.txt:608](../../c00co/WRTF.txt#L608) | CP-V releases the file it replaces as well; when another user still has that file open isn't modelled |
@@ -632,3 +711,6 @@ counterpart. Source paths are in `c00co/`.
 | `FileSystemSettings` | class | *model only* |  | Disc timing; CP-V's comes from the RADs and disc packs |
 | `FileSystemSettings.discTime` | attribute | *model only* |  | Ticks per disc access |
 | `FileSystemSettings.discGranules` | attribute | *model only* |  | Granules in the file area |
+| `FileSystemSettings.keyLength` | attribute | `KEYM` | [UTS.txt:588](../../c00co/UTS.txt#L588) |  |
+| `FileSystemSettings.spareBytes` | attribute | `WRDL0`, `DFRDL0` | [UTS.txt:609](../../c00co/UTS.txt#L609), [OPNF.txt:1841](../../c00co/OPNF.txt#L1841) |  |
+| `FileSystemSettings.rebuildAfterSlides` | attribute | `LSLIDES`, `DFRDL0` | [UTS.txt:660](../../c00co/UTS.txt#L660), [OPNF.txt:1841](../../c00co/OPNF.txt#L1841) |  |

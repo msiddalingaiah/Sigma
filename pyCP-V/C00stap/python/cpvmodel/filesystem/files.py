@@ -21,7 +21,7 @@ cpv("ORG", "FITCHK", source="FIX1.txt:1758-1789, FIX1.txt:1848-1850",
 
 Organization.cpvNames = {
     "CONSECUTIVE": cpv("SEQ0", source="WRTF.txt:273", note="Records one after another"),
-    "KEYED": cpv("SETUPUB", source="RDF.txt:1575", note="Records found by key (iteration 2)"),
+    "KEYED": cpv("SETUPUB", source="RDF.txt:1575", note="Records found by key"),
     "RANDOM": cpv("RWRAND", source="WRTF.txt:1928", note="Granules by number (iteration 4)"),
 }
 
@@ -69,6 +69,11 @@ class File:
         "inDirectory": cpv("CLSFIL4", source="CLS.txt:1994-1998",
                            note="False for a file opened OUT: it is entered at close"),
     }
+
+    @modelOnly("What a file does at close; a keyed file may rebuild its pyramid. Returns "
+               "the disc accesses")
+    def close(self):
+        return 0
 
 
 @cpv("SEQ0", "SEQPOS", source="WRTF.txt:273-276, RDF.txt:3136-3138",

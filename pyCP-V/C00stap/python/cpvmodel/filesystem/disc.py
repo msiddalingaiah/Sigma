@@ -81,6 +81,10 @@ class Disc:
         del self.granules[granule.address]
         self.freeAddresses.append(granule.address)
 
+    @cpv("RELRBG", source="DLT.txt:915-990")
+    def releaseGranuleAt(self, address):
+        self.releaseGranule(self.granules[address])
+
     @modelOnly("How many granules are free")
     def freeCount(self):
         return len(self.freeAddresses)

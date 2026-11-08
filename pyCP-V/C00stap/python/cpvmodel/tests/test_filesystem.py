@@ -52,7 +52,7 @@ def testALongRecordIsSplitAcrossGranules():
     out = files.openFile(user, "BIG", FileMode.OUT)
     files.writeRecord(out, "X" * 5000)
     files.closeFile(out)
-    file = files.lookUp("GUEST", "BIG")
+    file, _ = files.lookUp("GUEST", "BIG")
     assert len(file.granules) == 3                 # 1728 + 2048 + the rest
     assert file.granules[0].capacity == GRANULE_BYTES - 320
     handle = files.openFile(user, "BIG", FileMode.IN)
@@ -79,7 +79,7 @@ def testReplacingAFileReleasesTheOldGranules():
         out = files.openFile(user, "F", FileMode.OUT)
         files.writeRecord(out, text)
         files.closeFile(out)
-    assert files.disc.freeCount() == 512 - 1
+    assert files.disc.freeCount() == 512 - 1 - 2   # the file, and the two directories
     handle = files.openFile(user, "F", FileMode.IN)
     assert files.readRecord(handle) == "NEW"
 
@@ -162,12 +162,13 @@ def testAProgramCanCatchAFileError():
 
 
 def testFileOperationsTakeDiscTime():
-    """Open OUT: one access; three one-granule writes; close: two (the header and the
-    directory entry). At 10 ticks an access that is 60 ticks."""
+    """Open OUT: one access; three one-granule writes; close: the account directory
+    searched and written (3, creating the account's entry), the new file directory searched
+    and written (3), and the header (1). At 10 ticks an access that is 110 ticks."""
     system = System(fileSettings=FileSystemSettings(discTime=10))
     system.startUser("writer", writer("T", ["A", "B", "C"]), priority=0xF8)
     system.run()
-    assert happened(system, "writer", "ended") == [60]
+    assert happened(system, "writer", "ended") == [110]
     assert len(happened(system, "writer", "IO_STARTED: RUNNING -> IO_WAIT")) == 5
 
 

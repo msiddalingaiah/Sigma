@@ -83,25 +83,31 @@ class WriteTerminal:
 @modelOnly("Stands for an M:OPEN of a file (OPNF)")
 @dataclass
 class Open:
-    """Open a file. ``mode`` is a ``FileMode``; ``account`` is the user's own by default.
-    The handle is sent back into the program: ``handle = yield Open("DATA", FileMode.IN)``."""
+    """Open a file. ``mode`` is a ``FileMode``; ``account`` is the user's own by default; a
+    new file (OUT) has ``organization``, consecutive by default. The handle is sent back into
+    the program: ``handle = yield Open("DATA", FileMode.IN)``."""
     name: str
     mode: object
     account: str = None
+    organization: object = None
 
 
 @modelOnly("Stands for an M:READ on a file DCB (RDF)")
 @dataclass
 class ReadRecord:
-    """Read the next record; None is sent back at the end of the file."""
+    """Read the record with ``key`` (a keyed file), or the next record; None is sent back
+    at the end of the file."""
     handle: object
+    key: str = None
 
 
 @modelOnly("Stands for an M:WRITE on a file DCB (WRTF)")
 @dataclass
 class WriteRecord:
+    """Write a record; a keyed file needs its ``key``."""
     handle: object
     text: str
+    key: str = None
 
 
 @modelOnly("Stands for an M:CLOSE (CLS)")
