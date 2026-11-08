@@ -13,3 +13,6 @@ term:
 
 test:
 	$(PYTHON) -m pytest
+
+modeltest:
+	$(PYTHON) -m pytest cpvmodel/tests
