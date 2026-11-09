@@ -15,6 +15,7 @@ for, in the [glossary](model/glossary.md).
   - Constants and enum members are UPPER_CASE with underscores (`PriorityBoost.INTERACTIVE`,
     `UserState.AWAITING_TERMINAL_INPUT`), so they stand out. If a name never changes after
     import, it's UPPER_CASE.
+  - A CP-V term every CP-V programmer knew keeps its capitals as a class name: `DCB`.
 - **Priority** keeps CP-V's numbers. It runs from X'00' to X'FF', and a **lower value is more
   urgent**. Below X'C0' is real time. On-line and batch users are normally between X'C0' and X'FF'.
 - **Simplifications** are stated in each class's docstring as "In CP-V this is really...". Where
@@ -53,27 +54,63 @@ its parts.
 
 | Package | Front class | CP-V | Parts |
 |---|---|---|---|
+| `cpvmodel` (the core) | `System` | the machine, and a user's context | `Program`, `Monitor` (the CALs), `UserContext` (a user's thread), `DCB`, `User`, `Memory`, `FutureEvents` |
+| `cpvmodel.iosystem` | `IoSystem` | IOQ, the I/O queues | `Device`, `IoRequest` |
 | `cpvmodel.scheduler` | `Scheduler` | SCHED, "execution and swap scheduler" | `StateQueues`, `EventRouter` and `TransitionTable`, `ExitPath`, `SwapScheduler`, `ResourceManager`, `SchedulerSettings` |
-| `cpvmodel.terminals` | `TerminalController` | COC, "character-oriented communications" | `Line`, `TerminalSettings`; `echoSession` stands in for TEL |
-| `cpvmodel.filesystem` | `FileSystem` | OPNF, CLS, RDF, WRTF: the file management modules | `Disc`, `GranuleAllocator` (with `AllocationMap`, `GranuleStack`, the ALLOCAT ghost), `IndexChain` (with `IndexBlock`, `Pyramid`), `Directory`, `FileHeader`, `File`, `ConsecutiveFile`, `KeyedFile`, `RandomFile`, `FileHandle`, `AccessCheck`, `Protection`, `FileSystemSettings` |
+| `cpvmodel.terminals` | `TerminalController` | COC, "character-oriented communications" | `Line`, `TerminalSettings`; `EchoSession`, a `Program`, stands in for TEL |
+| `cpvmodel.filesystem` | `FileSystem` | OPNF, CLS, RDF, WRTF: the file management modules | `Disc`, `GranuleAllocator` (with `AllocationMap`, `GranuleStack`, the ALLOCAT ghost), `IndexChain` (with `IndexBlock`, `Pyramid`), `Directory`, `FileHeader`, `File`, `ConsecutiveFile`, `KeyedFile`, `RandomFile`, `AccessCheck`, `Protection`, `FileSystemSettings` |
 
 `System` (`cpvmodel/system.py`) puts the components together. It owns what's machine-wide: the
-user slots, `Memory`, the clock, `FutureEvents`, the run loop and the trace. The components talk
-to each other only through their front classes: the terminals report events to the scheduler
-with `scheduler.report`. `User` and the
-program steps are shared by everything.
+user slots, `Memory`, the clock, `FutureEvents`, the users' threads, the run loop and the trace.
+The components talk to each other only through their front classes: the terminals report
+events to the scheduler with `scheduler.report`. Programs reach the components through the
+`Monitor`'s CALs.
 
 ```mermaid
 classDiagram
     class System {
         clock
         users
+        contexts
         startUser(name, program, priority, pages)
         endUser(user)
         execute(user)
+        throwInto(user, error)
         advanceClock(ticks)
         idleUntil(time)
         run(tickLimit)
+    }
+    class Program {
+        run(m)
+        compute(ticks)
+    }
+    class Monitor {
+        uc
+        wait(ticks)
+        open(dcb, ...)
+        read(dcb, key, size)
+        write(dcb, text, key)
+        close(dcb, release)
+    }
+    class UserContext {
+        thread
+        resume()
+        suspend()
+        computeFor(ticks)
+        throw(error)
+    }
+    class DCB {
+        name
+        fileName
+        device
+        mode
+        file
+        position
+    }
+    class IoSystem {
+        devices
+        transfer(user, device, count)
+        complete(device)
     }
     class Scheduler {
         currentUser
@@ -88,8 +125,8 @@ classDiagram
         endQuantum(user)
         moreUrgentUserWaiting(user)
         requeue(user)
-        claimOpenClose(user)
-        endOpenClose(user)
+        acquireOpenClose(user)
+        releaseOpenClose(user)
         isShutDown()
     }
     class TerminalController {
@@ -212,6 +249,11 @@ classDiagram
         INTERACTIVE = 6
     }
     System "1" *-- "SMUIS" User : users
+    System *-- UserContext : a thread per user
+    UserContext --> Program
+    Program ..> Monitor : run(m)
+    Monitor ..> DCB : I/O CALs name one
+    System *-- IoSystem : io
     System *-- Scheduler
     System *-- TerminalController : terminals
     System *-- FileSystem : files
@@ -232,14 +274,74 @@ classDiagram
     StateQueues o-- User : 12 bands, waiting queues
 ```
 
-A program is a generator that yields `Compute(ticks)`, `Sleep(ticks)`, `DoIo(ticks)`,
-`Yield()`, `WaitFor(resource)`, `Release(resource)`, `OpenClose(ticks)`, `ReadTerminal()` or
-`WriteTerminal(text)`, `Open(name, mode, ...)`, `ReadRecord(handle, key)`, `WriteRecord(handle, text, key)` or
-`Close(handle, release)`. What a step returns is sent back into the program, such as
-`text = yield ReadTerminal()` or `handle = yield Open("DATA", FileMode.IN)`. An error is thrown into
-the program, so a program can catch a `FileError`. Each stands for what a user's code does in CP-V: compute, or make a CAL that leads
-to an event report. A tick is a clock-4 tick, 2 ms. A program can catch `Break`; that is its
-break routine (`M:INT`).
+### Programs, the Monitor and DCBs
+
+A user's program is a class with `run(self, m)`. `m` is the **`Monitor`**, whose methods are the
+CALs: CP-V's `M:READ` with its FPT is `m.read(dcb, ...)`. A program declares its **DCBs**, and
+every I/O CAL names one:
+
+```python
+class Editor(Program):
+    def __init__(self):
+        self.data = DCB("F:DATA", fileName="DATA")
+
+    def run(self, m):
+        m.open(self.data, mode=FileMode.IN)
+        while (text := m.read(self.data)) is not None:
+            m.write(m.uc, text)                  # M:UC: the user's terminal
+            self.compute(5)
+        m.close(self.data)
+```
+
+- **The CALs** are `m.wait(ticks)` (`M:WAIT`), `m.open(dcb, ...)`, `m.read(dcb, key, size)`,
+  `m.write(dcb, text, key)` and `m.close(dcb, release)`. `m.open`'s arguments override what the
+  DCB was set up with, as an FPT's parameters do.
+- **A DCB is assigned** to a file (`fileName`), to the terminal (`m.uc`, which is `M:UC`), or to
+  another device (`device`). `m.read` and `m.write` go where it is assigned: the file system,
+  the terminal controller, or the device's queue.
+- **Computing isn't a CAL.** It is the program's own `self.compute(ticks)`. A tick is a clock-4
+  tick, 2 ms.
+- **Errors and breaks are exceptions.** A file error is a `FileError` raised from the CAL; a
+  break is a `Break` raised wherever the program was suspended, and catching it is the
+  program's break routine (`M:INT`). An uncaught one ends the user.
+
+### Users as threads
+
+Each user's program, and the monitor code serving their CALs, runs in the user's own Python
+thread (`UserContext`), but **only one thread runs at a time**:
+
+- **The run loop** is CP-V's interrupt level and execution scheduler. It dispatches a user and
+  resumes their thread (`T:PULLE`), then waits.
+- **The user's thread** runs until the program computes, a CAL ends or waits, or the program
+  ends. Then it hands control back and waits to be resumed (`T:REG`, the environment saved in
+  the JIT).
+- **A CAL waits where CP-V waits:** for the disc, the terminal, the open/close lock, granules,
+  or ALLOCAT's answer. The service reports the event (the user leaves `RUNNING`) and suspends;
+  when the user runs again, the service goes on from there.
+- **Every CAL ends through the exit path** (`TRAPEXIT`), which may act on a signal or preempt
+  the user.
+
+So a program never sees any of it: to it, `m.read` just took a while. Python's threads are only
+places to wait; the model's scheduler decides who runs, and a run is the same every time.
+
+```mermaid
+sequenceDiagram
+    participant L as run loop (interrupt level)
+    participant U as user's thread
+    participant I as IoSystem
+    participant C as Scheduler
+    L->>U: resume (T:PULLE)
+    U->>U: program: m.read(dcb)
+    U->>I: transfer: a request on the disc's queue
+    I->>C: report(user, IO_STARTED)  (E:IIP)
+    U-->>L: suspend (T:REG): the user is in IO_WAIT
+    L->>L: other users run, or idle
+    I->>C: the disc completes: report(user, IO_COMPLETE)  (E:IC)
+    L->>L: dispatch the user
+    L->>U: resume: the read goes on
+    U->>U: the CAL ends: exit path (TRAPEXIT)
+    U->>U: m.read returns the record
+```
 
 ### Events and the transition table
 
@@ -254,31 +356,28 @@ The transition table looks up the user's state and the event and returns an acti
 
 An event that doesn't apply to the user's state is `InconsistentEvent`, CP-V's `SCREECH X'02'`.
 Many events are deliberately harmless in most states: `WAKE_UP` for a user who isn't asleep is
-ignored. The transitions that later iterations will model are in the table already. They raise
-`NotModelledYet`: signals, terminals, access queues, kick-out, shared processors and too much
-I/O. All the moves are in the [state diagram](model/states.md).
+ignored. Two transitions in the table aren't modelled and raise `NotModelledYet`: too much I/O
+(`STIOMF`) and associating a shared processor (`STASP`). All the moves are in the
+[state diagram](model/states.md).
 
-An I/O round trip:
+An I/O round trip, a tape read of 30 ticks:
 
 ```mermaid
 sequenceDiagram
-    participant P as editor's program
-    participant S as System
+    participant P as editor's thread
+    participant I as IoSystem
     participant C as Scheduler
     participant R as EventRouter
     participant T as TransitionTable
-    participant F as FutureEvents
-    P->>S: yield DoIo(30)
-    S->>S: user.ioInFlight += 1 (UB:MF)
-    S->>F: schedule(now+30, editor, IO_COMPLETE)
-    S->>C: report(editor, IO_STARTED)  (T:IOREG, E:IIP)
+    P->>I: m.read(tape): transfer
+    I->>I: ioInFlight += 1 (UB:MF), request on the tape's queue
+    I->>C: report(editor, IO_STARTED)  (T:IOREG, E:IIP)
     C->>R: report
     R->>T: lookup(IO_STARTED, RUNNING)
     T-->>R: waitForIo (STIIP)
     R->>R: I/O still going → changeState(IO_WAIT)
-    Note over S: other users run, or the system idles
-    F-->>S: due at now+30
-    S->>C: report(editor, IO_COMPLETE)  (IOQ, E:IC)
+    Note over P: the editor's thread waits; others run, or the system idles
+    I->>C: the tape completes: report(editor, IO_COMPLETE)  (REQCOM, E:IC)
     C->>R: report
     R->>T: lookup(IO_COMPLETE, IO_WAIT)
     T-->>R: completeIo (STIOC)
@@ -415,9 +514,10 @@ special-compute boost. Each resource has its own release rule (`SH:RFLG`):
 | `ENQUEUE` | `R:NQW` | only the user the release is reported for (SPECIFIC); a signal also releases |
 
 Open/close is a lock built from a resource. Only one user at a time may open or close files
-(`OPNCLSUS`), so `OpenClose(ticks)` does what CLS does. If someone else is the open/close
-user, it blocks on `OPEN_CLOSE` and tries again when released. At the end it gives the lock
-up and, if anyone is waiting, reports the release (`E:NOCR`, from IORT).
+(`OPNCLSUS`). `m.open` and `m.close` take it as CLS and OPNF do (`acquireOpenClose`): if
+someone else is the open/close user, the user blocks on `OPEN_CLOSE` and tries again when
+released. At the end the lock is given up and, if anyone is waiting, the release is reported
+(`E:NOCR`, from IORT).
 
 ```mermaid
 sequenceDiagram
@@ -426,9 +526,9 @@ sequenceDiagram
     participant R as ResourceManager
     participant B as b, c (blocked)
     Note over A: a holds the open/close
-    B->>C: claimOpenClose: someone else has it
+    B->>C: acquireOpenClose: someone else has it
     C->>R: block(b), then block(c)  (head of the queue)
-    A->>C: endOpenClose(a)
+    A->>C: releaseOpenClose(a)
     C->>R: release(OPEN_CLOSE)  (E:NOCR)
     R->>R: OPNUNBLOCK: nobody holds it, c becomes the open/close user
     R->>C: makeReady(c, SPECIAL_COMPUTE)
@@ -502,10 +602,10 @@ classDiagram
     class FileSystem {
         accounts
         openFiles
-        openFile(user, name, mode, account, organization, size, password, protection)
-        readRecord(handle, key)
-        writeRecord(handle, text, key)
-        closeFile(handle, release)
+        open(user, dcb)
+        read(user, dcb, key, size)
+        write(user, dcb, text, key)
+        close(user, dcb, release)
         closeAll(user)
     }
     class AccessCheck {
@@ -560,10 +660,11 @@ classDiagram
         openCount
         inDirectory
     }
-    class FileHandle {
-        user
+    class DCB {
+        fileName
         mode
         position
+        ownFile
     }
     class ConsecutiveFile {
         granules
@@ -582,8 +683,8 @@ classDiagram
         releaseGranule(granule)
     }
     class GranuleAllocator {
-        ensure(count)
         get()
+        getRun(count)
         release(address)
         adjust()
         commit()
@@ -614,7 +715,7 @@ classDiagram
     Directory o-- Directory : an account's files
     Directory o-- File : by name
     FileSystem o-- File : open files
-    FileHandle --> File : DCB
+    DCB --> File : file
     File <|-- ConsecutiveFile
     File <|-- KeyedFile
     File <|-- RandomFile
@@ -639,12 +740,12 @@ classDiagram
   they don't fit. A program reads by key, or in key order.
 - **A random file** is a run of contiguous granules, fixed when it is created, read and written
   by granule number. Its header has a granule of its own. The run is a request to ALLOCAT
-  (`GNBG`), found from the end of the map, so the program waits on `ALLOCATOR` while ALLOCAT
-  answers, then opens again. A transfer starts at a granule and goes on through the next ones,
+  (`GNBG`), found from the end of the map, so the open waits on `ALLOCATOR` while ALLOCAT
+  answers, then goes on. A transfer starts at a granule and goes on through the next ones,
   and the position moves past them. A granule number past the end is X'42'; a write that
   runs off the end moves what fits and is X'44'.
 - **Open** first looks among the open files, so a second reader shares the `File` and reads no
-  directories. Each program gets its own `FileHandle` (the DCB), with its own position. In
+  directories. Each program has its own `DCB`, with its own position. In
   CP-V an open file's state is a separate table in core, the CFU, which exists only while the
   file is open. The model's files are in memory anyway, so that state is on the `File`:
   `openCount` and `inDirectory`. **A file opened OUT is new**: it goes into its directory only at close,
@@ -662,7 +763,7 @@ classDiagram
 
   A refusal is X'14'. Creating a file in another account needs privilege X'C0' (`OP71`), and a
   random file can't replace a keyed or consecutive one, nor the other way round.
-- **Deleting** is closing with release (`Close(handle, release=True)`, CLOSE's REL). Nothing
+- **Deleting** is closing with release (`m.close(dcb, release=True)`, CLOSE's REL). Nothing
   is deleted while someone else has the file open, or when the user isn't its owner (or as good
   as) and lacks privilege X'C0'; that is an ordinary close. A new file opened OUT isn't in the
   directory yet, so releasing it discards it and the old file stays. A deleted file's entry is
@@ -672,8 +773,9 @@ classDiagram
   and hold it while they wait for the disc. A second user opening at the same time blocks on
   `OPEN_CLOSE`.
 - **Disc time.** Every granule read or written, and every index or directory block searched, is
-  a disc access of `discTime` ticks. The program waits in `IO_WAIT` as it would for any I/O, so file work
-  shows up in the scheduler. `discTime` is 0 by default.
+  a disc access of `discTime` ticks. The accesses go as a transfer on the **disc's queue**
+  (`IoSystem`), and the program waits in `IO_WAIT` as for any I/O. One disc serves one request
+  at a time, so users reading at once take turns. `discTime` is 0 by default.
 
 **Index chains.** The account directory, the file directories and every keyed file's master
 index are the same structure, `IndexChain`:
@@ -726,10 +828,11 @@ file code ── get / release ──► the stack (GranuleStack)      quick: a 
   it, and gives the waiting releases back to the map. Its fill isn't usable yet: when it is done
   it reports `E:UQFAC`, and the scheduler's release routine for `ALLOCATOR` (`STUQFAC`)
   **commits** the fill.
-- **A user who needs more granules than the stack has waits.** Before a file operation starts,
-  the file system checks the stack. If it is short, ALLOCAT is started and the user blocks on
-  the `ALLOCATOR` resource (`E:QFAC`). After the commit releases them, they try the step
-  again. The check comes first, so an operation never stops half done.
+- **A user who finds the stack empty waits, where they are** (`GETGRAN`, "CANT SWITCH - LETS
+  REG HIM"). ALLOCAT is started, and the user blocks on the `ALLOCATOR` resource (`E:QFAC`)
+  in the middle of whatever they were doing: a write, an index insert, a directory entry. When
+  the commit releases them, the operation goes on from there. Monitor work outside any user
+  takes from the map directly.
 - **The map** is searched from where the last search stopped. Releasing a granule that is
   already free is a **dual allocation**, which is logged.
 
@@ -740,46 +843,47 @@ sequenceDiagram
     participant G as GranuleAllocator
     participant C as Scheduler
     participant A as ALLOCAT
-    W->>F: WriteRecord (needs 4 granules)
-    F->>G: ensure(4): only 2 on the stack
+    W->>F: m.write: the record needs a new granule
+    F->>G: get(): the stack is empty (GETGRAN)
     G->>C: start ALLOCAT (T:GJOBSTRT)
-    F-->>W: GranuleShortage
-    W->>C: RESOURCE_BLOCK(ALLOCATOR)  (E:QFAC)
+    G->>C: RESOURCE_BLOCK(ALLOCATOR)  (E:QFAC)
+    Note over W: the writer's thread waits, inside get()
     C->>A: dispatch
     A->>G: adjust(): fill from the map, not yet visible
     A->>C: RESOURCE_RELEASE(ALLOCATOR)  (E:UQFAC)
     C->>G: commit()  (STUQFAC)
     C->>W: released, special compute
-    W->>F: WriteRecord again: the granules are there
+    G-->>F: get() goes on: a granule
+    F-->>W: the write finishes
 ```
 
 In CP-V there is a stack per device type and a map per device, ALLOCAT is started at boot and
 sleeps between runs, and `E:UQFAC` comes from the swapper when it takes ALLOCAT out of
 core. The model has one stack and one map, starts ALLOCAT when it is needed, and has it report
-`E:UQFAC` as it ends. Runs of granules for random files (`GNBG`) come with random files.
+`E:UQFAC` as it ends.
 
 A read, through the components:
 
 ```mermaid
 sequenceDiagram
-    participant P as reader's program
-    participant S as System
+    participant P as reader's thread
+    participant M as Monitor
     participant F as FileSystem
-    participant C as Scheduler
-    P->>S: yield ReadRecord(handle)
-    S->>F: readRecord(handle)
+    participant I as IoSystem
+    P->>M: m.read(dcb)
+    M->>F: read(user, dcb)
     F->>F: the record from its granules (2 touched)
-    F-->>S: "X...X", 2 disc accesses
-    S->>C: report(reader, IO_STARTED)  (E:IIP)
-    Note over C: reader in IO_WAIT for 2 × discTime
-    C-->>S: IO_COMPLETE, reader runs again
-    S->>P: send("X...X")
+    F->>I: transfer(reader, disc, 2)
+    I-->>F: (the reader waits in IO_WAIT for its turn on the disc and 2 × discTime)
+    F-->>M: "X...X"
+    M->>M: exit path (TRAPEXIT)
+    M-->>P: "X...X"
 ```
 
 ### The run loop
 
 In CP-V, `T:SE` is entered again after every quantum, block and interrupt exit. Here it is a
-plain loop:
+plain loop, in the loop's own thread; the users' threads run only when it resumes them:
 
 ```mermaid
 flowchart TD
@@ -793,13 +897,15 @@ flowchart TD
     check -->|yes| shutdown(["shutdown (SCREECH X'404')"])
     check -->|no| stuck(["stuck"])
     idle --> run
-    execute{"execute: go on with the<br/>Compute step, or take the next"} -->|Compute| compute["compute until the step is done, the<br/>quantum runs out, or something is due"]
+    execute{"execute: computing left?"} -->|yes| compute["compute until it is done, the<br/>quantum runs out, or something is due"]
+    execute -->|no| resume["resume the user's thread until it<br/>computes, ends a CAL, or waits"]
+    resume -->|"self.compute(n)"| compute
+    resume -->|"a CAL ended (TRAPEXIT)"| exit
+    resume -->|"a CAL waits (T:REG)"| run
+    resume -->|program ended| endUser["endUser: free the slot<br/>and the pages (STEP70)"]
     compute -->|"interrupt or quantum end"| exit["swap schedule if interrupted (T:SSE),<br/>then scheduler.exitToUser"]
-    compute -->|step done| run
-    execute -->|"Sleep, DoIo, Yield (a CAL)"| report["scheduler.report(...),<br/>then exitToUser if still running"]
-    execute -->|program ended| endUser["endUser: free the slot<br/>and the pages (STEP70)"]
+    compute -->|done| run
     exit --> run
-    report --> run
     endUser --> run
 ```
 
@@ -869,15 +975,19 @@ Not yet:
   pages), no page stealer, no locks in core. A failed swap-in is retried at every schedule;
   CP-V waits until the swap set changes (`S:SEVF`).
 - **Resource detail.** ALLOCAT's buffers (`STUQFAC`) aren't modelled, and nothing in the
-  model is short of disc pages, buffers or symbiont space yet; programs block with `WaitFor`.
+  model is short of disc pages, buffers or symbiont space yet. The tests stand in for the
+  monitor code that blocks on them.
 - **Terminal detail.** COC's characters, echo, editing and line modes; the model types and
-  reads whole lines. TEL is stood in for by `echoSession`.
+  reads whole lines. TEL is stood in for by `EchoSession`.
 - **Still `NotModelledYet`:** too much I/O (`STIOMF`) and associating a shared processor
   (`STASP`).
 - No DO list and no command processor. Control-Y and an uncaught break end the user instead
   of returning to TEL.
 
 ## Iterations
+
+The names in the iterations below are those of their time. Until the refactor at the end,
+programs were generators that yielded request objects (`Compute`, `DoIo`, `ReadRecord`, ...).
 
 ### The scheduler
 
@@ -915,3 +1025,20 @@ Not yet:
 Not modelled in the file system: opening UPDATE, INOUT or OUTIN; synonyms; expiration dates;
 execute access through a processor; private packs; the directories' dual copies; and FIX1,
 the start-up check and repair of every file.
+
+### The refactor: threads, the Monitor and DCBs
+
+Programs as generators yielding request objects mixed user CALs with monitor internals, put
+every service's details into `System`, and needed a retry mechanism because a service couldn't
+wait halfway. So (after a spike):
+
+- a user's program and their CALs run in the user's thread (`UserContext`), with only one thread
+  running at a time;
+- a program is a `Program` class with `run(self, m)`, and its CALs are the `Monitor`'s methods;
+- every I/O CAL names a `DCB` (replacing `FileHandle`), and devices serve requests from queues
+  (`IoSystem`);
+- the services moved into their components and wait where CP-V waits; the retry mechanism,
+  the up-front granule check and the request objects are gone.
+
+Behaviour didn't change: both demos give the same traces. Users now take turns on the disc.
+
