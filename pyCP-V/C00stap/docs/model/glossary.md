@@ -59,7 +59,7 @@ counterpart. Source paths are in `c00co/`.
 
 | Model name | Kind | CP-V | Source | Notes |
 |---|---|---|---|---|
-| `Program` | class | *model only* |  | A user's program; in CP-V a load module the user runs |
+| `Program` | class | `FETCH`, `J:DCBLINK` | [STPNR.txt:1443–1453](../../c00co/STPNR.txt#L1443-L1453), [STPNR.txt:2847](../../c00co/STPNR.txt#L2847) | The program FETCH reads in from a load module. Its DCBs are assembled in its data section and listed in the load module's DCB table, which J:DCBLINK points at |
 | `Program.run` | method | *model only* |  | The program; it ends when this returns |
 | `Program.compute` | method | *model only* |  | The program's own work: run for ``ticks``. The clock, the quantum and interrupts may cut it into slices; the program doesn't notice |
 

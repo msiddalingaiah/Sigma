@@ -1042,3 +1042,12 @@ wait halfway. So (after a spike):
 
 Behaviour didn't change: both demos give the same traces. Users now take turns on the disc.
 
+### Possible next components
+
+- **Load modules and FETCH.** A `LoadModule` would be the stored form of a program: a keyed file
+  with a header (`HEAD`), an overlay tree (`TREE`), and each segment's data, procedure and DCB
+  sections. FETCH (`!RUN`) reads it into a user's memory and makes it a running `Program`. The
+  DCB table it sets up (`J:DCBLINK`) would let the model check, as CP-V does, that a CAL names one
+  of the program's own DCBs (otherwise X'AF', "ILLEGAL-DCB"). See `docs/loadmodule.md`.
+- **Recovery.**
+

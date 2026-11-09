@@ -1,9 +1,11 @@
 """A user's program: a class whose ``run`` makes CALs on the Monitor."""
 
-from .glossary import modelOnly
+from .glossary import cpv, modelOnly
 
 
-@modelOnly("A user's program; in CP-V a load module the user runs")
+@cpv("FETCH", "J:DCBLINK", source="STPNR.txt:1443-1453, STPNR.txt:2847",
+     note="The program FETCH reads in from a load module. Its DCBs are assembled in its data "
+          "section and listed in the load module's DCB table, which J:DCBLINK points at")
 class Program:
     """A user's program. A subclass writes ``run(self, m)``: ``m`` is the ``Monitor``, whose
     methods are the CALs, so CP-V's ``M:READ`` is ``m.read(dcb)``. A program declares its DCBs
